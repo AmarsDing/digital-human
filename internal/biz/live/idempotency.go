@@ -13,6 +13,8 @@ type Result struct {
 	LiveID    string `json:"live_id,omitempty"`
 	OK        bool   `json:"ok"`
 	Note      string `json:"note,omitempty"`
+	// Mode 开播模式（§7.6），随幂等结果复放，保证重试响应与首次一致。
+	Mode string `json:"mode,omitempty"`
 }
 
 // Store 幂等结果存储端口；key 为空表示不启用幂等。

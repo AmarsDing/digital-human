@@ -4,6 +4,7 @@ import {
   clearActions,
   getLiveStatus,
   interrupt,
+  preflightLive,
   resetLlm,
   say,
   sendCommand,
@@ -11,18 +12,40 @@ import {
   stopActions,
   stopLive
 } from '../services/api/live'
-import { classifyApiError } from '../services/api/client'
+import { ApiError, classifyApiError } from '../services/api/client'
+import type { LiveMode, LivePreflightResult } from '../services/api/live'
 import type { LiveStatus, WireEvent } from '../services/api/types'
 
 let loadVersion = 0
 // 开播 in-flight 互斥：连点/双击只产生一个请求（配合后端幂等键）。
 let startFlight: Promise<boolean> | null = null
 
+interface StartInput {
+  personaId?: string
+  avatarId?: string
+  greeting?: string
+  mode?: LiveMode
+  draftId?: string
+  expectedRevision?: number
+}
+
+type SelectionGuard = () => boolean | Promise<boolean>
+
+function configuredMode(): LiveMode {
+  return import.meta.env.VITE_LIVE_MODE === 'local-preview' ? 'local-preview' : 'public-live'
+}
+
+function requireUnexpiredToken(result: LivePreflightResult): void {
+  if (!result.preflightToken) throw new ApiError(428, 'preflight_required', '开播预检未返回有效凭证，请重新预检')
+  if (result.expiresAtMs <= Date.now()) throw new ApiError(428, 'preflight_required', '开播预检凭证已过期，请重新预检')
+}
+
 interface LiveState {
   status: LiveStatus | null
   busy: boolean
   controlling: boolean
   error: string
+  errorCode: string
   lastLoadedAt: number
   llmClearedTurns: number
 }
@@ -33,6 +56,7 @@ export const useLiveStore = defineStore('live', {
     busy: false,
     controlling: false,
     error: '',
+    errorCode: '',
     lastLoadedAt: 0,
     llmClearedTurns: 0
   }),
@@ -63,11 +87,14 @@ export const useLiveStore = defineStore('live', {
     async stableAction(fn: () => Promise<void>): Promise<boolean> {
       this.busy = true
       this.error = ''
+      this.errorCode = ''
       try {
         await fn()
         return true
       } catch (err) {
-        this.error = classifyApiError(err).message
+        const c = classifyApiError(err)
+        this.error = c.message
+        this.errorCode = c.code
         return false
       } finally {
         this.busy = false
@@ -75,10 +102,38 @@ export const useLiveStore = defineStore('live', {
       }
     },
 
-    async start(input: { personaId?: string; avatarId?: string; greeting?: string } = {}): Promise<boolean> {
+    async start(input: StartInput = {}, selectionGuard?: SelectionGuard): Promise<boolean> {
       if (startFlight) return startFlight
       startFlight = this.stableAction(async () => {
-        await startLive({ ...input, sessionId: this.status?.sessionId ?? '' })
+        const mode = input.mode ?? configuredMode()
+        const draftId = input.draftId ?? ''
+        const expectedRevision = input.expectedRevision ?? 0
+        const preflight = await preflightLive({
+          mode,
+          personaId: input.personaId ?? '',
+          draftId,
+          expectedRevision
+        })
+        const blocked = preflight.checks.filter((c) => c.status === 'fail' || c.status === 'unknown' || c.status === 'running')
+        if (!preflight.ready || blocked.length) {
+          const details = blocked.map((c) => `${c.code}=${c.status}${c.detail ? `：${c.detail}` : ''}`).join('；')
+          throw new ApiError(428, 'preflight_not_ready', `开播预检未通过${details ? `：${details}` : ''}`)
+        }
+        requireUnexpiredToken(preflight)
+        if (selectionGuard && !(await selectionGuard())) {
+          throw new ApiError(428, 'preflight_required', '预检后档案或版本已变化，请重新预检')
+        }
+        requireUnexpiredToken(preflight)
+        await startLive({
+          personaId: input.personaId,
+          avatarId: input.avatarId,
+          greeting: input.greeting,
+          sessionId: this.status?.sessionId ?? '',
+          mode,
+          draftId,
+          expectedRevision,
+          preflightToken: preflight.preflightToken
+        })
       }).finally(() => {
         startFlight = null
       })

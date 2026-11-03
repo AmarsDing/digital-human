@@ -6,12 +6,18 @@ server:
   metrics_loopback: true
 
 data:
-  # 本机未部署 PG/Redis 时留空，进程以 degraded 模式启动（/healthz 会返回 503 并标注）。
+  # 本机未部署 PG/Redis 时留空，进程以 degraded 模式启动（默认 /healthz 仍返回 200，
+  # 以 status=degraded + missing 显式标注；health.require_dependencies=true 时恢复返回 503）。
   postgres_dsn: ""
   redis_addr: ""
   connect_timeout: 5s
   required: false
   event_retention_days: 90
+
+health:
+  # 默认 false：进程可服务即探活 200，缺 PG/Redis 以 status=degraded + missing 标注（降级是支持模式）。
+  # true 恢复旧行为：依赖未齐 /healthz 返回 503。
+  require_dependencies: false
 
 security:
   # local: 仅允许 loopback 访问（默认）。lan: 必须配置 admin_token_sha256。

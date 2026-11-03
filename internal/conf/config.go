@@ -16,7 +16,49 @@ type Config struct {
 	Security Security `yaml:"security"`
 	Engine   Engine   `yaml:"engine"`
 	RTC      RTC      `yaml:"rtc"`
+	Billing  Billing  `yaml:"billing"`
 	Log      Log      `yaml:"log"`
+	// Stream DZ 批推流。stream key 不落 yaml：只走 DH_STREAM_KEY / DH_RTMP_URL 或面板（DPAPI 加密文件）。
+	Stream    Stream    `yaml:"stream"`
+	Collector Collector `yaml:"collector"`
+	Health    Health    `yaml:"health"`
+	// Live 深化方案 v2 §7.6 严格 Start 配置。
+	Live Live `yaml:"live"`
+}
+
+// Live 开播模式配置。
+type Live struct {
+	// StartMode 开播缺省模式：local-preview | public-live；为空按 engine.mode 推导
+	// （dev→local-preview，real→public-live）。public-live 必须走唯一预检拿 token。
+	StartMode string `yaml:"start_mode"`
+}
+
+// Health 探活语义配置。
+type Health struct {
+	// RequireDependencies 默认 false：进程可服务即 200，PG/Redis 缺失以
+	// status=degraded + missing 显式标注（E9：无 PG 模式下探活不应摘除实例）；
+	// true 恢复旧行为：依赖未齐 /healthz 返回 503。
+	RequireDependencies bool `yaml:"require_dependencies"`
+}
+
+// Stream 推流配置；密钥类字段禁止进 yaml。
+type Stream struct {
+	Enabled           bool   `yaml:"enabled"`             // 默认 false；未开启时 GetPushStatus 返回 state=unconfigured
+	Source            string `yaml:"source"`              // synthetic | stage（默认 synthetic）
+	StageURL          string `yaml:"stage_url"`           // source=stage 时舞台页地址，默认 http://127.0.0.1:8795/stage
+	AllowGPU          bool   `yaml:"allow_gpu"`           // NVENC/浏览器 GPU，默认 false（避免与 OmniVoice 抢显存）
+	AllowUnpushedLive bool   `yaml:"allow_unpushed_live"` // 允许未推流本地预览，默认 false（fail-closed）
+}
+
+// Collector 弹幕采集配置；secret 走 DH_COLLECTOR_SECRET（已有）。
+type Collector struct {
+	Enabled bool `yaml:"enabled"` // 默认 false；未开启时面板采集状态恒 off
+}
+
+// Billing F36 额度轮询落账配置。
+type Billing struct {
+	// CreditsPollS Vidu credits 轮询秒数；蓝本口径 max(30, credits_poll_s)，默认 60。
+	CreditsPollS int `yaml:"credits_poll_s"`
 }
 
 // RTC 凭据签发配置；默认 disabled，缺凭据时 API 明确返回 unconfigured。
@@ -35,6 +77,11 @@ type Engine struct {
 	Mode          string `yaml:"mode"` // real | dev
 	ViduKey       string `yaml:"-"`
 	OmniVoiceAddr string `yaml:"-"`
+	// RecordingEnabled F34 云录制开关；也可用环境变量 DH_RECORDING_ENABLED 注入。
+	RecordingEnabled bool `yaml:"recording_enabled"`
+	// ViduBaseURL / ViduWSURL 仅联调/验收覆盖用（默认 https://api.vidu.cn 与其 wss）。
+	ViduBaseURL string `yaml:"vidu_base_url"`
+	ViduWSURL   string `yaml:"vidu_ws_url"`
 }
 
 type Server struct {
@@ -94,6 +141,15 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("DH_OMNIVOICE_ADDR"); v != "" {
 		c.Engine.OmniVoiceAddr = v
 	}
+	if v := os.Getenv("DH_RECORDING_ENABLED"); v != "" {
+		c.Engine.RecordingEnabled = v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+	}
+	if v := os.Getenv("DH_VIDU_BASE_URL"); v != "" {
+		c.Engine.ViduBaseURL = v
+	}
+	if v := os.Getenv("DH_VIDU_WS_URL"); v != "" {
+		c.Engine.ViduWSURL = v
+	}
 	if v := os.Getenv("DH_RTC_MODE"); v != "" {
 		c.RTC.Mode = strings.ToLower(v)
 	}
@@ -134,7 +190,12 @@ func defaults() *Config {
 		},
 		Engine: Engine{Mode: "real"},
 		RTC:    RTC{Mode: "disabled", Provider: "artc", RoomPrefix: "dh-", TokenTTL: 10 * time.Minute},
-		Log:    Log{Level: "info", Format: "json"},
+		Billing: Billing{
+			CreditsPollS: 60,
+		},
+		Log:       Log{Level: "info", Format: "json"},
+		Stream:    Stream{Source: "synthetic", StageURL: "http://127.0.0.1:8795/stage"},
+		Collector: Collector{},
 	}
 }
 
@@ -178,6 +239,11 @@ func (c *Config) Validate() error {
 	}
 	if c.RTC.Provider != "artc" && c.RTC.Provider != "trtc" {
 		return fmt.Errorf("unknown rtc.provider %q（仅支持 artc|trtc）", c.RTC.Provider)
+	}
+	switch c.Stream.Source {
+	case "", "synthetic", "stage":
+	default:
+		return fmt.Errorf("unknown stream.source %q（仅支持 synthetic|stage）", c.Stream.Source)
 	}
 	return nil
 }

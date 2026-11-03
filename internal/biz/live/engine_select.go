@@ -29,7 +29,7 @@ func NewUnavailableController(reason string) *UnavailableController {
 	return &UnavailableController{reason: reason}
 }
 
-func (u *UnavailableController) Start(context.Context, string) (string, error) {
+func (u *UnavailableController) Start(context.Context, StartOpts) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrEngineUnavailable, u.reason)
 }
 

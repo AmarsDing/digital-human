@@ -80,12 +80,21 @@ message StartLiveRequest {
   string avatar_id = 2;
   string greeting = 3;
   string idempotency_key = 4;
+  // 深化方案 v2 §7.6：开播模式 local-preview | public-live；
+  // 为空由服务端装配缺省解析（dev=local-preview，real=public-live）。
+  string mode = 5;
+  // public-live 必带：POST /api/v1/live/preflight 签发的服务端绑定 token（30s 新鲜期）。
+  string preflight_token = 6;
+  string draft_id = 7;
+  int64 expected_revision = 8;
 }
 
 message StartLiveReply {
   string session_id = 1;
   string phase = 2;
   string live_id = 3;
+  // 生效开播模式（§7.6 响应标注）。
+  string mode = 4;
 }
 
 message StopLiveRequest {
@@ -132,6 +141,13 @@ message RtcStatus {
   int64 token_expire_at = 3;
 }
 
+// RecordStatus F34/N2 云录制运行态（蓝本 engine.record dict）：enabled=配置开关，state=状态机。
+message RecordStatus {
+  bool enabled = 1;
+  string state = 2; // none | recording | processing | ready | failed | unavailable
+  string url = 3;
+}
+
 message GetLiveStatusReply {
   string session_id = 1;
   string phase = 2;
@@ -146,6 +162,8 @@ message GetLiveStatusReply {
   repeated string transcripts = 11;
   string error_code = 12;
   string error_message = 13;
+  // F34/N2：录播状态随状态轮询下发（蓝本 stage recOn/recState 轮询 /api/record 语义）。
+  RecordStatus record = 14;
 }
 
 message SayRequest {

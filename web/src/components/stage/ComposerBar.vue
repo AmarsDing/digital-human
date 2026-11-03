@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import NtSelect from '../ui/NtSelect.vue'
+import { sendChat } from '../../services/api/panels'
+import { classifyApiError } from '../../services/api/client'
 
 const props = defineProps<{ canSpeak: boolean; busy?: boolean; error?: string }>()
 const emit = defineEmits<{
@@ -12,12 +14,19 @@ const emit = defineEmits<{
 
 const text = ref('')
 const mode = ref<'sentence' | 'whole'>('sentence')
+// N1 对话模式（蓝本 stage sendChat → /api/chat）：口播=直接 TTS，对话=走 LLM 后播报应答。
+const channel = ref<'say' | 'chat'>('say')
 const hint = ref('')
+const chatBusy = ref(false)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 
 const MODES = [
   { label: '按句', value: 'sentence' },
   { label: '整段', value: 'whole' }
+]
+const CHANNELS = [
+  { label: '口播', value: 'say' },
+  { label: '对话', value: 'chat' }
 ]
 
 function focusInput(): void {
@@ -25,14 +34,29 @@ function focusInput(): void {
 }
 defineExpose({ focusInput })
 
-function send(): void {
+async function send(): Promise<void> {
   const value = text.value.trim()
-  if (!value || !props.canSpeak || props.busy) return
-  // `/` 前缀走控制台命令通道（live.command），其余按口播发送。
+  if (!value || !props.canSpeak || props.busy || chatBusy.value) return
+  // `/` 前缀走控制台命令通道（live.command），其余按当前通道发送。
   if (value.startsWith('/')) {
     emit('command', value.slice(1))
     hint.value = '已按命令发送：' + value.slice(1)
     text.value = ''
+    return
+  }
+  if (channel.value === 'chat') {
+    chatBusy.value = true
+    hint.value = '思考中…'
+    try {
+      const r = await sendChat(value)
+      const reply = [...(r.reply || '')]
+      hint.value = '她答：' + (reply.length > 60 ? reply.slice(0, 60).join('') + '…' : reply.join(''))
+      text.value = ''
+    } catch (err) {
+      hint.value = '对话失败：' + classifyApiError(err).message
+    } finally {
+      chatBusy.value = false
+    }
     return
   }
   hint.value = ''
@@ -43,7 +67,7 @@ function send(): void {
 function keydown(e: KeyboardEvent): void {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    send()
+    void send()
   }
 }
 </script>
@@ -55,19 +79,26 @@ function keydown(e: KeyboardEvent): void {
       v-model="text"
       class="composer__input"
       rows="2"
-      placeholder="输入要说的话（/ 开头发送控制台命令），Enter 发送 / Shift+Enter 换行"
+      :placeholder="
+        channel === 'chat'
+          ? '输入要跟她说的话（走 LLM 对话，应答播报上屏），Enter 发送 / Shift+Enter 换行'
+          : '输入要说的话（/ 开头发送控制台命令），Enter 发送 / Shift+Enter 换行'
+      "
       :disabled="!canSpeak"
       @keydown="keydown"
     />
     <div class="composer__side">
-      <NtSelect v-model="mode" label="模式" :options="MODES" />
+      <NtSelect v-model="channel" label="通道" :options="CHANNELS" />
+      <NtSelect v-if="channel === 'say'" v-model="mode" label="模式" :options="MODES" />
       <div class="composer__btns">
-        <button type="button" class="primary" :disabled="!canSpeak || busy || !text.trim()" @click="send">发送</button>
-        <button type="button" :disabled="busy" @click="emit('interrupt')">打断</button>
+        <button type="button" class="primary" :disabled="!canSpeak || busy || chatBusy || !text.trim()" @click="send">
+          {{ chatBusy ? '对话中…' : '发送' }}
+        </button>
+        <button type="button" :disabled="busy || chatBusy" @click="emit('interrupt')">打断</button>
         <button type="button" class="danger" :disabled="busy" @click="emit('stop')">停止</button>
       </div>
     </div>
-    <p v-if="hint" class="composer__hint">{{ hint }}</p>
+    <p v-if="hint" class="composer__hint" aria-live="polite">{{ hint }}</p>
     <p v-if="error" class="composer__error" role="alert" aria-live="assertive">{{ error }}</p>
   </div>
 </template>

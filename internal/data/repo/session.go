@@ -11,6 +11,9 @@ import (
 )
 
 // EntSessionStore 实现 live.SessionStore：存在则 Update，否则 Create。
+// ConfigSnapshot 契约（v3 方案 §7.3-1）：快照为 nil 时不得 SetConfigSnapshot/清空
+// config_snapshot 列（nil=无快照，非"置空"）；仅非 nil 快照才允许覆盖。M2 起
+// persist(PhaseLive) 为唯一写入方（内嵌 {"v":1,...} 版本）。
 type EntSessionStore struct {
 	client *ent.Client
 }
@@ -25,7 +28,7 @@ func (s *EntSessionStore) Save(ctx context.Context, r live.SessionRecord) error 
 		return err
 	}
 	if exists {
-		_, err := s.client.LiveSession.UpdateOneID(r.ID).
+		u := s.client.LiveSession.UpdateOneID(r.ID).
 			SetNillableLiveID(nilIfEmpty(r.LiveID)).
 			SetPhase(string(r.Phase)).
 			SetMode(r.Mode).
@@ -36,11 +39,14 @@ func (s *EntSessionStore) Save(ctx context.Context, r live.SessionRecord) error 
 			SetDurationS(r.DurationS).
 			SetRecordingState(r.RecordingState).
 			SetErrorCode(r.ErrorCode).
-			SetUpdatedAtMs(r.UpdatedAtMs).
-			Save(ctx)
+			SetUpdatedAtMs(r.UpdatedAtMs)
+		if r.ConfigSnapshot != nil { // nil 不清快照契约
+			u.SetConfigSnapshot(r.ConfigSnapshot)
+		}
+		_, err := u.Save(ctx)
 		return err
 	}
-	_, err = s.client.LiveSession.Create().
+	c := s.client.LiveSession.Create().
 		SetID(r.ID).
 		SetNillableLiveID(nilIfEmpty(r.LiveID)).
 		SetPhase(string(r.Phase)).
@@ -52,8 +58,11 @@ func (s *EntSessionStore) Save(ctx context.Context, r live.SessionRecord) error 
 		SetDurationS(r.DurationS).
 		SetRecordingState(r.RecordingState).
 		SetErrorCode(r.ErrorCode).
-		SetUpdatedAtMs(r.UpdatedAtMs).
-		Save(ctx)
+		SetUpdatedAtMs(r.UpdatedAtMs)
+	if r.ConfigSnapshot != nil {
+		c.SetConfigSnapshot(r.ConfigSnapshot)
+	}
+	_, err = c.Save(ctx)
 	return err
 }
 
@@ -69,24 +78,7 @@ func (s *EntSessionStore) ListStale(ctx context.Context, cutoffMs int64) ([]live
 	}
 	out := make([]live.SessionRecord, 0, len(rows))
 	for _, r := range rows {
-		liveID := ""
-		if r.LiveID != nil {
-			liveID = *r.LiveID
-		}
-		out = append(out, live.SessionRecord{
-			ID:             r.ID,
-			LiveID:         liveID,
-			Phase:          live.Phase(r.Phase),
-			Mode:           r.Mode,
-			PersonaID:      r.PersonaID,
-			AvatarID:       r.AvatarID,
-			StartedAtMs:    r.StartedAtMs,
-			EndedAtMs:      r.EndedAtMs,
-			DurationS:      r.DurationS,
-			RecordingState: r.RecordingState,
-			ErrorCode:      r.ErrorCode,
-			UpdatedAtMs:    r.UpdatedAtMs,
-		})
+		out = append(out, entSessionRecord(r))
 	}
 	return out, nil
 }
@@ -163,6 +155,7 @@ func entSessionRecord(r *ent.LiveSession) live.SessionRecord {
 		RecordingState: r.RecordingState,
 		ErrorCode:      r.ErrorCode,
 		UpdatedAtMs:    r.UpdatedAtMs,
+		ConfigSnapshot: r.ConfigSnapshot, // NULL → nil（"无快照"语义）
 	}
 }
 
@@ -198,6 +191,14 @@ func (s *SwitchableSessionStore) current() live.SessionStore {
 		return s.db
 	}
 	return s.mem
+}
+
+// Persistent 报告当前承载实现是否为持久化 Ent（§2.2 storage_persistent 探测）：
+// 内存实现只能 local-preview，公开场必须 persistent。
+func (s *SwitchableSessionStore) Persistent() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.db != nil
 }
 
 func (s *SwitchableSessionStore) Save(ctx context.Context, r live.SessionRecord) error {

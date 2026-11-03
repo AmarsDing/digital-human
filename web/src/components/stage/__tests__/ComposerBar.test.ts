@@ -37,7 +37,8 @@ describe('ComposerBar', () => {
     const w = mountBar(true)
     const ta = w.find('textarea')
     await ta.setValue('整段播报')
-    await w.find('select').setValue('whole')
+    // select[0]=通道（口播/对话），select[1]=模式（按句/整段）。
+    await w.findAll('select')[1].setValue('whole')
     await ta.trigger('keydown', { key: 'Enter', shiftKey: false })
     expect(w.emitted('say')?.[0]).toEqual(['整段播报', 'whole'])
   })

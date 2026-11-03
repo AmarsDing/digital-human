@@ -28,8 +28,15 @@ type StartLiveRequest struct {
 	AvatarId       string                 `protobuf:"bytes,2,opt,name=avatar_id,json=avatarId,proto3" json:"avatar_id,omitempty"`
 	Greeting       string                 `protobuf:"bytes,3,opt,name=greeting,proto3" json:"greeting,omitempty"`
 	IdempotencyKey string                 `protobuf:"bytes,4,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// 深化方案 v2 §7.6：开播模式 local-preview | public-live；
+	// 为空由服务端装配缺省解析（dev=local-preview，real=public-live）。
+	Mode string `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"`
+	// public-live 必带：POST /api/v1/live/preflight 签发的服务端绑定 token（30s 新鲜期）。
+	PreflightToken   string `protobuf:"bytes,6,opt,name=preflight_token,json=preflightToken,proto3" json:"preflight_token,omitempty"`
+	DraftId          string `protobuf:"bytes,7,opt,name=draft_id,json=draftId,proto3" json:"draft_id,omitempty"`
+	ExpectedRevision int64  `protobuf:"varint,8,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *StartLiveRequest) Reset() {
@@ -90,11 +97,41 @@ func (x *StartLiveRequest) GetIdempotencyKey() string {
 	return ""
 }
 
+func (x *StartLiveRequest) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *StartLiveRequest) GetPreflightToken() string {
+	if x != nil {
+		return x.PreflightToken
+	}
+	return ""
+}
+
+func (x *StartLiveRequest) GetDraftId() string {
+	if x != nil {
+		return x.DraftId
+	}
+	return ""
+}
+
+func (x *StartLiveRequest) GetExpectedRevision() int64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
 type StartLiveReply struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Phase         string                 `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
-	LiveId        string                 `protobuf:"bytes,3,opt,name=live_id,json=liveId,proto3" json:"live_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Phase     string                 `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
+	LiveId    string                 `protobuf:"bytes,3,opt,name=live_id,json=liveId,proto3" json:"live_id,omitempty"`
+	// 生效开播模式（§7.6 响应标注）。
+	Mode          string `protobuf:"bytes,4,opt,name=mode,proto3" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -146,6 +183,13 @@ func (x *StartLiveReply) GetPhase() string {
 func (x *StartLiveReply) GetLiveId() string {
 	if x != nil {
 		return x.LiveId
+	}
+	return ""
+}
+
+func (x *StartLiveReply) GetMode() string {
+	if x != nil {
+		return x.Mode
 	}
 	return ""
 }
@@ -586,28 +630,91 @@ func (x *RtcStatus) GetTokenExpireAt() int64 {
 	return 0
 }
 
-type GetLiveStatusReply struct {
+// RecordStatus F34/N2 云录制运行态（蓝本 engine.record dict）：enabled=配置开关，state=状态机。
+type RecordStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Phase         string                 `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
-	LiveId        string                 `protobuf:"bytes,3,opt,name=live_id,json=liveId,proto3" json:"live_id,omitempty"`
-	StartedAtMs   int64                  `protobuf:"varint,4,opt,name=started_at_ms,json=startedAtMs,proto3" json:"started_at_ms,omitempty"`
-	DurationS     int64                  `protobuf:"varint,5,opt,name=duration_s,json=durationS,proto3" json:"duration_s,omitempty"`
-	Feed          *FeedStatus            `protobuf:"bytes,6,opt,name=feed,proto3" json:"feed,omitempty"`
-	Ws            *WsStatus              `protobuf:"bytes,7,opt,name=ws,proto3" json:"ws,omitempty"`
-	Danmaku       *DanmakuStatus         `protobuf:"bytes,8,opt,name=danmaku,proto3" json:"danmaku,omitempty"`
-	Rtc           *RtcStatus             `protobuf:"bytes,9,opt,name=rtc,proto3" json:"rtc,omitempty"`
-	EventSeq      int64                  `protobuf:"varint,10,opt,name=event_seq,json=eventSeq,proto3" json:"event_seq,omitempty"`
-	Transcripts   []string               `protobuf:"bytes,11,rep,name=transcripts,proto3" json:"transcripts,omitempty"`
-	ErrorCode     string                 `protobuf:"bytes,12,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
-	ErrorMessage  string                 `protobuf:"bytes,13,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"` // none | recording | processing | ready | failed | unavailable
+	Url           string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordStatus) Reset() {
+	*x = RecordStatus{}
+	mi := &file_live_v1_live_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordStatus) ProtoMessage() {}
+
+func (x *RecordStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_live_v1_live_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordStatus.ProtoReflect.Descriptor instead.
+func (*RecordStatus) Descriptor() ([]byte, []int) {
+	return file_live_v1_live_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RecordStatus) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *RecordStatus) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *RecordStatus) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+type GetLiveStatusReply struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	SessionId    string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Phase        string                 `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
+	LiveId       string                 `protobuf:"bytes,3,opt,name=live_id,json=liveId,proto3" json:"live_id,omitempty"`
+	StartedAtMs  int64                  `protobuf:"varint,4,opt,name=started_at_ms,json=startedAtMs,proto3" json:"started_at_ms,omitempty"`
+	DurationS    int64                  `protobuf:"varint,5,opt,name=duration_s,json=durationS,proto3" json:"duration_s,omitempty"`
+	Feed         *FeedStatus            `protobuf:"bytes,6,opt,name=feed,proto3" json:"feed,omitempty"`
+	Ws           *WsStatus              `protobuf:"bytes,7,opt,name=ws,proto3" json:"ws,omitempty"`
+	Danmaku      *DanmakuStatus         `protobuf:"bytes,8,opt,name=danmaku,proto3" json:"danmaku,omitempty"`
+	Rtc          *RtcStatus             `protobuf:"bytes,9,opt,name=rtc,proto3" json:"rtc,omitempty"`
+	EventSeq     int64                  `protobuf:"varint,10,opt,name=event_seq,json=eventSeq,proto3" json:"event_seq,omitempty"`
+	Transcripts  []string               `protobuf:"bytes,11,rep,name=transcripts,proto3" json:"transcripts,omitempty"`
+	ErrorCode    string                 `protobuf:"bytes,12,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorMessage string                 `protobuf:"bytes,13,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	// F34/N2：录播状态随状态轮询下发（蓝本 stage recOn/recState 轮询 /api/record 语义）。
+	Record        *RecordStatus `protobuf:"bytes,14,opt,name=record,proto3" json:"record,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetLiveStatusReply) Reset() {
 	*x = GetLiveStatusReply{}
-	mi := &file_live_v1_live_proto_msgTypes[9]
+	mi := &file_live_v1_live_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -619,7 +726,7 @@ func (x *GetLiveStatusReply) String() string {
 func (*GetLiveStatusReply) ProtoMessage() {}
 
 func (x *GetLiveStatusReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[9]
+	mi := &file_live_v1_live_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -632,7 +739,7 @@ func (x *GetLiveStatusReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLiveStatusReply.ProtoReflect.Descriptor instead.
 func (*GetLiveStatusReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{9}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetLiveStatusReply) GetSessionId() string {
@@ -726,6 +833,13 @@ func (x *GetLiveStatusReply) GetErrorMessage() string {
 	return ""
 }
 
+func (x *GetLiveStatusReply) GetRecord() *RecordStatus {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
 type SayRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Text           string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
@@ -738,7 +852,7 @@ type SayRequest struct {
 
 func (x *SayRequest) Reset() {
 	*x = SayRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[10]
+	mi := &file_live_v1_live_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -750,7 +864,7 @@ func (x *SayRequest) String() string {
 func (*SayRequest) ProtoMessage() {}
 
 func (x *SayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[10]
+	mi := &file_live_v1_live_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -763,7 +877,7 @@ func (x *SayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SayRequest.ProtoReflect.Descriptor instead.
 func (*SayRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{10}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SayRequest) GetText() string {
@@ -803,7 +917,7 @@ type SayReply struct {
 
 func (x *SayReply) Reset() {
 	*x = SayReply{}
-	mi := &file_live_v1_live_proto_msgTypes[11]
+	mi := &file_live_v1_live_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -815,7 +929,7 @@ func (x *SayReply) String() string {
 func (*SayReply) ProtoMessage() {}
 
 func (x *SayReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[11]
+	mi := &file_live_v1_live_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -828,7 +942,7 @@ func (x *SayReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SayReply.ProtoReflect.Descriptor instead.
 func (*SayReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{11}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SayReply) GetUtteranceId() string {
@@ -848,7 +962,7 @@ type SendCommandRequest struct {
 
 func (x *SendCommandRequest) Reset() {
 	*x = SendCommandRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[12]
+	mi := &file_live_v1_live_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -860,7 +974,7 @@ func (x *SendCommandRequest) String() string {
 func (*SendCommandRequest) ProtoMessage() {}
 
 func (x *SendCommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[12]
+	mi := &file_live_v1_live_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -873,7 +987,7 @@ func (x *SendCommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendCommandRequest.ProtoReflect.Descriptor instead.
 func (*SendCommandRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{12}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SendCommandRequest) GetText() string {
@@ -900,7 +1014,7 @@ type SendCommandReply struct {
 
 func (x *SendCommandReply) Reset() {
 	*x = SendCommandReply{}
-	mi := &file_live_v1_live_proto_msgTypes[13]
+	mi := &file_live_v1_live_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -912,7 +1026,7 @@ func (x *SendCommandReply) String() string {
 func (*SendCommandReply) ProtoMessage() {}
 
 func (x *SendCommandReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[13]
+	mi := &file_live_v1_live_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -925,7 +1039,7 @@ func (x *SendCommandReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendCommandReply.ProtoReflect.Descriptor instead.
 func (*SendCommandReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{13}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SendCommandReply) GetAccepted() bool {
@@ -950,7 +1064,7 @@ type InterruptRequest struct {
 
 func (x *InterruptRequest) Reset() {
 	*x = InterruptRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[14]
+	mi := &file_live_v1_live_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -962,7 +1076,7 @@ func (x *InterruptRequest) String() string {
 func (*InterruptRequest) ProtoMessage() {}
 
 func (x *InterruptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[14]
+	mi := &file_live_v1_live_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -975,7 +1089,7 @@ func (x *InterruptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterruptRequest.ProtoReflect.Descriptor instead.
 func (*InterruptRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{14}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{15}
 }
 
 type InterruptReply struct {
@@ -987,7 +1101,7 @@ type InterruptReply struct {
 
 func (x *InterruptReply) Reset() {
 	*x = InterruptReply{}
-	mi := &file_live_v1_live_proto_msgTypes[15]
+	mi := &file_live_v1_live_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -999,7 +1113,7 @@ func (x *InterruptReply) String() string {
 func (*InterruptReply) ProtoMessage() {}
 
 func (x *InterruptReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[15]
+	mi := &file_live_v1_live_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1012,7 +1126,7 @@ func (x *InterruptReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterruptReply.ProtoReflect.Descriptor instead.
 func (*InterruptReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{15}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *InterruptReply) GetOk() bool {
@@ -1030,7 +1144,7 @@ type ClearTranscriptRequest struct {
 
 func (x *ClearTranscriptRequest) Reset() {
 	*x = ClearTranscriptRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[16]
+	mi := &file_live_v1_live_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1042,7 +1156,7 @@ func (x *ClearTranscriptRequest) String() string {
 func (*ClearTranscriptRequest) ProtoMessage() {}
 
 func (x *ClearTranscriptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[16]
+	mi := &file_live_v1_live_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1055,7 +1169,7 @@ func (x *ClearTranscriptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClearTranscriptRequest.ProtoReflect.Descriptor instead.
 func (*ClearTranscriptRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{16}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{17}
 }
 
 type ClearTranscriptReply struct {
@@ -1068,7 +1182,7 @@ type ClearTranscriptReply struct {
 
 func (x *ClearTranscriptReply) Reset() {
 	*x = ClearTranscriptReply{}
-	mi := &file_live_v1_live_proto_msgTypes[17]
+	mi := &file_live_v1_live_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1080,7 +1194,7 @@ func (x *ClearTranscriptReply) String() string {
 func (*ClearTranscriptReply) ProtoMessage() {}
 
 func (x *ClearTranscriptReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[17]
+	mi := &file_live_v1_live_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1093,7 +1207,7 @@ func (x *ClearTranscriptReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClearTranscriptReply.ProtoReflect.Descriptor instead.
 func (*ClearTranscriptReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{17}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ClearTranscriptReply) GetOk() bool {
@@ -1118,7 +1232,7 @@ type StopActionsRequest struct {
 
 func (x *StopActionsRequest) Reset() {
 	*x = StopActionsRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[18]
+	mi := &file_live_v1_live_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1130,7 +1244,7 @@ func (x *StopActionsRequest) String() string {
 func (*StopActionsRequest) ProtoMessage() {}
 
 func (x *StopActionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[18]
+	mi := &file_live_v1_live_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1143,7 +1257,7 @@ func (x *StopActionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopActionsRequest.ProtoReflect.Descriptor instead.
 func (*StopActionsRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{18}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{19}
 }
 
 type StopActionsReply struct {
@@ -1156,7 +1270,7 @@ type StopActionsReply struct {
 
 func (x *StopActionsReply) Reset() {
 	*x = StopActionsReply{}
-	mi := &file_live_v1_live_proto_msgTypes[19]
+	mi := &file_live_v1_live_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1168,7 +1282,7 @@ func (x *StopActionsReply) String() string {
 func (*StopActionsReply) ProtoMessage() {}
 
 func (x *StopActionsReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[19]
+	mi := &file_live_v1_live_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1181,7 +1295,7 @@ func (x *StopActionsReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopActionsReply.ProtoReflect.Descriptor instead.
 func (*StopActionsReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{19}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StopActionsReply) GetOk() bool {
@@ -1206,7 +1320,7 @@ type ClearActionsRequest struct {
 
 func (x *ClearActionsRequest) Reset() {
 	*x = ClearActionsRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[20]
+	mi := &file_live_v1_live_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1218,7 +1332,7 @@ func (x *ClearActionsRequest) String() string {
 func (*ClearActionsRequest) ProtoMessage() {}
 
 func (x *ClearActionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[20]
+	mi := &file_live_v1_live_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1231,7 +1345,7 @@ func (x *ClearActionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClearActionsRequest.ProtoReflect.Descriptor instead.
 func (*ClearActionsRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{20}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{21}
 }
 
 type ClearActionsReply struct {
@@ -1244,7 +1358,7 @@ type ClearActionsReply struct {
 
 func (x *ClearActionsReply) Reset() {
 	*x = ClearActionsReply{}
-	mi := &file_live_v1_live_proto_msgTypes[21]
+	mi := &file_live_v1_live_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1256,7 +1370,7 @@ func (x *ClearActionsReply) String() string {
 func (*ClearActionsReply) ProtoMessage() {}
 
 func (x *ClearActionsReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[21]
+	mi := &file_live_v1_live_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1269,7 +1383,7 @@ func (x *ClearActionsReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClearActionsReply.ProtoReflect.Descriptor instead.
 func (*ClearActionsReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{21}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ClearActionsReply) GetOk() bool {
@@ -1295,7 +1409,7 @@ type ResetLlmRequest struct {
 
 func (x *ResetLlmRequest) Reset() {
 	*x = ResetLlmRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[22]
+	mi := &file_live_v1_live_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1307,7 +1421,7 @@ func (x *ResetLlmRequest) String() string {
 func (*ResetLlmRequest) ProtoMessage() {}
 
 func (x *ResetLlmRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[22]
+	mi := &file_live_v1_live_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1320,7 +1434,7 @@ func (x *ResetLlmRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResetLlmRequest.ProtoReflect.Descriptor instead.
 func (*ResetLlmRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{22}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ResetLlmRequest) GetSessionId() string {
@@ -1339,7 +1453,7 @@ type ResetLlmReply struct {
 
 func (x *ResetLlmReply) Reset() {
 	*x = ResetLlmReply{}
-	mi := &file_live_v1_live_proto_msgTypes[23]
+	mi := &file_live_v1_live_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1351,7 +1465,7 @@ func (x *ResetLlmReply) String() string {
 func (*ResetLlmReply) ProtoMessage() {}
 
 func (x *ResetLlmReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[23]
+	mi := &file_live_v1_live_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1364,7 +1478,7 @@ func (x *ResetLlmReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResetLlmReply.ProtoReflect.Descriptor instead.
 func (*ResetLlmReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{23}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ResetLlmReply) GetClearedTurns() int32 {
@@ -1385,7 +1499,7 @@ type ListEventsRequest struct {
 
 func (x *ListEventsRequest) Reset() {
 	*x = ListEventsRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[24]
+	mi := &file_live_v1_live_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1397,7 +1511,7 @@ func (x *ListEventsRequest) String() string {
 func (*ListEventsRequest) ProtoMessage() {}
 
 func (x *ListEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[24]
+	mi := &file_live_v1_live_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1410,7 +1524,7 @@ func (x *ListEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEventsRequest.ProtoReflect.Descriptor instead.
 func (*ListEventsRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{24}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ListEventsRequest) GetSessionId() string {
@@ -1450,7 +1564,7 @@ type LiveEvent struct {
 
 func (x *LiveEvent) Reset() {
 	*x = LiveEvent{}
-	mi := &file_live_v1_live_proto_msgTypes[25]
+	mi := &file_live_v1_live_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1462,7 +1576,7 @@ func (x *LiveEvent) String() string {
 func (*LiveEvent) ProtoMessage() {}
 
 func (x *LiveEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[25]
+	mi := &file_live_v1_live_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1475,7 +1589,7 @@ func (x *LiveEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LiveEvent.ProtoReflect.Descriptor instead.
 func (*LiveEvent) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{25}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *LiveEvent) GetSeq() int64 {
@@ -1543,7 +1657,7 @@ type ListEventsReply struct {
 
 func (x *ListEventsReply) Reset() {
 	*x = ListEventsReply{}
-	mi := &file_live_v1_live_proto_msgTypes[26]
+	mi := &file_live_v1_live_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1555,7 +1669,7 @@ func (x *ListEventsReply) String() string {
 func (*ListEventsReply) ProtoMessage() {}
 
 func (x *ListEventsReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[26]
+	mi := &file_live_v1_live_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1568,7 +1682,7 @@ func (x *ListEventsReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEventsReply.ProtoReflect.Descriptor instead.
 func (*ListEventsReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{26}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListEventsReply) GetEvents() []*LiveEvent {
@@ -1587,7 +1701,7 @@ type GetRtcTokenRequest struct {
 
 func (x *GetRtcTokenRequest) Reset() {
 	*x = GetRtcTokenRequest{}
-	mi := &file_live_v1_live_proto_msgTypes[27]
+	mi := &file_live_v1_live_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1599,7 +1713,7 @@ func (x *GetRtcTokenRequest) String() string {
 func (*GetRtcTokenRequest) ProtoMessage() {}
 
 func (x *GetRtcTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[27]
+	mi := &file_live_v1_live_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1612,7 +1726,7 @@ func (x *GetRtcTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRtcTokenRequest.ProtoReflect.Descriptor instead.
 func (*GetRtcTokenRequest) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{27}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetRtcTokenRequest) GetSessionId() string {
@@ -1638,7 +1752,7 @@ type GetRtcTokenReply struct {
 
 func (x *GetRtcTokenReply) Reset() {
 	*x = GetRtcTokenReply{}
-	mi := &file_live_v1_live_proto_msgTypes[28]
+	mi := &file_live_v1_live_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1650,7 +1764,7 @@ func (x *GetRtcTokenReply) String() string {
 func (*GetRtcTokenReply) ProtoMessage() {}
 
 func (x *GetRtcTokenReply) ProtoReflect() protoreflect.Message {
-	mi := &file_live_v1_live_proto_msgTypes[28]
+	mi := &file_live_v1_live_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1663,7 +1777,7 @@ func (x *GetRtcTokenReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRtcTokenReply.ProtoReflect.Descriptor instead.
 func (*GetRtcTokenReply) Descriptor() ([]byte, []int) {
-	return file_live_v1_live_proto_rawDescGZIP(), []int{28}
+	return file_live_v1_live_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GetRtcTokenReply) GetMode() string {
@@ -1727,18 +1841,23 @@ var File_live_v1_live_proto protoreflect.FileDescriptor
 const file_live_v1_live_proto_rawDesc = "" +
 	"\n" +
 	"\x12live/v1/live.proto\x12\n" +
-	"dh.live.v1\x1a\x1cgoogle/api/annotations.proto\"\x93\x01\n" +
+	"dh.live.v1\x1a\x1cgoogle/api/annotations.proto\"\x98\x02\n" +
 	"\x10StartLiveRequest\x12\x1d\n" +
 	"\n" +
 	"persona_id\x18\x01 \x01(\tR\tpersonaId\x12\x1b\n" +
 	"\tavatar_id\x18\x02 \x01(\tR\bavatarId\x12\x1a\n" +
 	"\bgreeting\x18\x03 \x01(\tR\bgreeting\x12'\n" +
-	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\"^\n" +
+	"\x0fidempotency_key\x18\x04 \x01(\tR\x0eidempotencyKey\x12\x12\n" +
+	"\x04mode\x18\x05 \x01(\tR\x04mode\x12'\n" +
+	"\x0fpreflight_token\x18\x06 \x01(\tR\x0epreflightToken\x12\x19\n" +
+	"\bdraft_id\x18\a \x01(\tR\adraftId\x12+\n" +
+	"\x11expected_revision\x18\b \x01(\x03R\x10expectedRevision\"r\n" +
 	"\x0eStartLiveReply\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x17\n" +
-	"\alive_id\x18\x03 \x01(\tR\x06liveId\"q\n" +
+	"\alive_id\x18\x03 \x01(\tR\x06liveId\x12\x12\n" +
+	"\x04mode\x18\x04 \x01(\tR\x04mode\"q\n" +
 	"\x0fStopLiveRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
@@ -1773,7 +1892,11 @@ const file_live_v1_live_proto_rawDesc = "" +
 	"\tRtcStatus\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12&\n" +
-	"\x0ftoken_expire_at\x18\x03 \x01(\x03R\rtokenExpireAt\"\xd8\x03\n" +
+	"\x0ftoken_expire_at\x18\x03 \x01(\x03R\rtokenExpireAt\"P\n" +
+	"\fRecordStatus\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x10\n" +
+	"\x03url\x18\x03 \x01(\tR\x03url\"\x8a\x04\n" +
 	"\x12GetLiveStatusReply\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x14\n" +
@@ -1791,7 +1914,8 @@ const file_live_v1_live_proto_rawDesc = "" +
 	"\vtranscripts\x18\v \x03(\tR\vtranscripts\x12\x1d\n" +
 	"\n" +
 	"error_code\x18\f \x01(\tR\terrorCode\x12#\n" +
-	"\rerror_message\x18\r \x01(\tR\ferrorMessage\"u\n" +
+	"\rerror_message\x18\r \x01(\tR\ferrorMessage\x120\n" +
+	"\x06record\x18\x0e \x01(\v2\x18.dh.live.v1.RecordStatusR\x06record\"u\n" +
 	"\n" +
 	"SayRequest\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x12\n" +
@@ -1885,7 +2009,7 @@ func file_live_v1_live_proto_rawDescGZIP() []byte {
 	return file_live_v1_live_proto_rawDescData
 }
 
-var file_live_v1_live_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_live_v1_live_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_live_v1_live_proto_goTypes = []any{
 	(*StartLiveRequest)(nil),       // 0: dh.live.v1.StartLiveRequest
 	(*StartLiveReply)(nil),         // 1: dh.live.v1.StartLiveReply
@@ -1896,62 +2020,64 @@ var file_live_v1_live_proto_goTypes = []any{
 	(*WsStatus)(nil),               // 6: dh.live.v1.WsStatus
 	(*DanmakuStatus)(nil),          // 7: dh.live.v1.DanmakuStatus
 	(*RtcStatus)(nil),              // 8: dh.live.v1.RtcStatus
-	(*GetLiveStatusReply)(nil),     // 9: dh.live.v1.GetLiveStatusReply
-	(*SayRequest)(nil),             // 10: dh.live.v1.SayRequest
-	(*SayReply)(nil),               // 11: dh.live.v1.SayReply
-	(*SendCommandRequest)(nil),     // 12: dh.live.v1.SendCommandRequest
-	(*SendCommandReply)(nil),       // 13: dh.live.v1.SendCommandReply
-	(*InterruptRequest)(nil),       // 14: dh.live.v1.InterruptRequest
-	(*InterruptReply)(nil),         // 15: dh.live.v1.InterruptReply
-	(*ClearTranscriptRequest)(nil), // 16: dh.live.v1.ClearTranscriptRequest
-	(*ClearTranscriptReply)(nil),   // 17: dh.live.v1.ClearTranscriptReply
-	(*StopActionsRequest)(nil),     // 18: dh.live.v1.StopActionsRequest
-	(*StopActionsReply)(nil),       // 19: dh.live.v1.StopActionsReply
-	(*ClearActionsRequest)(nil),    // 20: dh.live.v1.ClearActionsRequest
-	(*ClearActionsReply)(nil),      // 21: dh.live.v1.ClearActionsReply
-	(*ResetLlmRequest)(nil),        // 22: dh.live.v1.ResetLlmRequest
-	(*ResetLlmReply)(nil),          // 23: dh.live.v1.ResetLlmReply
-	(*ListEventsRequest)(nil),      // 24: dh.live.v1.ListEventsRequest
-	(*LiveEvent)(nil),              // 25: dh.live.v1.LiveEvent
-	(*ListEventsReply)(nil),        // 26: dh.live.v1.ListEventsReply
-	(*GetRtcTokenRequest)(nil),     // 27: dh.live.v1.GetRtcTokenRequest
-	(*GetRtcTokenReply)(nil),       // 28: dh.live.v1.GetRtcTokenReply
+	(*RecordStatus)(nil),           // 9: dh.live.v1.RecordStatus
+	(*GetLiveStatusReply)(nil),     // 10: dh.live.v1.GetLiveStatusReply
+	(*SayRequest)(nil),             // 11: dh.live.v1.SayRequest
+	(*SayReply)(nil),               // 12: dh.live.v1.SayReply
+	(*SendCommandRequest)(nil),     // 13: dh.live.v1.SendCommandRequest
+	(*SendCommandReply)(nil),       // 14: dh.live.v1.SendCommandReply
+	(*InterruptRequest)(nil),       // 15: dh.live.v1.InterruptRequest
+	(*InterruptReply)(nil),         // 16: dh.live.v1.InterruptReply
+	(*ClearTranscriptRequest)(nil), // 17: dh.live.v1.ClearTranscriptRequest
+	(*ClearTranscriptReply)(nil),   // 18: dh.live.v1.ClearTranscriptReply
+	(*StopActionsRequest)(nil),     // 19: dh.live.v1.StopActionsRequest
+	(*StopActionsReply)(nil),       // 20: dh.live.v1.StopActionsReply
+	(*ClearActionsRequest)(nil),    // 21: dh.live.v1.ClearActionsRequest
+	(*ClearActionsReply)(nil),      // 22: dh.live.v1.ClearActionsReply
+	(*ResetLlmRequest)(nil),        // 23: dh.live.v1.ResetLlmRequest
+	(*ResetLlmReply)(nil),          // 24: dh.live.v1.ResetLlmReply
+	(*ListEventsRequest)(nil),      // 25: dh.live.v1.ListEventsRequest
+	(*LiveEvent)(nil),              // 26: dh.live.v1.LiveEvent
+	(*ListEventsReply)(nil),        // 27: dh.live.v1.ListEventsReply
+	(*GetRtcTokenRequest)(nil),     // 28: dh.live.v1.GetRtcTokenRequest
+	(*GetRtcTokenReply)(nil),       // 29: dh.live.v1.GetRtcTokenReply
 }
 var file_live_v1_live_proto_depIdxs = []int32{
 	5,  // 0: dh.live.v1.GetLiveStatusReply.feed:type_name -> dh.live.v1.FeedStatus
 	6,  // 1: dh.live.v1.GetLiveStatusReply.ws:type_name -> dh.live.v1.WsStatus
 	7,  // 2: dh.live.v1.GetLiveStatusReply.danmaku:type_name -> dh.live.v1.DanmakuStatus
 	8,  // 3: dh.live.v1.GetLiveStatusReply.rtc:type_name -> dh.live.v1.RtcStatus
-	25, // 4: dh.live.v1.ListEventsReply.events:type_name -> dh.live.v1.LiveEvent
-	0,  // 5: dh.live.v1.LiveService.StartLive:input_type -> dh.live.v1.StartLiveRequest
-	2,  // 6: dh.live.v1.LiveService.StopLive:input_type -> dh.live.v1.StopLiveRequest
-	4,  // 7: dh.live.v1.LiveService.GetLiveStatus:input_type -> dh.live.v1.GetLiveStatusRequest
-	10, // 8: dh.live.v1.LiveService.Say:input_type -> dh.live.v1.SayRequest
-	12, // 9: dh.live.v1.LiveService.SendCommand:input_type -> dh.live.v1.SendCommandRequest
-	14, // 10: dh.live.v1.LiveService.Interrupt:input_type -> dh.live.v1.InterruptRequest
-	16, // 11: dh.live.v1.LiveService.ClearTranscript:input_type -> dh.live.v1.ClearTranscriptRequest
-	18, // 12: dh.live.v1.LiveService.StopActions:input_type -> dh.live.v1.StopActionsRequest
-	20, // 13: dh.live.v1.LiveService.ClearActions:input_type -> dh.live.v1.ClearActionsRequest
-	22, // 14: dh.live.v1.LiveService.ResetLlm:input_type -> dh.live.v1.ResetLlmRequest
-	24, // 15: dh.live.v1.LiveService.ListEvents:input_type -> dh.live.v1.ListEventsRequest
-	27, // 16: dh.live.v1.LiveService.GetRtcToken:input_type -> dh.live.v1.GetRtcTokenRequest
-	1,  // 17: dh.live.v1.LiveService.StartLive:output_type -> dh.live.v1.StartLiveReply
-	3,  // 18: dh.live.v1.LiveService.StopLive:output_type -> dh.live.v1.StopLiveReply
-	9,  // 19: dh.live.v1.LiveService.GetLiveStatus:output_type -> dh.live.v1.GetLiveStatusReply
-	11, // 20: dh.live.v1.LiveService.Say:output_type -> dh.live.v1.SayReply
-	13, // 21: dh.live.v1.LiveService.SendCommand:output_type -> dh.live.v1.SendCommandReply
-	15, // 22: dh.live.v1.LiveService.Interrupt:output_type -> dh.live.v1.InterruptReply
-	17, // 23: dh.live.v1.LiveService.ClearTranscript:output_type -> dh.live.v1.ClearTranscriptReply
-	19, // 24: dh.live.v1.LiveService.StopActions:output_type -> dh.live.v1.StopActionsReply
-	21, // 25: dh.live.v1.LiveService.ClearActions:output_type -> dh.live.v1.ClearActionsReply
-	23, // 26: dh.live.v1.LiveService.ResetLlm:output_type -> dh.live.v1.ResetLlmReply
-	26, // 27: dh.live.v1.LiveService.ListEvents:output_type -> dh.live.v1.ListEventsReply
-	28, // 28: dh.live.v1.LiveService.GetRtcToken:output_type -> dh.live.v1.GetRtcTokenReply
-	17, // [17:29] is the sub-list for method output_type
-	5,  // [5:17] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	9,  // 4: dh.live.v1.GetLiveStatusReply.record:type_name -> dh.live.v1.RecordStatus
+	26, // 5: dh.live.v1.ListEventsReply.events:type_name -> dh.live.v1.LiveEvent
+	0,  // 6: dh.live.v1.LiveService.StartLive:input_type -> dh.live.v1.StartLiveRequest
+	2,  // 7: dh.live.v1.LiveService.StopLive:input_type -> dh.live.v1.StopLiveRequest
+	4,  // 8: dh.live.v1.LiveService.GetLiveStatus:input_type -> dh.live.v1.GetLiveStatusRequest
+	11, // 9: dh.live.v1.LiveService.Say:input_type -> dh.live.v1.SayRequest
+	13, // 10: dh.live.v1.LiveService.SendCommand:input_type -> dh.live.v1.SendCommandRequest
+	15, // 11: dh.live.v1.LiveService.Interrupt:input_type -> dh.live.v1.InterruptRequest
+	17, // 12: dh.live.v1.LiveService.ClearTranscript:input_type -> dh.live.v1.ClearTranscriptRequest
+	19, // 13: dh.live.v1.LiveService.StopActions:input_type -> dh.live.v1.StopActionsRequest
+	21, // 14: dh.live.v1.LiveService.ClearActions:input_type -> dh.live.v1.ClearActionsRequest
+	23, // 15: dh.live.v1.LiveService.ResetLlm:input_type -> dh.live.v1.ResetLlmRequest
+	25, // 16: dh.live.v1.LiveService.ListEvents:input_type -> dh.live.v1.ListEventsRequest
+	28, // 17: dh.live.v1.LiveService.GetRtcToken:input_type -> dh.live.v1.GetRtcTokenRequest
+	1,  // 18: dh.live.v1.LiveService.StartLive:output_type -> dh.live.v1.StartLiveReply
+	3,  // 19: dh.live.v1.LiveService.StopLive:output_type -> dh.live.v1.StopLiveReply
+	10, // 20: dh.live.v1.LiveService.GetLiveStatus:output_type -> dh.live.v1.GetLiveStatusReply
+	12, // 21: dh.live.v1.LiveService.Say:output_type -> dh.live.v1.SayReply
+	14, // 22: dh.live.v1.LiveService.SendCommand:output_type -> dh.live.v1.SendCommandReply
+	16, // 23: dh.live.v1.LiveService.Interrupt:output_type -> dh.live.v1.InterruptReply
+	18, // 24: dh.live.v1.LiveService.ClearTranscript:output_type -> dh.live.v1.ClearTranscriptReply
+	20, // 25: dh.live.v1.LiveService.StopActions:output_type -> dh.live.v1.StopActionsReply
+	22, // 26: dh.live.v1.LiveService.ClearActions:output_type -> dh.live.v1.ClearActionsReply
+	24, // 27: dh.live.v1.LiveService.ResetLlm:output_type -> dh.live.v1.ResetLlmReply
+	27, // 28: dh.live.v1.LiveService.ListEvents:output_type -> dh.live.v1.ListEventsReply
+	29, // 29: dh.live.v1.LiveService.GetRtcToken:output_type -> dh.live.v1.GetRtcTokenReply
+	18, // [18:30] is the sub-list for method output_type
+	6,  // [6:18] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_live_v1_live_proto_init() }
@@ -1965,7 +2091,7 @@ func file_live_v1_live_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_live_v1_live_proto_rawDesc), len(file_live_v1_live_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   29,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

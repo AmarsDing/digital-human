@@ -40,10 +40,11 @@ function utteranceOf(e: WireEvent): string {
   return String((e.payload ?? {})[FIELD_UTTERANCE_ID] ?? '')
 }
 
-// partial/final 归并键：优先 utterance_id，缺省退回 index。
+// partial/final 归并键：双方都带 utterance_id 时按 id 归并（交错发言不串行）；
+// 任一方缺 id 时退回 index（同一说话位置的 partial→final 原地转正）。
 function sameUtterance(l: TranscriptLine, index: number, utteranceId: string): boolean {
-  if (utteranceId) return l.utteranceId === utteranceId
-  return !l.utteranceId && l.index === index
+  if (utteranceId && l.utteranceId) return l.utteranceId === utteranceId
+  return l.index === index
 }
 
 export const useTranscriptStore = defineStore('transcript', {

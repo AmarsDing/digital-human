@@ -25,7 +25,7 @@ func TestConfiguredControllerFailClosedByDefault(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := NewConfiguredController(ctx, tc.opts, slog.Default())
-			_, err := ctrl.Start(ctx, "s-1")
+			_, err := ctrl.Start(ctx, StartOpts{SessionID: "s-1"})
 			if tc.want {
 				if err != nil {
 					t.Fatalf("dev 模式应可启动: %v", err)
@@ -44,8 +44,8 @@ func TestConfiguredControllerFailClosedByDefault(t *testing.T) {
 
 type stubController struct{}
 
-func (s *stubController) Start(context.Context, string) (string, error) { return "real-live-x", nil }
-func (s *stubController) Stop(context.Context, string) error            { return nil }
+func (s *stubController) Start(context.Context, StartOpts) (string, error) { return "real-live-x", nil }
+func (s *stubController) Stop(context.Context, string) error               { return nil }
 func (s *stubController) Say(context.Context, string, string) (string, error) {
 	return "u", nil
 }
@@ -60,7 +60,7 @@ func TestConfiguredControllerUsesRealFactoryWhenWired(t *testing.T) {
 	if _, ok := ctrl.(*UnavailableController); ok {
 		t.Fatal("配置齐全且注入 RealFactory 时不应落到 unavailable")
 	}
-	if _, err := ctrl.Start(context.Background(), "s-1"); err != nil {
+	if _, err := ctrl.Start(context.Background(), StartOpts{SessionID: "s-1"}); err != nil {
 		t.Fatalf("真实工厂注入后应能启动: %v", err)
 	}
 }
@@ -73,7 +73,7 @@ func TestConfiguredControllerFactoryErrorFailsClosed(t *testing.T) {
 			return nil, errors.New("dial failed")
 		},
 	}, slog.Default())
-	if _, err := ctrl.Start(context.Background(), "s-1"); !errors.Is(err, ErrEngineUnavailable) {
+	if _, err := ctrl.Start(context.Background(), StartOpts{SessionID: "s-1"}); !errors.Is(err, ErrEngineUnavailable) {
 		t.Fatalf("工厂失败必须返回 ErrEngineUnavailable，got %v", err)
 	}
 }
@@ -81,7 +81,7 @@ func TestConfiguredControllerFactoryErrorFailsClosed(t *testing.T) {
 // 只有 dev 模式才允许出现 fake-live-*；默认/real 模式任何路径都不得生成。
 func TestFakeLiveIDOnlyInDevMode(t *testing.T) {
 	dev := NewConfiguredController(context.Background(), EngineOptions{Mode: "dev"}, slog.Default())
-	id, err := dev.Start(context.Background(), "abcdefgh")
+	id, err := dev.Start(context.Background(), StartOpts{SessionID: "abcdefgh"})
 	if err != nil {
 		t.Fatalf("dev start: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestFakeLiveIDOnlyInDevMode(t *testing.T) {
 
 	for _, mode := range []string{"", "real", "prod"} {
 		ctrl := NewConfiguredController(context.Background(), EngineOptions{Mode: mode}, slog.Default())
-		if _, err := ctrl.Start(context.Background(), "abcdefgh"); !errors.Is(err, ErrEngineUnavailable) {
+		if _, err := ctrl.Start(context.Background(), StartOpts{SessionID: "abcdefgh"}); !errors.Is(err, ErrEngineUnavailable) {
 			t.Fatalf("mode=%q 必须 fail-closed，got %v", mode, err)
 		}
 	}

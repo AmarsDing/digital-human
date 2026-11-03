@@ -47,6 +47,14 @@ export interface RtcToken {
   reason: string
 }
 
+// F34/N2 录播运行态（proto RecordStatus，随 GetLiveStatus 轮询下发）。
+export interface RecordStateWire {
+  enabled: boolean
+  /** none | recording | processing | ready | failed | unavailable */
+  state: string
+  url?: string
+}
+
 export interface LiveStatus {
   sessionId: string
   phase: string
@@ -57,6 +65,7 @@ export interface LiveStatus {
   ws: WsStatus
   danmaku: DanmakuStatus
   rtc: RtcStatus
+  record?: RecordStateWire
   eventSeq: number
   transcripts: string[]
   errorCode: string

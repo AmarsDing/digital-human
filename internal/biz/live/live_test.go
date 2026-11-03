@@ -13,7 +13,7 @@ type recController struct {
 	said    int
 }
 
-func (c *recController) Start(context.Context, string) (string, error) {
+func (c *recController) Start(context.Context, StartOpts) (string, error) {
 	c.started++
 	return "live-x", nil
 }

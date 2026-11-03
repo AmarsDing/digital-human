@@ -79,7 +79,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       const error = safeParse(text) as Record<string, unknown>
       throw new ApiError(
         res.status,
-        String(error.error ?? error.code ?? `http_${res.status}`),
+        String(error.error ?? error.reason ?? error.code ?? `http_${res.status}`),
         String(error.message ?? error.error ?? `请求失败（${res.status}）`)
       )
     }
@@ -92,7 +92,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     const error = body as Record<string, unknown>
     throw new ApiError(
       res.status,
-      String(error.error ?? error.code ?? `http_${res.status}`),
+      String(error.error ?? error.reason ?? error.code ?? `http_${res.status}`),
       String(error.message ?? error.error ?? `请求失败（${res.status}）`)
     )
   }
@@ -121,6 +121,26 @@ export function classifyApiError(err: unknown): { code: string; message: string 
         return { code: err.code, message: '来源未被允许，请检查部署域名配置' }
       case 'ticket_invalid_or_used':
         return { code: err.code, message: 'WebSocket 票据已失效，正在重新连接' }
+      // 数字人档案（G 批 M2/M4）错误码归一。
+      case 'persona_not_found':
+        return { code: err.code, message: '所选数字人档案不存在或已删除，请到档案页重新选择' }
+      // 保留：非死分支——live.start 失败时 StagePage personaGuide 消费该码给出「前往档案页」引导。
+      case 'avatar_not_synced':
+        return { code: err.code, message: '该档案形象尚未同步 Vidu，请先在档案页同步' }
+      case 'avatar_expired':
+        return { code: err.code, message: '形象资产已过期（Vidu 90 天），请重新同步后开播' }
+      case 'voice_not_found':
+        return { code: err.code, message: '音色不存在，请在档案页重新选择音色' }
+      case 'vidu_key_unconfigured':
+        return { code: err.code, message: 'Vidu Key 未配置，无法同步形象' }
+      case 'revision_conflict':
+        return { code: err.code, message: '档案已被并发修改，请刷新后重试' }
+      case 'slug_conflict':
+        return { code: err.code, message: 'slug 已被占用，请更换' }
+      case 'avatar_in_use':
+        return { code: err.code, message: '当前使用中的档案不能删除' }
+      case 'too_many_refs':
+        return { code: err.code, message: '参考图最多 3 张' }
       default:
         return { code: err.code, message: err.message }
     }

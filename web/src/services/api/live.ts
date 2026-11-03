@@ -25,13 +25,109 @@ export async function getLiveStatus(signal?: AbortSignal): Promise<LiveStatus> {
   return apiRequest<LiveStatus>('/api/v1/live/status', { signal })
 }
 
-export async function startLive(input: {
+export type LiveMode = 'local-preview' | 'public-live'
+export type LiveCheckStatus = 'pass' | 'warn' | 'fail' | 'unknown' | 'running'
+
+export interface LivePreflightCheck {
+  code: string
+  status: LiveCheckStatus
+  blocking: boolean
+  source: string
+  target?: string
+  detail?: string
+  observedAtMs: number
+}
+
+export interface LivePreflightResult {
+  checkId: string
+  preflightToken: string
+  ready: boolean
+  mode: LiveMode
+  draftId: string
+  draftRevision: number
+  inputRevisions: Record<string, number>
+  resultDigest: string
+  observedAtMs: number
+  expiresAtMs: number
+  checks: LivePreflightCheck[]
+}
+
+interface LivePreflightWire {
+  check_id?: string
+  preflight_token?: string
+  ready?: boolean
+  mode: LiveMode
+  draft_id?: string
+  draft_revision?: number | string
+  input_revisions?: Record<string, number | string>
+  result_digest?: string
+  observed_at_ms?: number | string
+  expires_at_ms?: number | string
+  checks?: Array<{
+    code: string
+    status: LiveCheckStatus
+    blocking?: boolean
+    source?: string
+    target?: string
+    detail?: string
+    observed_at_ms?: number | string
+  }>
+}
+
+export async function preflightLive(input: {
+  mode: LiveMode
+  personaId?: string
+  draftId?: string
+  expectedRevision?: number
+}): Promise<LivePreflightResult> {
+  const r = await apiRequest<LivePreflightWire>('/api/v1/live/preflight', {
+    method: 'POST',
+    body: {
+      mode: input.mode,
+      persona_id: input.personaId ?? '',
+      draft_id: input.draftId ?? '',
+      expected_revision: input.expectedRevision ?? 0
+    }
+  })
+  return {
+    checkId: r.check_id ?? '',
+    preflightToken: r.preflight_token ?? '',
+    ready: Boolean(r.ready),
+    mode: r.mode,
+    draftId: r.draft_id ?? '',
+    draftRevision: toNumber(r.draft_revision),
+    inputRevisions: Object.fromEntries(Object.entries(r.input_revisions ?? {}).map(([k, v]) => [k, toNumber(v)])),
+    resultDigest: r.result_digest ?? '',
+    observedAtMs: toNumber(r.observed_at_ms),
+    expiresAtMs: toNumber(r.expires_at_ms),
+    checks: (r.checks ?? []).map((c) => ({
+      code: c.code,
+      status: c.status,
+      blocking: Boolean(c.blocking),
+      source: c.source ?? '',
+      target: c.target,
+      detail: c.detail,
+      observedAtMs: toNumber(c.observed_at_ms)
+    }))
+  }
+}
+
+export interface StartLiveInput {
   personaId?: string
   avatarId?: string
   greeting?: string
   sessionId?: string
-}): Promise<{ sessionId: string; phase: string; liveId: string }> {
+  mode: LiveMode
+  draftId: string
+  expectedRevision: number
+  preflightToken: string
+}
+
+export async function startLive(
+  input: StartLiveInput
+): Promise<{ sessionId: string; phase: string; liveId: string; mode: LiveMode }> {
   const { sessionId, ...rest } = input
+  // result_digest 不进 Start：服务端以 preflight_token 存证绑定 digest，proto 无对应消费字段。
   return apiRequest('/api/v1/live/start', {
     method: 'POST',
     body: { ...rest, idempotencyKey: idemFor(sessionId ?? '', 'live.start') }

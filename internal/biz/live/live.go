@@ -4,11 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/teamwork/digital-human/internal/biz/avatar"
+	"github.com/teamwork/digital-human/internal/biz/refs"
+	"github.com/teamwork/digital-human/internal/llm"
+	"github.com/teamwork/digital-human/internal/publish"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 	"github.com/teamwork/digital-human/pkg/eventcontract"
 )
@@ -27,9 +33,33 @@ const (
 // ErrEngineUnavailable 表示真实引擎未配置；服务层必须映射为 503，不能退回 fake 成功。
 var ErrEngineUnavailable = errors.New("engine_not_configured")
 
+// ErrAvatarExpired 开播预检失败（v3 §3.3）：档案形象未同步或 Vidu ssupload 资产
+// 已过 90 天到期时刻；服务层映射 400 avatar_expired，前端走「重新同步并开播」。
+var ErrAvatarExpired = errors.New("avatar_expired")
+
+// ErrPreviewWhilePushing local-preview 模式禁止连接公开推流（§7.6）：推流已建立时
+// 本地预览是语义谎言，显式拒绝开播；请改用 public-live（携带 preflight_token）或先停推。
+var ErrPreviewWhilePushing = errors.New("local_preview_while_pushing")
+
+// StartOpts 开播参数（v3 方案 §3.1 字段逐字冻结）：
+// 建场主形象 ViduAvatarID 与 ViduImageURI 二选一、URI 优先（蓝本 engine.py:258-270）；
+// RefImageURIs 是会话运行中经信令 prompt_operation 推送的参考图（非建场 body），
+// ≤3 且有序，取 Vidu ssupload URI 而非本地路径；Greeting 空串 = 不发。
+type StartOpts struct {
+	SessionID        string
+	Model            string // 默认 vidu-s2
+	ViduAvatarID     string // 与 ViduImageURI 二选一，URI 优先
+	ViduImageURI     string
+	VoiceID          string
+	ActionLibraryID  string   // 空=不带 action 段
+	RefImageURIs     []string // ≤3，有序；Vidu ssupload URI（非本地路径）
+	Greeting         string
+	RecordingEnabled bool
+}
+
 // Controller 是引擎端口；FakeController 只允许在显式 dev 模式装配。
 type Controller interface {
-	Start(ctx context.Context, sessionID string) (liveID string, err error)
+	Start(ctx context.Context, opts StartOpts) (liveID string, err error)
 	Stop(ctx context.Context, reason string) error
 	Say(ctx context.Context, text, mode string) (utteranceID string, err error)
 }
@@ -73,25 +103,199 @@ type Snapshot struct {
 	ErrorMsg    string
 	EventSeq    int64
 	Transcript  []string
+	// Mode 开播模式（local-preview/public-live，§7.6）；无场次时为空串。
+	Mode string
 }
 
 // Manager 单进程只允许一场；重复开播复刻 stop("reconnect") 再重开，绝不返回 409。
 type Manager struct {
-	mu               sync.Mutex
-	phase            Phase
-	session          *snapshot
-	bus              *eventbus.Bus
-	sink             EventSink
-	ctrl             Controller
-	store            SessionStore
-	idem             Store
-	idemMu           sync.Mutex // 串行化幂等 key 的 get→执行→put，避免并发同 key 重复启动
-	opMu             sync.Mutex // 串行化 start/stop 状态迁移；stop(reconnect) 与 start 在同一临界区
-	wsMu             sync.Mutex
-	wsBySID          map[string]int
-	wsReconnectTotal int32
-	wsPongMs         int64
-	hooks            InterruptHooks
+	mu                sync.Mutex
+	phase             Phase
+	session           *snapshot
+	bus               *eventbus.Bus
+	sink              EventSink
+	ctrl              Controller
+	store             SessionStore
+	idem              Store
+	idemMu            sync.Mutex // 串行化幂等 key 的 get→执行→put，避免并发同 key 重复启动
+	opMu              sync.Mutex // 串行化 start/stop 状态迁移；stop(reconnect) 与 start 在同一临界区
+	wsMu              sync.Mutex
+	wsBySID           map[string]int
+	wsReconnectTotal  int32
+	wsPongMs          int64
+	hooks             InterruptHooks
+	recorder          Recorder
+	poller            CreditsPoller
+	dmWorker          DanmakuWorker
+	sessionHooks      []DanmakuWorker
+	llmMem            LlmMemory
+	resolver          avatar.ProfileResolver
+	refSwitch         RefSwitcher
+	pushGate          publish.PushGate // nil = 推流线未启用（不做开播前置检查）
+	allowUnpushedLive bool
+	// preflight 唯一 ready 判定服务（§7.5）；public-live 开播必须携带其签发 token。
+	preflight *Preflight
+	// defaultMode 开播模式缺省值（装配层从 live.start_mode 读取；未装配时 Start 按
+	// local-preview 处理并显式标注，绝不默认 public-live）。
+	defaultMode Mode
+	// captionSplit F19/G16：captions.output_sentences 热读（nil 视为 true=逐句投喂）。
+	captionSplit func() bool
+	// recordingFlag F34 遗留接线：settings misc.record_enabled 开播时读入 StartOpts。
+	recordingFlag func() bool
+}
+
+// SetPushGate 注入推流前置检查依赖（DZ 批）。allowUnpushed 仅本地预览调试用。
+// 仅装配层在 stream.enabled=true（pub 非 nil）时调用；未注入时开播不做推流前置检查，
+// 保持既有行为不变（推流线未启用不阻断本地/无推流场景）。
+func (m *Manager) SetPushGate(g publish.PushGate, allowUnpushed bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pushGate = g
+	m.allowUnpushedLive = allowUnpushed
+}
+
+// currentPushGate 读取推流前置检查依赖（m.mu 保护，与 SetPushGate 写对称）。
+func (m *Manager) currentPushGate() (publish.PushGate, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pushGate, m.allowUnpushedLive
+}
+
+// SetPreflight 注入唯一预检服务（§7.5）；装配层在全部组件就绪后调用一次。
+func (m *Manager) SetPreflight(p *Preflight) {
+	m.mu.Lock()
+	m.preflight = p
+	m.mu.Unlock()
+}
+
+// SetDefaultMode 注入开播模式缺省值（装配层从配置 live.start_mode 读取）。
+func (m *Manager) SetDefaultMode(mode Mode) {
+	m.mu.Lock()
+	m.defaultMode = mode
+	m.mu.Unlock()
+}
+
+// resolveMode 解析开播模式：显式入参 > 装配缺省 > local-preview（不假装 public）。
+func (m *Manager) resolveMode(req Mode) Mode {
+	if req != "" {
+		return req
+	}
+	m.mu.Lock()
+	dm := m.defaultMode
+	m.mu.Unlock()
+	if dm != "" {
+		return dm
+	}
+	return ModeLocalPreview
+}
+
+// RefSwitcher 参考图信令推送端口（v3 §3.3 时序，M5），由 internal/biz/refs.Service 实现；
+// nil 表示未装配（跳过推送）。type14/推送失败 = 降级告警事件，不算开播失败（§3.3 写死）。
+type RefSwitcher interface {
+	Switch(ctx context.Context, images []refs.Image) (refs.State, error)
+}
+
+// SetRefSwitcher 注入参考图推送端口；装配层在全部组件就绪后调用一次。
+func (m *Manager) SetRefSwitcher(rs RefSwitcher) {
+	m.mu.Lock()
+	m.refSwitch = rs
+	m.mu.Unlock()
+}
+
+// Recorder 是云录制端口（F34），由装配层注入；nil 表示未配置。
+// 实现方：internal/biz/recording.Supervisor。
+type Recorder interface {
+	// Enabled 配置是否开通云录制。
+	Enabled() bool
+	// State 当前录制状态（none/recording/processing/ready/failed/unavailable）。
+	State() string
+	// OnSessionStart 开播成功后随场启动录制；未开通返回明确错误。
+	OnSessionStart(ctx context.Context, liveID string) error
+	// OnSessionStop 停播后结束录制并轮询出片，返回最终状态。
+	OnSessionStop(ctx context.Context, liveID string) (string, error)
+}
+
+// SetRecorder 注入云录制端口；装配层在全部组件就绪后调用一次。
+func (m *Manager) SetRecorder(r Recorder) {
+	m.mu.Lock()
+	m.recorder = r
+	m.mu.Unlock()
+}
+
+// CreditsPoller 是 F36 额度轮询落账端口，由装配层注入；nil 表示未配置。
+// 实现方：internal/biz/billing.Poller。
+type CreditsPoller interface {
+	// OnSessionStart 开播成功后记录 credits 基线并启动周期轮询落账。
+	OnSessionStart(ctx context.Context, sessionID string)
+	// OnSessionStop 下播后停止轮询并落最终一笔。
+	OnSessionStop(ctx context.Context, sessionID string)
+}
+
+// SetCreditsPoller 注入额度轮询端口；装配层在全部组件就绪后调用一次。
+func (m *Manager) SetCreditsPoller(p CreditsPoller) {
+	m.mu.Lock()
+	m.poller = p
+	m.mu.Unlock()
+}
+
+// DanmakuWorker 是 F24 弹幕批读消费循环端口，由装配层注入；nil 表示未配置。
+// 实现方：internal/biz/danmaku.Worker。
+type DanmakuWorker interface {
+	// OnSessionStart 开播成功后启动弹幕批读消费循环。
+	OnSessionStart(ctx context.Context, sessionID string)
+	// OnSessionStop 下播后停止消费循环。
+	OnSessionStop(ctx context.Context, sessionID string)
+}
+
+// SetDanmakuWorker 注入弹幕批读 worker；装配层在全部组件就绪后调用一次。
+func (m *Manager) SetDanmakuWorker(w DanmakuWorker) {
+	m.mu.Lock()
+	m.dmWorker = w
+	m.mu.Unlock()
+}
+
+// AddSessionHook 追加随场启停的组件（F27 礼物合并器 / G24 贵宾欢迎等同 DanmakuWorker 生命周期的
+// 会话级组件）；开播/停播时按注册顺序依次回调。装配层在全部组件就绪后调用。
+func (m *Manager) AddSessionHook(h DanmakuWorker) {
+	if h == nil {
+		return
+	}
+	m.mu.Lock()
+	m.sessionHooks = append(m.sessionHooks, h)
+	m.mu.Unlock()
+}
+
+// RecordingState 返回当前录制状态；未配置录制时为 none（真实值，不假装在录）。
+func (m *Manager) RecordingState() string {
+	m.mu.Lock()
+	r := m.recorder
+	m.mu.Unlock()
+	if r == nil {
+		return "none"
+	}
+	return r.State()
+}
+
+// RecordingEnabled 返回云录制是否已开通装配（F34/N2 GetLiveStatus.record.enabled）。
+func (m *Manager) RecordingEnabled() bool {
+	m.mu.Lock()
+	r := m.recorder
+	m.mu.Unlock()
+	return r != nil && r.Enabled()
+}
+
+// RecordingURL 返回出片地址（ready 后有效；未出片为空串）。
+func (m *Manager) RecordingURL() string {
+	m.mu.Lock()
+	r := m.recorder
+	m.mu.Unlock()
+	if r == nil {
+		return ""
+	}
+	if s, ok := r.(interface{ URL() string }); ok {
+		return s.URL()
+	}
+	return ""
 }
 
 // InterruptHooks 口播/动作侧的中断副作用，由装配层注入；均为可选。
@@ -109,28 +313,49 @@ func (m *Manager) SetInterruptHooks(h InterruptHooks) {
 	m.mu.Unlock()
 }
 
+// SetCaptionSplitFn 注入 captions.output_sentences 热读（F19/G16）；
+// 装配层读 settings，nil 或返回 true = 逐句投喂 TTS，false = 整段投喂。
+func (m *Manager) SetCaptionSplitFn(fn func() bool) {
+	m.mu.Lock()
+	m.captionSplit = fn
+	m.mu.Unlock()
+}
+
+// SetRecordingFlagFn 注入 misc.record_enabled 开播时读取口（F34 遗留接线）；
+// nil 或返回 false 时 StartOpts.RecordingEnabled 保持 false（yaml 常开配置不受影响）。
+func (m *Manager) SetRecordingFlagFn(fn func() bool) {
+	m.mu.Lock()
+	m.recordingFlag = fn
+	m.mu.Unlock()
+}
+
 type snapshot struct {
 	id         string
 	liveID     string
 	personaID  string
 	avatarID   string
+	mode       Mode // 开播模式（local-preview/public-live），随快照与事件标注
 	startedAt  time.Time
 	endedAt    time.Time
 	transcript []string
 	errorCode  string
 	errorMsg   string
 	epoch      int64
+	// configSnapshot 开播配置冻结快照（v3 §7.3）；persist(PhaseLive) 前构造，
+	// persist 透传给存储；为 nil 时存储方不得清空已存快照。
+	configSnapshot map[string]any
 }
 
 func NewManager(bus *eventbus.Bus, sink EventSink, ctrl Controller) *Manager {
-	return NewManagerWithStores(bus, sink, ctrl, nil, nil)
+	return NewManagerWithStores(bus, sink, ctrl, nil, nil, nil)
 }
 
-// NewManagerWithStores 注入场次持久化与幂等存储；两者均可为 nil。
-func NewManagerWithStores(bus *eventbus.Bus, sink EventSink, ctrl Controller, store SessionStore, idem Store) *Manager {
+// NewManagerWithStores 注入场次持久化、幂等存储与档案解析器；三者均可为 nil。
+// resolver 是全系统唯一档案读取入口（v3 §8）；nil 时开播走旧路径（仅入参构造 opts）。
+func NewManagerWithStores(bus *eventbus.Bus, sink EventSink, ctrl Controller, store SessionStore, idem Store, resolver avatar.ProfileResolver) *Manager {
 	m := &Manager{
 		phase: PhaseIdle, bus: bus, sink: sink, ctrl: ctrl, store: store, idem: idem,
-		wsBySID: map[string]int{},
+		wsBySID: map[string]int{}, resolver: resolver,
 	}
 	if bus != nil {
 		bus.SetScope(m.Scope)
@@ -170,6 +395,7 @@ func (m *Manager) persist(ctx context.Context, s *snapshot, phase Phase) {
 	}
 	now := time.Now()
 	m.mu.Lock()
+	recorder := m.recorder
 	rec := SessionRecord{
 		ID:             s.id,
 		LiveID:         s.liveID,
@@ -181,6 +407,10 @@ func (m *Manager) persist(ctx context.Context, s *snapshot, phase Phase) {
 		RecordingState: "none",
 		ErrorCode:      s.errorCode,
 		UpdatedAtMs:    now.UnixMilli(),
+		ConfigSnapshot: s.configSnapshot, // nil 时存储方不清快照（契约 §7.3-1）
+	}
+	if recorder != nil {
+		rec.RecordingState = recorder.State()
 	}
 	if !s.startedAt.IsZero() {
 		rec.DurationS = int64(now.Sub(s.startedAt).Seconds())
@@ -192,15 +422,116 @@ func (m *Manager) persist(ctx context.Context, s *snapshot, phase Phase) {
 	_ = m.store.Save(ctx, rec)
 }
 
-// Start 返回 session_id / phase / live_id。已在 live/starting/stopping 时在
-// 同一 opMu 临界区内先 stop(reason=reconnect) 再创建，杜绝并发第三条会话。
-func (m *Manager) Start(ctx context.Context, personaID, avatarID, greeting string) (string, Phase, string, error) {
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
-	return m.startLocked(ctx, personaID, avatarID, greeting)
+// buildConfigSnapshot 冻结开播配置（v3 §7.3-2：{"v":1,...} 内嵌版本）。
+// 键白名单（v2 §2.2-2）：persona_id、persona_revision、persona_name、vidu_avatar_id、
+// vidu_image_uri、voice_id、action_library_id、greeting、model；绝不入密钥。
+func buildConfigSnapshot(personaID string, opts StartOpts, prof avatar.ResolvedProfile, profOK bool, mode Mode) map[string]any {
+	snap := map[string]any{
+		"v":        1,
+		"model":    opts.Model,
+		"greeting": opts.Greeting,
+		// §7.6：开播模式随快照冻结（审计记录模式；local-preview 永不冒充 public）。
+		"mode": string(mode),
+	}
+	if personaID != "" {
+		snap["persona_id"] = personaID
+	}
+	if profOK {
+		snap["persona_name"] = prof.PersonaName
+		snap["persona_revision"] = prof.PersonaRevision
+	}
+	if opts.ViduAvatarID != "" {
+		snap["vidu_avatar_id"] = opts.ViduAvatarID
+	}
+	if opts.ViduImageURI != "" {
+		snap["vidu_image_uri"] = opts.ViduImageURI
+	}
+	if opts.VoiceID != "" {
+		snap["voice_id"] = opts.VoiceID
+	}
+	if opts.ActionLibraryID != "" {
+		snap["action_library_id"] = opts.ActionLibraryID
+	}
+	return snap
 }
 
-func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting string) (string, Phase, string, error) {
+// StartRequest 严格 Start 入参（深化方案 v2 §7.5/§7.6）。
+// Mode 为空时按装配缺省解析（resolveMode）；public-live 必须携带 PreflightToken。
+type StartRequest struct {
+	Mode             Mode
+	PreflightToken   string
+	DraftID          string
+	ExpectedRevision int64
+}
+
+// Start 返回 session_id / phase / live_id。已在 live/starting/stopping 时在
+// 同一 opMu 临界区内先 stop(reason=reconnect) 再创建，杜绝并发第三条会话。
+// 等价 StartWithMode(..., StartRequest{})：模式由装配缺省解析。
+func (m *Manager) Start(ctx context.Context, personaID, avatarID, greeting string) (string, Phase, string, error) {
+	sid, phase, liveID, _, err := m.StartWithMode(ctx, personaID, avatarID, greeting, StartRequest{})
+	return sid, phase, liveID, err
+}
+
+// StartWithMode 与 Start 相同，额外返回生效 mode（响应/事件标注，§7.6 local-preview 可见）。
+func (m *Manager) StartWithMode(ctx context.Context, personaID, avatarID, greeting string, req StartRequest) (string, Phase, string, Mode, error) {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	return m.startLocked(ctx, personaID, avatarID, greeting, req)
+}
+
+func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting string, req StartRequest) (string, Phase, string, Mode, error) {
+	mode := m.resolveMode(req.Mode)
+	m.mu.Lock()
+	curPhase := m.phase
+	m.mu.Unlock()
+	// DZ 批推流前置检查：仅在装配层注入 PushGate（stream.enabled=true）后启用；
+	// 未推上/被推拒/重连中均拒绝开播并给出可操作原因（fail-closed 于推流能力本身）。
+	g, allowUnpushed := m.currentPushGate()
+	if g != nil {
+		if err := publish.CheckStartLive(g, allowUnpushed); err != nil {
+			return "", PhaseIdle, "", mode, err // errors.Is(err, publish.ErrPushRequired) 可供 service 层映射 409
+		}
+		// §7.6 local-preview 禁止连接公开推流：推流中开播预览是语义谎言，显式拒绝。
+		if mode == ModeLocalPreview && g.Status().State == publish.StatePushing {
+			return "", PhaseIdle, "", mode, ErrPreviewWhilePushing
+		}
+	} else if mode == ModePublicLive {
+		// §7.6-5：public 模式 PushGate 必须已装配，未装配不是「允许未推流」。
+		return "", PhaseIdle, "", mode, fmt.Errorf("%w: push gate not wired", ErrPushGateRequired)
+	}
+	// 开播预检（v3 §3.3 时序，M5）+ §7.6-3 严格化：带 persona_id 时先 Resolve，
+	// 形象未同步/Vidu 资产过期返回 ErrAvatarExpired；**Resolve 失败（含档案已删/幽灵 id）
+	// 两种模式一律直接报错，不回落旧路径、不创建场次**（堵 M1 fail-open）。
+	var prof avatar.ResolvedProfile
+	var profOK bool
+	if m.resolver != nil && personaID != "" {
+		p, err := m.resolver.Resolve(ctx, personaID)
+		if err != nil {
+			return "", curPhase, "", mode, fmt.Errorf("%w: %v", ErrResolveFailed, err)
+		}
+		prof, profOK = p, true
+		if !prof.ViduSynced || prof.ImageExpired(time.Now()) {
+			return "", curPhase, "", mode, ErrAvatarExpired
+		}
+	}
+	// §7.6-2：public-live 在 opMu 临界区内复核 preflight token——有效未过期、
+	// mode/persona revision 与当前 Resolve 一致、ready=true（无 fail/unknown 阻断项）。
+	if mode == ModePublicLive {
+		m.mu.Lock()
+		pf := m.preflight
+		m.mu.Unlock()
+		if pf == nil {
+			return "", curPhase, "", mode, fmt.Errorf("%w: preflight service not wired", ErrPreflightRequired)
+		}
+		personaRev := int64(0)
+		if profOK {
+			personaRev = prof.PersonaRevision
+		}
+		if err := pf.Verify(req.PreflightToken, mode, personaID, personaRev, ""); err != nil {
+			return "", curPhase, "", mode, err
+		}
+	}
+
 	m.mu.Lock()
 	needStop := m.phase == PhaseLive || m.phase == PhaseStarting || m.phase == PhaseStopping
 	phase := m.phase
@@ -208,14 +539,14 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 	if needStop {
 		// 复刻蓝本语义：先停再开；stop 与 start 处于同一 opMu 临界区。
 		if _, _, err := m.stopLocked(ctx, "reconnect"); err != nil {
-			return "", PhaseError, "", err
+			return "", PhaseError, "", mode, err
 		}
 	} else if phase != PhaseIdle && phase != PhaseEnded && phase != PhaseError {
-		return "", phase, "", fmt.Errorf("session busy in phase %s", phase)
+		return "", phase, "", mode, fmt.Errorf("session busy in phase %s", phase)
 	}
 
 	s := &snapshot{
-		id: uuid.NewString(), personaID: personaID, avatarID: avatarID,
+		id: uuid.NewString(), personaID: personaID, avatarID: avatarID, mode: mode,
 		startedAt: time.Now(), epoch: time.Now().UnixMilli(),
 	}
 	m.mu.Lock()
@@ -225,9 +556,29 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 	m.mu.Unlock()
 	m.persist(ctx, s, PhaseStarting)
 
-	m.publish(ctx, "live.start_requested", map[string]any{"persona_id": personaID, "avatar_id": avatarID})
+	m.publish(ctx, "live.start_requested", map[string]any{"persona_id": personaID, "avatar_id": avatarID, "mode": string(mode)})
 
-	liveID, err := m.ctrl.Start(ctx, s.id)
+	// 构造 StartOpts（v3 §3.3）：ProfileResolver 为唯一档案读取入口，已在入口预检解析一次。
+	opts := StartOpts{SessionID: s.id, Model: "vidu-s2", Greeting: greeting}
+	if profOK {
+		opts.ViduAvatarID = prof.ViduAvatarID
+		opts.ViduImageURI = prof.ViduImageURI
+		opts.VoiceID = prof.VoiceID
+		opts.ActionLibraryID = prof.ActionLibraryID
+		opts.RefImageURIs = prof.RefImageURIs
+		if opts.Greeting == "" {
+			opts.Greeting = prof.Greeting
+		}
+	}
+	// F34 遗留接线：settings misc.record_enabled（next_session 生效组）在建场时落入
+	// StartOpts；与装配层 yaml 常开（ViduConfig.RecordingEnabled）任一成立即带 enable_recording。
+	m.mu.Lock()
+	recFlag := m.recordingFlag
+	m.mu.Unlock()
+	if recFlag != nil && recFlag() {
+		opts.RecordingEnabled = true
+	}
+	liveID, err := m.ctrl.Start(ctx, opts)
 	if err != nil {
 		code := "engine_start_failed"
 		if errors.Is(err, ErrEngineUnavailable) {
@@ -239,18 +590,77 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 		s.errorMsg = err.Error()
 		m.mu.Unlock()
 		m.persist(ctx, s, PhaseError)
-		m.publish(ctx, "live.start_failed", map[string]any{"error": err.Error(), "error_code": code})
-		return s.id, PhaseError, "", err
+		m.publish(ctx, "live.start_failed", map[string]any{"error": err.Error(), "error_code": code, "mode": string(mode)})
+		return s.id, PhaseError, "", mode, err
 	}
 
 	m.mu.Lock()
 	s.liveID = liveID
 	m.phase = PhaseLive
 	phase = m.phase
+	// §7.3-2：vidu_ready 门档（ctrl.Start 成功）后一次性冻结开播配置快照；
+	// persist(PhaseStarting) 时本字段尚为 nil（快照必 nil，v3 §7.3 三细节）。
+	s.configSnapshot = buildConfigSnapshot(personaID, opts, prof, profOK, mode)
+	recorder := m.recorder
+	poller := m.poller
+	dmWorker := m.dmWorker
+	hooks := append([]DanmakuWorker(nil), m.sessionHooks...)
+	refSwitch := m.refSwitch
 	m.mu.Unlock()
+	// F34 云录制：随场启动；未开通/失败只记录，不阻断开播。
+	if recorder != nil {
+		if err := recorder.OnSessionStart(ctx, liveID); err != nil {
+			slog.Default().Warn("recording start skipped", "err", err)
+		}
+	}
+	// F36 额度轮询：随场记录 credits 基线并周期落账；失败只记录，不阻断开播。
+	if poller != nil {
+		poller.OnSessionStart(ctx, s.id)
+	}
+	// F24 弹幕批读：随场启动消费循环。
+	if dmWorker != nil {
+		dmWorker.OnSessionStart(ctx, s.id)
+	}
+	// F27 礼物合并 / G24 贵宾欢迎等随场组件。
+	for _, h := range hooks {
+		h.OnSessionStart(ctx, s.id)
+	}
 	m.persist(ctx, s, PhaseLive)
-	m.publish(ctx, "live.started", map[string]any{"live_id": liveID})
-	return s.id, phase, liveID, nil
+	m.publish(ctx, "live.started", map[string]any{"live_id": liveID, "mode": string(mode)})
+
+	// G3-2（v3 §3.3 时序）：动作库被 Vidu 403 拒绝、引擎去 action 重建成功 →
+	// 降级事件告警，前端/运营可见动作库未生效；开播本身成功。
+	if dg, ok := m.ctrl.(interface{ ActionDegraded() bool }); ok && dg.ActionDegraded() {
+		m.publish(ctx, "action_library_degraded", map[string]any{"action_library_id": opts.ActionLibraryID})
+		slog.Default().Warn("action library degraded: vidu 403, live without action",
+			"action_library_id", opts.ActionLibraryID)
+	}
+
+	// M5 v3 §3.3 时序：参考图推送在 persist(PhaseLive)+快照冻结之后；
+	// switch 失败（type14）= 降级告警事件，不算开播失败（§3.3 写死）。
+	if refSwitch != nil && len(opts.RefImageURIs) > 0 {
+		imgs := make([]refs.Image, 0, len(opts.RefImageURIs))
+		for _, u := range opts.RefImageURIs {
+			imgs = append(imgs, refs.Image{URL: u})
+		}
+		if _, err := refSwitch.Switch(ctx, imgs); err != nil {
+			m.publish(ctx, "refs_push_failed", map[string]any{"error": err.Error(), "count": len(imgs)})
+			slog.Default().Warn("refs push degraded, live continues", "err", err)
+		}
+	}
+	// 未同步 Vidu 的 ref 在解析期已被 profileOf 跳过；按跳过数告警（v3 §3.3 失败分支）。
+	if profOK && prof.UnsyncedRefCount > 0 {
+		m.publish(ctx, "refs_push_skipped", map[string]any{"skipped": prof.UnsyncedRefCount})
+		slog.Default().Warn("refs skipped: not synced to vidu", "skipped", prof.UnsyncedRefCount)
+	}
+	// M5 v3 §3.2：greeting 非空 → 走既有 Say 链路一次；TTS 失败发 greeting_failed，不阻断开播。
+	if strings.TrimSpace(opts.Greeting) != "" {
+		if _, err := m.Say(ctx, opts.Greeting, "greeting"); err != nil {
+			m.publish(ctx, "greeting_failed", map[string]any{"error": err.Error()})
+			slog.Default().Warn("greeting tts failed, live continues", "err", err)
+		}
+	}
+	return s.id, phase, liveID, mode, nil
 }
 
 // Stop 幂等：idle/ended 返回 ok=true 与说明；与 Start 串行在同一 opMu 临界区。
@@ -277,6 +687,33 @@ func (m *Manager) stopLocked(ctx context.Context, reason string) (bool, string, 
 	// 对齐 finalize 的 0.4s 收尾窗口。
 	time.Sleep(400 * time.Millisecond)
 
+	// F34 云录制：停播后结束录制并轮询出片；失败只记录，不阻断收场。
+	m.mu.Lock()
+	recorder := m.recorder
+	poller := m.poller
+	dmWorker := m.dmWorker
+	hooks := append([]DanmakuWorker(nil), m.sessionHooks...)
+	m.mu.Unlock()
+	if recorder != nil && s != nil && s.liveID != "" {
+		if _, err := recorder.OnSessionStop(ctx, s.liveID); err != nil {
+			slog.Default().Warn("recording stop/poll failed", "err", err)
+		}
+	}
+	// F36 额度轮询：停止并落最终一笔；失败只记录，不阻断收场。
+	if poller != nil && s != nil {
+		poller.OnSessionStop(ctx, s.id)
+	}
+	// F24 弹幕批读：停播停止消费循环。
+	if dmWorker != nil && s != nil {
+		dmWorker.OnSessionStop(ctx, s.id)
+	}
+	// F27 礼物合并 / G24 贵宾欢迎等随场组件。
+	for _, h := range hooks {
+		if s != nil {
+			h.OnSessionStop(ctx, s.id)
+		}
+	}
+
 	m.mu.Lock()
 	m.phase = PhaseEnded
 	if s != nil {
@@ -293,23 +730,29 @@ func (m *Manager) stopLocked(ctx context.Context, reason string) (bool, string, 
 // StartIdempotent 与 Start 相同，但 key 非空时按 key 复放结果，避免重复启动。
 // 幂等 key 的 get→执行→put 在 idemMu 内串行，避免并发同 key 的 check-then-act 竞态。
 func (m *Manager) StartIdempotent(ctx context.Context, key, personaID, avatarID, greeting string) (string, Phase, string, error) {
+	sid, phase, liveID, _, err := m.StartIdempotentWithMode(ctx, key, personaID, avatarID, greeting, StartRequest{})
+	return sid, phase, liveID, err
+}
+
+// StartIdempotentWithMode 与 StartIdempotent 相同，携带严格 Start 入参并返回生效 mode。
+func (m *Manager) StartIdempotentWithMode(ctx context.Context, key, personaID, avatarID, greeting string, req StartRequest) (string, Phase, string, Mode, error) {
 	const prefix = "start:"
 	if key == "" || m.idem == nil {
-		return m.Start(ctx, personaID, avatarID, greeting)
+		return m.StartWithMode(ctx, personaID, avatarID, greeting, req)
 	}
 	m.idemMu.Lock()
 	defer m.idemMu.Unlock()
 	if r, ok, err := m.idem.Get(ctx, prefix+key); err == nil && ok {
-		return r.SessionID, r.Phase, r.LiveID, nil
+		return r.SessionID, r.Phase, r.LiveID, Mode(r.Mode), nil
 	}
-	sessionID, phase, liveID, err := m.Start(ctx, personaID, avatarID, greeting)
+	sessionID, phase, liveID, mode, err := m.StartWithMode(ctx, personaID, avatarID, greeting, req)
 	if err != nil {
-		return sessionID, phase, liveID, err
+		return sessionID, phase, liveID, mode, err
 	}
 	_ = m.idem.Put(ctx, prefix+key, Result{
-		SessionID: sessionID, Phase: phase, LiveID: liveID, OK: true,
+		SessionID: sessionID, Phase: phase, LiveID: liveID, OK: true, Mode: string(mode),
 	}, DefaultIdempotencyTTL)
-	return sessionID, phase, liveID, nil
+	return sessionID, phase, liveID, mode, nil
 }
 
 // StopIdempotent 与 Stop 相同，但 key 非空时按 key 复放结果，避免重复停止。
@@ -381,11 +824,47 @@ func (m *Manager) Say(ctx context.Context, text, mode string) (string, error) {
 		m.mu.Unlock()
 		return "", errors.New("not live")
 	}
+	// F19/G16：captions.output_sentences 热读；nil（未装配）按默认 true 逐句。
+	split := m.captionSplit == nil || m.captionSplit()
+	m.mu.Unlock()
+
+	sentences := []string{text}
+	if split {
+		if parts := splitSentences(text); len(parts) > 0 {
+			sentences = parts
+		}
+	}
+	var firstID string
+	for _, sentence := range sentences {
+		id, err := m.sayOne(ctx, sentence, mode)
+		if err != nil {
+			return firstID, err
+		}
+		if firstID == "" {
+			firstID = id
+		}
+	}
+	return firstID, nil
+}
+
+// splitSentences 按蓝本分句规则（internal/llm.SentenceSplitter）把整段文本切成
+// 有序句子；无任何句读时原样返回单句。开=逐句投喂 TTS 并逐句上屏，关=整段。
+func splitSentences(text string) []string {
+	sp := llm.NewSentenceSplitter()
+	out := sp.Feed(text)
+	if tail := sp.Flush(); tail != "" {
+		out = append(out, tail)
+	}
+	return out
+}
+
+// sayOne 单句口播：先发 partial 让字幕立即上屏，TTS 返回后再发 final。
+func (m *Manager) sayOne(ctx context.Context, text, mode string) (string, error) {
+	m.mu.Lock()
 	sessionID, epoch := m.session.id, m.session.epoch
 	index := len(m.session.transcript)
 	m.mu.Unlock()
 
-	// 手工 say 的文本即整句：先发 partial 让字幕立即上屏，TTS 返回后再发 final。
 	m.publishFor(ctx, sessionID, epoch, eventcontract.TranscriptPartial, map[string]any{
 		eventcontract.FieldText: text, eventcontract.FieldIndex: index, eventcontract.FieldMode: mode,
 	})
@@ -447,10 +926,36 @@ func (m *Manager) StopActions(ctx context.Context) {
 // ClearActions 只清动作队列，不影响当前播放中的动作。
 func (m *Manager) ClearActions(ctx context.Context) { m.publish(ctx, "action.cleared", nil) }
 
-// ResetLlm 保留事件占位；LLM 链路未交付，尚无真实副作用可执行。
+// LlmMemory 是 LLM 会话记忆端口（G07），由 internal/biz/chat.Manager 实现；
+// nil 表示未装配（如实返回 0，不假装清过）。
+type LlmMemory interface {
+	// ResetHistory 清空指定会话记忆，返回真实清除的轮数。
+	ResetHistory(key string) int
+}
+
+// SetLlmMemory 注入会话记忆端口；装配层在组件就绪后调用一次。
+func (m *Manager) SetLlmMemory(mem LlmMemory) {
+	m.mu.Lock()
+	m.llmMem = mem
+	m.mu.Unlock()
+}
+
+// ResetLlm 清空当前场次的 LLM 会话记忆（蓝本 bridge.py:536 /api/llm/reset →
+// engine.llm.reset_history），返回真实清除的轮数；未装配记忆端口或无进行中场次时为 0。
 func (m *Manager) ResetLlm(ctx context.Context) int {
-	m.publish(ctx, "llm.reset", nil)
-	return 0
+	m.mu.Lock()
+	mem := m.llmMem
+	key := ""
+	if m.session != nil {
+		key = m.session.id
+	}
+	m.mu.Unlock()
+	cleared := 0
+	if mem != nil && key != "" {
+		cleared = mem.ResetHistory(key)
+	}
+	m.publish(ctx, "llm.reset", map[string]any{"cleared_turns": cleared})
+	return cleared
 }
 
 func (m *Manager) Snapshot() Snapshot {
@@ -490,6 +995,7 @@ func (m *Manager) snapshotLocked(transcriptSince int) Snapshot {
 	if m.session != nil {
 		out.SessionID = m.session.id
 		out.LiveID = m.session.liveID
+		out.Mode = string(m.session.mode)
 		if !m.session.startedAt.IsZero() {
 			out.StartedAtMs = m.session.startedAt.UnixMilli()
 		}

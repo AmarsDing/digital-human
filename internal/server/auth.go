@@ -129,9 +129,16 @@ func (s *MemoryTicketStore) Consume(t string) (bool, string) {
 	return true, v.sessionID
 }
 
+// defaultNonceWindow 是 HMAC nonce 去重窗口（与签名时间窗 300s 对齐取 10min）。
+const defaultNonceWindow = 10 * time.Minute
+
 // authFilter 覆盖全部非公开路由；默认拒绝，避免“漏口”。
 func authFilter(cfg *conf.Config, tickets TicketStore) khttp.FilterFunc {
-	nonces := newNonceCache(10 * time.Minute)
+	return authFilterWithNonces(cfg, tickets, NewMemoryNonceStore(defaultNonceWindow))
+}
+
+// authFilterWithNonces 由装配层注入 nonce 去重实现（Redis 可用时用 RedisNonceStore）。
+func authFilterWithNonces(cfg *conf.Config, tickets TicketStore, nonces NonceStore) khttp.FilterFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
@@ -145,7 +152,7 @@ func authFilter(cfg *conf.Config, tickets TicketStore) khttp.FilterFunc {
 				}
 				next.ServeHTTP(w, r)
 				return
-			case "/api/danmaku", "/api/v1/danmaku":
+			case "/api/danmaku", "/api/v1/danmaku", "/api/v1/collector/heartbeat":
 				if cfg.Security.Mode == "collector" {
 					if !checkCollectorHMAC(cfg.Security.CollectorSecret, r, nonces) {
 						writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "collector_signature_invalid"})
@@ -228,8 +235,8 @@ func checkBearer(wantSHA string, r *http.Request) bool {
 // checkCollectorHMAC：
 // X-Dh-Ts（秒）、X-Dh-Nonce、X-Dh-Sign =
 // HMAC_SHA256(secret, method + "\n" + path + "\n" + sha256(body) + "\n" + ts + "\n" + nonce)。
-// 时间窗 300s；nonce 在内存中只允许使用一次（Redis 未接，进程重启后清空）。
-func checkCollectorHMAC(secret string, r *http.Request, nonces *nonceCache) bool {
+// 时间窗 300s；nonce 经 NonceStore 去重（内存版进程重启后清空，Redis 版多实例共享）。
+func checkCollectorHMAC(secret string, r *http.Request, nonces NonceStore) bool {
 	if secret == "" {
 		return false
 	}
@@ -256,7 +263,7 @@ func checkCollectorHMAC(secret string, r *http.Request, nonces *nonceCache) bool
 	if !hmac.Equal([]byte(want), []byte(got)) {
 		return false
 	}
-	return nonces.take(nonce)
+	return nonces.Take(r.Context(), nonce, defaultNonceWindow)
 }
 
 type nonceCache struct {

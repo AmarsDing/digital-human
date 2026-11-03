@@ -8,6 +8,9 @@ import (
 )
 
 // SessionRecord 对齐 LiveSession 表，仅保存非敏感字段；绝不存密钥。
+// ConfigSnapshot 契约（v3 方案 §7.3-1）：config_snapshot 列保存 vidu_ready 门档后的
+// 完整开播配置。快照为 nil 时语义为"无快照"，任何写入方/存储方均不得据此清空
+// 已存快照（禁止 SetConfigSnapshot(nil)）；仅允许以非 nil 快照覆盖。
 type SessionRecord struct {
 	ID             string `json:"id"`
 	LiveID         string `json:"live_id,omitempty"`
@@ -21,9 +24,14 @@ type SessionRecord struct {
 	RecordingState string `json:"recording_state"`
 	ErrorCode      string `json:"error_code,omitempty"`
 	UpdatedAtMs    int64  `json:"updated_at_ms"`
+	// ConfigSnapshot 开播配置冻结快照（{"v":1,...} 内嵌版本，v3 §7.3-2）；
+	// nil=无快照不得清列，仅非 nil 覆盖（契约见上）。
+	ConfigSnapshot map[string]any `json:"config_snapshot,omitempty"`
 }
 
 // SessionStore 场次生命周期持久化端口；内存实现用于无 PG 环境。
+// 快照契约（v3 方案 §7.3-1）：ConfigSnapshot==nil 时实现方不得清空 config_snapshot
+// 列（nil=无快照，而非"置空"）；仅允许以非 nil 快照覆盖写入。
 type SessionStore interface {
 	Save(ctx context.Context, r SessionRecord) error
 	// ListStale 返回 phase in starting/live/stopping 且 updated_at_ms < cutoff 的记录。
@@ -51,6 +59,11 @@ func NewMemorySessionStore() *MemorySessionStore {
 func (s *MemorySessionStore) Save(_ context.Context, r SessionRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if r.ConfigSnapshot == nil {
+		if old, ok := s.rows[r.ID]; ok {
+			r.ConfigSnapshot = old.ConfigSnapshot // nil 不清快照契约
+		}
+	}
 	s.rows[r.ID] = r
 	return nil
 }

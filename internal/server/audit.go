@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bufio"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -53,6 +55,15 @@ func (r *statusRecorder) Flush() {
 	if f, ok := r.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack 透传：gorilla WS 升级要求 http.Hijacker；缺了它握手会 500。
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("audit: underlying ResponseWriter does not implement http.Hijacker")
+	}
+	return h.Hijack()
 }
 
 func auditPath(path string) bool {

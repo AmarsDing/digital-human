@@ -8,30 +8,51 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/teamwork/digital-human/internal/biz/action"
 	"github.com/teamwork/digital-human/internal/biz/archive"
 	"github.com/teamwork/digital-human/internal/biz/audit"
+	"github.com/teamwork/digital-human/internal/biz/avatar"
 	"github.com/teamwork/digital-human/internal/biz/billing"
+	"github.com/teamwork/digital-human/internal/biz/capability"
+	"github.com/teamwork/digital-human/internal/biz/chat"
 	"github.com/teamwork/digital-human/internal/biz/choreo"
+	"github.com/teamwork/digital-human/internal/biz/contentpkg"
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
+	"github.com/teamwork/digital-human/internal/biz/gift"
+	"github.com/teamwork/digital-human/internal/biz/interaction"
 	"github.com/teamwork/digital-human/internal/biz/koubo"
 	"github.com/teamwork/digital-human/internal/biz/live"
 	"github.com/teamwork/digital-human/internal/biz/media"
+	"github.com/teamwork/digital-human/internal/biz/patron"
+	"github.com/teamwork/digital-human/internal/biz/persona"
+	"github.com/teamwork/digital-human/internal/biz/recording"
 	"github.com/teamwork/digital-human/internal/biz/refs"
 	"github.com/teamwork/digital-human/internal/biz/rtc"
 	"github.com/teamwork/digital-human/internal/biz/settings"
 	"github.com/teamwork/digital-human/internal/biz/song"
-	"github.com/teamwork/digital-human/internal/biz/tts"
+	tts2 "github.com/teamwork/digital-human/internal/biz/tts"
+	"github.com/teamwork/digital-human/internal/biz/vidukeys"
 	"github.com/teamwork/digital-human/internal/conf"
 	"github.com/teamwork/digital-human/internal/data"
+	"github.com/teamwork/digital-human/internal/data/ent"
 	"github.com/teamwork/digital-human/internal/data/repo"
+	"github.com/teamwork/digital-human/internal/engine"
+	"github.com/teamwork/digital-human/internal/engine/tts"
+	"github.com/teamwork/digital-human/internal/engine/vidu"
+	"github.com/teamwork/digital-human/internal/llm"
+	"github.com/teamwork/digital-human/internal/publish"
+	"github.com/teamwork/digital-human/internal/relay"
 	"github.com/teamwork/digital-human/internal/server"
 	"github.com/teamwork/digital-human/internal/service"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 	"github.com/teamwork/digital-human/pkg/logx"
 	"log/slog"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -48,39 +69,53 @@ func InitApp(cfgPath string, version2 VersionInfo) (*App, func(), error) {
 	}
 	logger := provideLogger(config)
 	bus := provideBus()
-	ticketStore := provideTickets(config)
 	data, cleanup, err := provideData(config, logger)
 	if err != nil {
 		return nil, nil, err
 	}
+	ticketStore := provideTickets(config, data)
+	nonceStore := provideNonces(data)
 	eventSink := provideSink(data)
-	controller := provideController(config, logger)
+	mainRealDeps := provideRealDeps(config)
+	controller := provideController(config, mainRealDeps, logger)
 	sessionStore := provideSessionStore(data)
-	store := provideIdempotency()
-	manager := provideManager(bus, eventSink, controller, sessionStore, store)
-	service := provideSettings(data)
-	danmakuService := provideDanmaku()
-	mainPanelRuntime := providePanelRuntime(bus, service, danmakuService, sessionStore, manager)
-	// G15：弹幕模式变更持久化到 settings（danmaku.mode）。
-	danmakuService.SetModePersist(func(m danmaku.Mode) {
-		_ = service.Patch(context.Background(), "danmaku", map[string]any{"mode": string(m)})
-	})
-	// 口播/动作中断副作用：Interrupt=停播放+停TTS批量合成，StopActions=中断当前动作语音。
-	manager.SetInterruptHooks(live.InterruptHooks{
-		StopPlayback:    func(ctx context.Context) { _ = mainPanelRuntime.player.Stop(ctx) },
-		ClearTTSQueue:   func(context.Context) { mainPanelRuntime.koubo.AbortTTSAll() },
-		StopActionAudio: func(ctx context.Context) { mainPanelRuntime.scheduler.Interrupt(ctx) },
-	})
+	store := provideIdempotency(data)
+	switchableAvatarStore := provideAvatarStore(data, logger)
+	service := provideAvatar(switchableAvatarStore)
+	recorder := provideRecorder(config, mainRealDeps, logger)
+	billingService := provideBilling(data)
+	creditsPoller := provideCreditsPoller(config, mainRealDeps, billingService, bus, logger)
+	settingsService := provideSettings(data, logger)
+	personaService := providePersona(switchableAvatarStore, settingsService)
+	manager := provideChat(settingsService, personaService)
+	publisher := providePublisher(config, bus, logger)
+	liveManager := provideManager(config, bus, eventSink, controller, sessionStore, store, service, recorder, creditsPoller, manager, publisher, settingsService)
+	danmakuService := provideDanmaku(data)
+	imageService := provideAvatarImages(switchableAvatarStore)
+	syncService := provideAvatarSync(mainRealDeps, switchableAvatarStore, imageService, data, logger)
+	vidukeysService := provideViduKeys(config, data, mainRealDeps, settingsService, logger)
+	mainInteractionRuntime, err := provideInteraction(data, liveManager)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	patronService := provideGiftPatrons(data, danmakuService, settingsService, liveManager, bus, logger, mainInteractionRuntime)
+	mainPanelRuntime := providePanelRuntime(bus, settingsService, danmakuService, sessionStore, liveManager, config, mainRealDeps, controller, billingService, personaService, service, switchableAvatarStore, imageService, syncService, manager, vidukeysService, recorder, patronService)
 	issuer := provideRTCIssuer(config)
-	liveService := provideLiveService(manager, mainPanelRuntime, issuer)
+	liveService := provideLiveService(liveManager, mainPanelRuntime, issuer)
 	serviceDanmakuService := provideDanmakuService(danmakuService)
-	settingsService := provideSettingsService(service)
-	health := provideHealth(version2, config, data, manager)
+	serviceSettingsService := provideSettingsService(settingsService)
+	capabilitySource := provideCapabilities(config, mainPanelRuntime, publisher, sessionStore, data)
+	health := provideHealth(version2, config, data, liveManager, capabilitySource)
 	auditService := provideAudit(data)
-	settingsService.SetDanmaku(danmakuService)
-	settingsService.SetAudit(auditService)
-	server := provideHTTPServer(config, logger, bus, ticketStore, liveService, serviceDanmakuService, settingsService, health, version2, auditService, mainPanelRuntime)
-	app := provideApp(server, data, logger, manager)
+	streamService := provideStreamService(publisher)
+	tracker := provideCollectorTracker(config)
+	collectorService := provideCollectorService(tracker)
+	preflight := providePreflight(config, service, capabilitySource, publisher, sessionStore, liveManager, mainPanelRuntime)
+	server := provideHTTPServer(config, logger, bus, ticketStore, nonceStore, liveService, serviceDanmakuService, serviceSettingsService, health, version2, auditService, mainPanelRuntime, streamService, collectorService, tracker, preflight)
+	worker := provideDanmakuWorker(danmakuService, settingsService, manager, liveManager, bus, logger)
+	contentpkgService := provideContentpkg(data)
+	app := provideApp(server, data, logger, liveManager, worker, mainInteractionRuntime, contentpkgService)
 	return app, func() {
 		cleanup()
 	}, nil
@@ -104,13 +139,89 @@ func provideSink(d *data.Data) live.EventSink {
 	return sw
 }
 
-// provideController 默认 fail-closed：仅 engine.mode=dev 才装配 fake。
-func provideController(cfg *conf.Config, logger *slog.Logger) live.Controller {
-	return live.NewConfiguredController(context.Background(), live.EngineOptions{
+// realDeps 真实引擎外部依赖（Vidu HTTP + OmniVoice 边车）；
+// 仅 real 模式且凭据齐全时非 nil，缺任一即 nil（控制器随之 503 engine_not_configured）。
+type realDeps struct {
+	vidu *vidu.Client
+	tts  *tts.Client
+}
+
+func provideRealDeps(cfg *conf.Config) *realDeps {
+	if cfg.Engine.Mode != "real" || cfg.Engine.ViduKey == "" || cfg.Engine.OmniVoiceAddr == "" {
+		return nil
+	}
+	return &realDeps{
+		vidu: vidu.NewClient(vidu.Options{
+			APIKey:  cfg.Engine.ViduKey,
+			BaseURL: cfg.Engine.ViduBaseURL,
+		}),
+		tts: tts.NewClient(tts.Options{BaseURL: cfg.Engine.OmniVoiceAddr}),
+	}
+}
+
+// provideController 默认 fail-closed：仅 engine.mode=dev 才装配 fake；
+// real 模式凭据齐全时注入 ViduController 真实工厂，否则 503 engine_not_configured。
+func provideController(cfg *conf.Config, deps *realDeps, logger *slog.Logger) live.Controller {
+	opts := live.EngineOptions{
 		Mode:          cfg.Engine.Mode,
 		ViduKey:       cfg.Engine.ViduKey,
 		OmniVoiceAddr: cfg.Engine.OmniVoiceAddr,
-	}, logger)
+	}
+	if deps != nil {
+		opts.RealFactory = func(context.Context) (live.Controller, error) {
+			return engine.NewViduController(engine.ViduConfig{
+				Client:           deps.vidu,
+				WS:               vidu.WSOptions{URL: cfg.Engine.ViduWSURL},
+				TTS:              deps.tts,
+				Logger:           logger,
+				RecordingEnabled: cfg.Engine.RecordingEnabled,
+			})
+		}
+	}
+	return live.NewConfiguredController(context.Background(), opts, logger)
+}
+
+// provideRecorder F34 云录制：real 模式且配置开通才注入 Supervisor；
+// 其他情况为 nil，Manager 如实记录 none（不假装在录）。
+func provideRecorder(cfg *conf.Config, deps *realDeps, logger *slog.Logger) live.Recorder {
+	if deps == nil || !cfg.Engine.RecordingEnabled {
+		return nil
+	}
+	return recording.New(true, recording.ViduClient{C: deps.vidu}, logger)
+}
+
+// recorderSupervisor 把 live.Recorder 断言回 *recording.Supervisor 供面板路由使用。
+func recorderSupervisor(r live.Recorder) *recording.Supervisor {
+	if s, ok := r.(*recording.Supervisor); ok {
+		return s
+	}
+	return nil
+}
+
+// viduCreditsQuery 有凭据时返回实时额度查询闭包（透传 vidu client）；否则 nil（路由返回空态）。
+func viduCreditsQuery(deps *realDeps) func(context.Context) (map[string]any, error) {
+	if deps == nil || deps.vidu == nil {
+		return nil
+	}
+	c := deps.vidu
+	return func(ctx context.Context) (map[string]any, error) { return c.Credits(ctx) }
+}
+
+// provideRefsSignaler G3-1：refs 推送信令按引擎模式装配（参照 engine_select.go 先例）。
+//   - mode=dev：显式 FakeSignaler（仅本地自测）并显式告警；
+//   - real：桥到控制器 type11 出口（ViduController.PromptOperation），生产链路接通；
+//   - real 但控制器无该出口（凭据缺失的 UnavailableController）：注入 nil 操作口，
+//     SetPrompt 如实返回 ErrNoSignal（fail-closed，开播时序走 refs_push_failed 降级），
+//     绝不静默成功。
+func provideRefsSignaler(cfg *conf.Config, ctrl live.Controller) refs.Signaler {
+	if cfg.Engine.Mode == "dev" {
+		slog.Default().Warn("refs signaler mode=dev：使用 FakeSignaler，仅限本地自测")
+		return refs.NewFakeSignaler()
+	}
+	if op, ok := ctrl.(refs.PromptOperator); ok {
+		return refs.NewViduSignaler(op)
+	}
+	return refs.NewViduSignaler(nil)
 }
 
 // provideAudit 启动时用内存审计兜底；PG 运行期就绪后切换为 Ent。
@@ -128,53 +239,440 @@ func provideSessionStore(d *data.Data) live.SessionStore {
 	return sw
 }
 
-func provideIdempotency() live.Store {
-	return live.NewMemoryIdempotencyStore(live.DefaultIdempotencyTTL)
+// provideIdempotency Redis 可用时优先 Redis 版（多实例共享、重启不丢）；
+// 否则内存兜底、PG 运行期就绪后切换为 Ent（首写胜出语义一致）。
+// 注意：Redis 在进程启动后才就绪时不会补切换幂等存储（Probe 重连只切 PG 侧）。
+func provideIdempotency(d *data.Data) live.Store {
+	if d.RedisAvailable && d.Redis != nil {
+		return live.NewRedisIdempotencyStore(d.Redis, live.DefaultIdempotencyTTL)
+	}
+	sw := repo.NewSwitchableIdempotencyStore(live.NewMemoryIdempotencyStore(live.DefaultIdempotencyTTL))
+	d.SetOnDBReady(sw.SetEnt)
+	return sw
+}
+
+// provideBilling 账本服务：JSON 文件作为无 PG 降级（重启不丢），
+// PG 运行期就绪后切换为 Ent costledger 表；切换不搬移文件历史账目。
+func provideBilling(d *data.Data) *billing.Service {
+	fallback := billing.NewFileStore(filepath.Join("storage", "cost", "ledger.json"))
+	sw := repo.NewSwitchableCostStore(fallback)
+	d.SetOnDBReady(sw.SetEnt)
+	return billing.NewService(sw)
+}
+
+// viduCreditsSource 把 Vidu /ent/v2/credits 响应适配为剩余额度（credits.remain）。
+type viduCreditsSource struct{ c *vidu.Client }
+
+func (v viduCreditsSource) Credits(ctx context.Context) (int64, error) {
+	m, err := v.c.Credits(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return parseCreditsRemain(m)
+}
+
+// parseCreditsRemain 容错解析：顶层数值、credits{remain} 嵌套、data 包裹三种形态。
+func parseCreditsRemain(m map[string]any) (int64, error) {
+	if v, ok := toInt64(m["remain"]); ok {
+		return v, nil
+	}
+	if c, ok := m["credits"].(map[string]any); ok {
+		if v, ok := toInt64(c["remain"]); ok {
+			return v, nil
+		}
+	} else if v, ok := toInt64(m["credits"]); ok {
+		return v, nil
+	}
+	if d, ok := m["data"].(map[string]any); ok {
+		if v, err := parseCreditsRemain(d); err == nil {
+			return v, err
+		}
+	}
+	return 0, fmt.Errorf("credits 响应缺少 remain 字段")
+}
+
+func toInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return i, err == nil
+	case string:
+		i, err := strconv.ParseInt(n, 10, 64)
+		return i, err == nil
+	}
+	return 0, false
+}
+
+// provideCreditsPoller F36：仅 real 模式且 Vidu 凭据齐全时注入额度轮询；
+// 其余情况为 nil（Manager 不启动轮询，账本只来自手工/其他来源，不假装在轮询）。
+// 轮询间隔取 max(30s, credits_poll_s)（蓝本口径），默认 60s。
+func provideCreditsPoller(cfg *conf.Config, deps *realDeps, bill *billing.Service, bus *eventbus.Bus, logger *slog.Logger) live.CreditsPoller {
+	if deps == nil {
+		return nil
+	}
+	interval := time.Duration(cfg.Billing.CreditsPollS) * time.Second
+	if interval < billing.MinPollInterval {
+		interval = billing.MinPollInterval
+	}
+	return billing.NewPoller(bill, viduCreditsSource{c: deps.vidu}, billing.PollerOptions{
+		Interval: interval,
+		Logger:   logger,
+		EmitEvent: func(typ string, payload map[string]any) {
+			sid, _ := payload["session_id"].(string)
+			bus.Publish(context.Background(), sid, typ, 0, payload)
+		},
+	})
+}
+
+// provideAvatarStore 数字人档案库存储（v3 §7.4）：无 PG 走 MemoryAvatarStore；
+// PG 就绪经 SetOnDBReady 热切（不回迁，同 SwitchablePersonaStore 先例），
+// 热切后执行 settings 旧键 → 默认档案迁移（§7.2，幂等键 avatar_migration_v1）。
+func provideAvatarStore(d *data.Data, logger *slog.Logger) *repo.SwitchableAvatarStore {
+	sw := repo.NewSwitchableAvatarStore(avatar.NewMemoryStore())
+	d.SetOnDBReady(func(c *ent.Client) {
+		sw.SetEnt(c)
+		if err := repo.MigrateAvatars(context.Background(), c, logger); err != nil {
+			logger.Warn("avatar migration failed（下次启动重试）", "err", err)
+		}
+	})
+	return sw
+}
+
+// provideAvatar 数字人档案库服务（v3 §7/§8）：ProfileResolver 为全系统唯一档案读取
+// 入口；CRUD/图片管线经面板 11 RPC（M2），sync-vidu 管线 M3 已落地。
+func provideAvatar(store *repo.SwitchableAvatarStore) *avatar.Service {
+	return avatar.NewService(store)
+}
+
+// provideAvatarImages 图片管线（内容寻址 storage/images，§5.3 校验顺序写死）；
+// panelRuntime 与 sync 管线共享同一实例（同一路径根与 dedup 视图）。
+func provideAvatarImages(avatarStore *repo.SwitchableAvatarStore) *avatar.ImageService {
+	return avatar.NewImageService(avatarStore, filepath.Join("storage", "images"))
+}
+
+// provideAvatarSync sync-vidu 202 异步管线（v3 §2.2，M3）：real 模式且 Vidu 凭据齐全
+// 时注入真实 uploader，否则 nil → sync-vidu 503 vidu_key_unconfigured（fail-closed）。
+// 开机对账经 SetOnDBReady 注册：本 provider 依赖 avatarStore，wire 保证其在
+// provideAvatarStore 之后执行，故对账回调晚于热切回调触发，Ent 就绪后重置非终态
+// vidu_sync_state 为 error:interrupted 并 best-effort 清理孤儿资产（补偿③）。
+func provideAvatarSync(
+	deps *realDeps,
+	avatarStore *repo.SwitchableAvatarStore,
+	images *avatar.ImageService,
+	d *data.Data,
+	logger *slog.Logger,
+) *avatar.SyncService {
+	var up avatar.SyncUploader
+	if deps != nil {
+		up = deps.vidu
+	}
+	svc := avatar.NewSyncService(avatarStore, images, up, logger)
+	d.SetOnDBReady(func(*ent.Client) {
+		svc.ReconcileOnBoot(context.Background())
+	})
+	return svc
 }
 
 func provideManager(
+	cfg *conf.Config,
 	bus *eventbus.Bus,
 	sink live.EventSink,
 	ctrl live.Controller,
 	sessions live.SessionStore,
 	idem live.Store,
+	resolver avatar.ProfileResolver,
+	recorder live.Recorder,
+	poller live.CreditsPoller,
+	chatMgr *chat.Manager,
+	pub *publish.Publisher,
+	st *settings.Service,
 ) *live.Manager {
-	return live.NewManagerWithStores(bus, sink, ctrl, sessions, idem)
+	m := live.NewManagerWithStores(bus, sink, ctrl, sessions, idem, resolver)
+	if recorder != nil {
+		m.SetRecorder(recorder)
+	}
+	if poller != nil {
+		m.SetCreditsPoller(poller)
+	}
+	if chatMgr != nil {
+
+		m.SetLlmMemory(chatMgr)
+	}
+	if pub != nil {
+		m.SetPushGate(pub, cfg.Stream.AllowUnpushedLive)
+	}
+
+	m.SetCaptionSplitFn(func() bool {
+		v, ok := st.Value(context.Background(), "captions", "output_sentences").(bool)
+		if !ok {
+			return true
+		}
+		return v
+	})
+
+	m.SetRecordingFlagFn(func() bool {
+		v, _ := st.Value(context.Background(), "misc", "record_enabled").(bool)
+		return v
+	})
+	return m
 }
 
-func provideDanmaku() *danmaku.Service { return danmaku.NewService(danmaku.ModeOff) }
+// provideDanmaku 启动时用内存环形缓冲兜底；PG 运行期就绪后弹幕事件落 danmakuevent 表。
+func provideDanmaku(d *data.Data) *danmaku.Service {
+	svc := danmaku.NewService(danmaku.ModeOff)
+	sw := repo.NewSwitchableDanmakuSink(danmaku.NewMemoryEventSink(512))
+	d.SetOnDBReady(sw.SetEnt)
+	svc.SetEventSink(sw)
+	return svc
+}
 
-// provideSettings 启动时用内存设置兜底；PG 运行期就绪后切换为 Ent。
-func provideSettings(d *data.Data) *settings.Service {
+// provideSettings 启动时用内存设置兜底；PG 运行期就绪后切换为 Ent，
+// 并对存量明文 llm.api_key 执行原地加密迁移（幂等，enc:v1: 前缀自识别，
+// 失败仅告警、下次启动重试）。
+func provideSettings(d *data.Data, logger *slog.Logger) *settings.Service {
 	mem := settings.NewMemoryStore()
 	sw := repo.NewSwitchableSettingStore(mem)
-	d.SetOnDBReady(sw.SetEnt)
+	d.SetOnDBReady(func(c *ent.Client) {
+		sw.SetEnt(c)
+		if err := repo.MigrateLLMAPIKey(context.Background(), c, logger); err != nil {
+			logger.Warn("llm api_key migration failed（下次启动重试）", "err", err)
+		}
+	})
 	return settings.NewService(sw)
 }
 
-func provideTickets(cfg *conf.Config) server.TicketStore {
+// liveSpeaker 把 live.Manager.Say 适配为弹幕批读 Speaker 出口（mode 固定 danmaku）。
+type liveSpeaker struct{ m *live.Manager }
+
+func (s liveSpeaker) Say(ctx context.Context, text string) error {
+	_, err := s.m.Say(ctx, text, "danmaku")
+	return err
+}
+
+// provideDanmakuWorker F24 弹幕批读 worker：Speaker 接 live.Manager.Say（TTS/口播链路），
+// Chatter 接 chat.Manager（dm_anchor 完整回答）；随开播/停播由 Manager 生命周期钩子启停。
+func provideDanmakuWorker(
+	dm *danmaku.Service,
+	st *settings.Service,
+	chatMgr *chat.Manager,
+	mgr *live.Manager,
+	bus *eventbus.Bus,
+	logger *slog.Logger,
+) *danmaku.Worker {
+	w := danmaku.NewWorker(dm, liveSpeaker{m: mgr}, chatMgr, st, danmaku.WorkerOptions{
+		Logger: logger,
+		EmitEvent: func(typ string, payload map[string]any) {
+			sid, _ := payload["session_id"].(string)
+			bus.Publish(context.Background(), sid, typ, 0, payload)
+		},
+	})
+	mgr.SetDanmakuWorker(w)
+	return w
+}
+
+// giftSpeaker 把 live.Manager.Say 适配为 gift/patron 的 Speaker 出口（mode 区分来源）。
+type giftSpeaker struct{ m *live.Manager }
+
+func (s giftSpeaker) Say(ctx context.Context, text, mode string) error {
+	_, err := s.m.Say(ctx, text, mode)
+	return err
+}
+
+// patronSpeaker 固定 mode=patron（贵宾欢迎播报出口，与弹幕/礼物区分便于观测）。
+type patronSpeaker struct{ m *live.Manager }
+
+func (s patronSpeaker) Say(ctx context.Context, text string) error {
+	_, err := s.m.Say(ctx, text, "patron")
+	return err
+}
+
+// provideGiftPatrons F 批礼物/贵宾切片总接线（F27/F28/F29/G24/G25/G26）：
+//   - gift.Merger：danmaku kind=gift 事件进时间窗合并器（不直接念），满足触发条件合成
+//     「谢谢 xx 的 N 个 yy」入 Say；窗口/阈值/节流键读 settings gift 组（默认对齐蓝本
+//     config.example.json:99-115）；F28 贵宾欢迎（单件钻石价 > member.threshold_diamond，
+//     once_per_session + cooldown_s 双闸，模板 member.template）；G26 复用 danmaku.block_words。
+//   - patron.Service：贵宾名单持久化（Ent patron 表，无 PG 内存兜底热切）；
+//     G24 进场欢迎（danmaku kind=join 钩子，member.forward_joins 开关 + welcome_template）。
+//   - kindTap 把 danmaku 的 gift/join 事件分流到上述两者；随场启停挂 live.Manager session 钩子。
+//
+// 返回 patron.Service 供面板五路由使用。
+func provideGiftPatrons(
+	d *data.Data,
+	dm *danmaku.Service,
+	st *settings.Service,
+	mgr *live.Manager,
+	bus *eventbus.Bus,
+	logger *slog.Logger,
+	ix *interactionRuntime,
+) *patron.Service {
+	emit := func(typ string, payload map[string]any) {
+		sid, _ := payload["session_id"].(string)
+		bus.Publish(context.Background(), sid, typ, 0, payload)
+	}
+
+	giftMerger := gift.NewMerger(st, ix.gift, emit, logger)
+	mgr.AddSessionHook(giftMerger)
+
+	patStore := repo.NewSwitchablePatronStore(patron.NewMemoryStore())
+	d.SetOnDBReady(patStore.SetEnt)
+	patSvc := patron.NewService(patStore, st, patronSpeaker{m: mgr}, emit)
+	mgr.AddSessionHook(patSvc)
+
+	dm.SetKindTap(func(kind string, ev danmaku.TapEvent) {
+		ctx := context.Background()
+		if kind == "gift" {
+			item, num := parseGiftText(ev.Text)
+			giftMerger.Ingest(ctx, gift.Event{
+				UserID: ev.UserID, UserName: ev.UserName,
+				Item: item, Num: num, Unit: int(ev.Diamond), Value: int(ev.Diamond) * num,
+			})
+			return
+		}
+
+		_, _ = patSvc.OnJoin(ctx, ev.UserName, ev.UserID, "")
+	})
+	return patSvc
+}
+
+// parseGiftText 从 relay 礼物文本（"小心心 x5"）还原礼物名与数量；无 " xN" 后缀时 num=1。
+func parseGiftText(text string) (item string, num int) {
+	num = 1
+	i := strings.LastIndex(text, " x")
+	if i > 0 {
+		if n, err := strconv.Atoi(strings.TrimSpace(text[i+2:])); err == nil && n > 0 {
+			num = n
+			item = strings.TrimSpace(text[:i])
+			return item, num
+		}
+	}
+	return strings.TrimSpace(text), num
+}
+
+// providePersona F38 人设兼容壳（v3 §1.2 拍板：avatar 档案服务为 Persona 行唯一写方）。
+// 存储层委托 SwitchableAvatarStore（AvatarBackedStore），四路由语义不变；
+// 档案字段（vidu_*/refs/greeting 等）由 avatar 侧独占，兼容壳读改写保留不抹除。
+// 切换后旁路回写 settings persona.active_id 仅供抽屉显示，不构成第二条 prompt 写通路。
+func providePersona(avatarStore *repo.SwitchableAvatarStore, st *settings.Service) *persona.Service {
+	svc := persona.NewService(persona.NewAvatarBackedStore(avatarStore))
+	svc.SetActiveSync(func(ctx context.Context, id string) {
+		_ = st.Patch(ctx, "persona", map[string]any{"active_id": id})
+	})
+	return svc
+}
+
+// provideChat F15 会话编排单例：Streamer 每次调用取 settings.llm 快照（热改立即生效）；
+// ProfileResolver 用 persona.Service（G05 单一来源，无 active 时返回空串）。
+func provideChat(st *settings.Service, p *persona.Service) *chat.Manager {
+	cli := llm.NewClient(func() llm.Config {
+		ctx := context.Background()
+		cfg := llm.Config{
+			BaseURL:     settingStr(st, ctx, "llm", "base_url"),
+			APIKey:      settingStr(st, ctx, "llm", "api_key"),
+			Model:       settingStr(st, ctx, "llm", "model"),
+			Temperature: settingFloat(st, ctx, "llm", "temperature"),
+		}
+		if raw, ok := st.Value(ctx, "llm", "fallback_models").([]any); ok {
+			for _, v := range raw {
+				if s, _ := v.(string); strings.TrimSpace(s) != "" {
+					cfg.FallbackModels = append(cfg.FallbackModels, s)
+				}
+			}
+		}
+		return cfg
+	})
+	return chat.NewManager(cli, p)
+}
+
+func settingStr(st *settings.Service, ctx context.Context, group, key string) string {
+	s, _ := st.Value(ctx, group, key).(string)
+	return s
+}
+
+func settingFloat(st *settings.Service, ctx context.Context, group, key string) float64 {
+	switch n := st.Value(ctx, group, key).(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	}
+	return 0
+}
+
+// provideViduKeys F42/G18 多 key 管理：内存兜底、PG 热切；激活即热改 vidu client（real 模式）
+// 并同步 settings vidu_key.active_tail8（抽屉显示）；DB 就绪后把库中 active key 应用到 client
+// （覆盖 yaml 启动值，对齐蓝本 appconf 持久化语义）。切换后既有 Vidu 资产失效仅 UI 提示（v3 H6）。
+func provideViduKeys(cfg *conf.Config, d *data.Data, deps *realDeps, st *settings.Service, logger *slog.Logger) *vidukeys.Service {
+	sw := repo.NewSwitchableViduKeyStore(vidukeys.NewMemoryStore())
+	apply := func(plain string) {
+		if deps != nil && deps.vidu != nil {
+			deps.vidu.SetAPIKey(plain)
+		}
+		if err := st.Patch(context.Background(), "vidu_key", map[string]any{"active_tail8": vidukeys.Tail8(plain)}); err != nil {
+			logger.Warn("vidu key 激活后同步 settings 失败（不影响热切换）", "err", err)
+		}
+	}
+	svc := vidukeys.NewService(sw, apply)
+	d.SetOnDBReady(func(c *ent.Client) {
+		sw.SetEnt(c)
+		if err := svc.ApplyActive(context.Background()); err != nil {
+			logger.Warn("vidu key 库内 active 应用失败（保持 yaml key）", "err", err)
+		}
+	})
+	return svc
+}
+
+// provideTickets Redis 可用时用 RedisTicketStore（多实例共享、重启不丢）；
+// 否则内存版（重启丢 ticket、多实例不共享，差异见 README）。
+// 注意：启动后才就绪的 Redis 不会补切换 ticket 存储。
+func provideTickets(cfg *conf.Config, d *data.Data) server.TicketStore {
+	if d.RedisAvailable && d.Redis != nil {
+		return server.NewRedisTicketStore(d.Redis, cfg.Security.TicketTTL)
+	}
 	return server.NewMemoryTicketStore(cfg.Security.TicketTTL)
 }
 
-func provideHealth(version2 VersionInfo, cfg *conf.Config, d *data.Data, m *live.Manager) *server.Health {
+// provideNonces HMAC nonce 去重：Redis 可用时用 RedisNonceStore，否则内存版。
+func provideNonces(d *data.Data) server.NonceStore {
+	if d.RedisAvailable && d.Redis != nil {
+		return server.NewRedisNonceStore(d.Redis)
+	}
+	return server.NewMemoryNonceStore(0)
+}
+
+func provideHealth(version2 VersionInfo, cfg *conf.Config, d *data.Data, m *live.Manager, caps live.CapabilitySource) *server.Health {
 	h := server.NewHealth(string(version2), func(ctx context.Context) server.DataStatus {
 		st := d.Probe(ctx)
 		return server.DataStatus{Postgres: st.Postgres, Redis: st.Redis}
 	})
+
+	h.Strict = cfg.Health.RequireDependencies
 	h.Phase = func() string { return string(m.Snapshot().Phase) }
-	// capabilities 由真实装配计算：引擎模式 dev/real 决定 vidu/omnivoice 是否可用，
-	// PG/Redis 可用性取真实探活结果，不再恒 false。
+
 	h.Caps = func(ctx context.Context) map[string]bool {
 		st := d.Probe(ctx)
-		real := cfg.Engine.Mode == "real"
+		real2 := cfg.Engine.Mode == "real"
 		return map[string]bool{
-			"vidu":       real && cfg.Engine.ViduKey != "",
-			"omnivoice":  real && cfg.Engine.OmniVoiceAddr != "",
-			"ffmpeg":     false, // 未接入，见 M6 计划
+			"vidu":       real2 && cfg.Engine.ViduKey != "",
+			"omnivoice":  real2 && cfg.Engine.OmniVoiceAddr != "",
+			"ffmpeg":     media.FfmpegAvailable(),
 			"engine_dev": cfg.Engine.Mode == "dev",
 			"postgres":   st.Postgres,
 			"redis":      st.Redis,
 		}
+	}
+
+	h.CapWords = func(ctx context.Context) map[string]string {
+		out := map[string]string{}
+		for k, v := range caps(ctx) {
+			out[k] = string(v)
+		}
+		return out
 	}
 	return h
 }
@@ -186,6 +684,9 @@ type panelRuntime struct {
 	dm        *danmaku.Service
 	player    media.Player
 	koubo     *koubo.Service
+	// sender/synth §2.2 能力矩阵探测源（装配点显式化：类型即能力证据）。
+	sender action.Sender
+	synth  tts2.Synth
 }
 
 func providePanelRuntime(
@@ -194,44 +695,140 @@ func providePanelRuntime(
 	dm *danmaku.Service,
 	sessions live.SessionStore,
 	mgr *live.Manager,
+	cfg *conf.Config,
+	deps *realDeps,
+	ctrl live.Controller,
+	bill *billing.Service,
+	personas *persona.Service,
+	avatars *avatar.Service,
+	avatarStore *repo.SwitchableAvatarStore,
+	avatarImages *avatar.ImageService,
+	avatarSync *avatar.SyncService,
+	chatMgr *chat.Manager,
+	vkeys *vidukeys.Service,
+	recorder live.Recorder,
+	patrons *patron.Service,
 ) *panelRuntime {
 	isLive := func() bool { return mgr.Snapshot().Phase == live.PhaseLive }
 
 	audioLib := media.NewLibrary(filepath.Join("storage", "audio"))
 	songLib := media.NewLibrary(filepath.Join("storage", "songs"))
-	player := media.NewFakePlayer()
-	synth := tts.NewFakeSynth()
+
+	// 逐依赖真实装配：dev 显式 fake；real 缺什么就显式报什么，绝不静默降级。
+	var dec media.Decoder
+	var player media.Player
+	var synth tts2.Synth
+	if cfg.Engine.Mode == "dev" {
+		dec = media.FakeDecoder{}
+		player = media.NewFakePlayer()
+		synth = tts2.NewFakeSynth()
+	} else {
+		if deps != nil {
+			synth = tts.NewSynthAdapter(deps.tts, "")
+		} else {
+			synth = tts2.NewUnavailableSynth("omnivoice_addr_not_configured")
+		}
+		if fdec, err := media.NewFfmpegDecoder(); err == nil {
+			dec = fdec
+
+			if sinker, ok := ctrl.(interface {
+				NewFeedSink(kind string, song2 bool) engine.FeedSink
+			}); ok {
+				if p, perr := media.NewFfmpegPlayer(fdec, media.FeedSink(sinker.NewFeedSink("song", true))); perr == nil {
+					player = p
+				}
+			}
+		} else {
+			dec = media.UnavailableDecoder{Err: err}
+		}
+		if player == nil {
+			player = media.UnavailablePlayer{Err: media.ErrFFmpegUnavailable}
+		}
+	}
 
 	remote := action.NewMemoryRemote()
-	sched := action.NewScheduler(action.NewFakeSender(), bus, action.DefaultConfig())
+	sender := action.NewFakeSender()
+	sched := action.NewScheduler(sender, bus, action.DefaultConfig())
+
+	sched.SetVIP(func(user string) bool {
+		if dm.IsVIP(user) {
+			return true
+		}
+		return patrons.IsPatron(context.Background(), user)
+	})
 	actions := action.NewService(remote, sched)
 
 	chor := choreo.NewService(choreo.NewFileStore(filepath.Join("storage", "choreo.json")), sched)
 	sched.SetPauseChoreo(func(d time.Duration) { chor.Pause(d) })
 
-	songs := song.NewService(songLib, media.FakeDecoder{}, player, bus, isLive)
+	songs := song.NewService(songLib, dec, player, bus, isLive)
 	sched.SetSongPlaying(func() bool { return songs.Status().Playing })
 
 	kou := koubo.NewService(koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")), synth, player, koubo.FakeActionGen{}, filepath.Join("storage", "koubo"), isLive)
-	bill := billing.NewService(billing.NewFileStore(filepath.Join("storage", "cost", "ledger.json")))
 	arch := archive.NewService(sessions, mgr, bill)
+
+	arch.SetPersonaResolver(avatars)
+
+	refsSvc := refs.NewService(provideRefsSignaler(cfg, ctrl), bus)
+	mgr.SetRefSwitcher(refsSvc)
+
+	mgr.SetInterruptHooks(live.InterruptHooks{
+		StopPlayback:    func(ctx context.Context) { _ = player.Stop(ctx) },
+		ClearTTSQueue:   func(context.Context) { kou.AbortTTSAll() },
+		StopActionAudio: func(ctx context.Context) { _ = sched.Interrupt(ctx) },
+	})
+
+	refsSvc.SetDir("storage/refs")
 
 	return &panelRuntime{
 		scheduler: sched,
 		dm:        dm,
 		player:    player,
 		koubo:     kou,
+		sender:    sender,
+		synth:     synth,
 		deps: server.PanelDeps{
-			TTS:     tts.NewService(audioLib, synth, st),
-			Actions: actions,
-			Choreo:  chor,
-			Koubo:   kou,
-			Refs:    refs.NewService(refs.NewFakeSignaler(), bus),
-			Songs:   songs,
-			Archive: arch,
-			Billing: bill,
-			Danmaku: dm,
-			// import-folder 白名单根：只允许 storage 之下的目录。
+			TTS:      tts2.NewService(audioLib, synth, st),
+			Actions:  actions,
+			Choreo:   chor,
+			Koubo:    kou,
+			Refs:     refsSvc,
+			Songs:    songs,
+			Archive:  arch,
+			Billing:  bill,
+			Danmaku:  dm,
+			Personas: personas,
+			Patrons:  patrons,
+
+			Avatars:      avatars,
+			AvatarImages: avatarImages,
+			AvatarSync:   avatarSync,
+
+			ResetLLM: mgr.ResetLlm,
+
+			Chat: func(ctx context.Context, text string) (string, error) {
+				if !isLive() {
+					return "", server.ErrChatNotLive
+				}
+				return chatMgr.Chat(ctx, "admin", text, func(ctx context.Context, s string) error {
+					_, err := mgr.Say(ctx, s, "chat")
+					return err
+				})
+			},
+
+			ViduKeys: vkeys,
+			ViduKeyCurrent: func() string {
+				if deps != nil && deps.vidu != nil {
+					return deps.vidu.APIKey()
+				}
+				return cfg.Engine.ViduKey
+			},
+
+			Settings:  st,
+			Recording: recorderSupervisor(recorder),
+
+			Credits: viduCreditsQuery(deps),
+
 			StorageRoot: "storage",
 		},
 	}
@@ -267,16 +864,231 @@ func provideHTTPServer(
 	logger *slog.Logger,
 	bus *eventbus.Bus,
 	tickets server.TicketStore,
+	nonces server.NonceStore,
 	liveSvc *service.LiveService,
 	dmSvc *service.DanmakuService,
 	stSvc *service.SettingsService,
 	health *server.Health, version2 VersionInfo,
 	auditSvc *audit.Service,
 	rt *panelRuntime,
+	streamSvc *publish.StreamService,
+	collectorSvc *relay.CollectorService,
+	collectorTracker *relay.Tracker,
+	preflight *live.Preflight,
 ) *http.Server {
-	return server.NewHTTPServer(cfg, logger, bus, tickets, liveSvc, dmSvc, stSvc, health, string(version2), auditSvc, rt.deps)
+	return server.NewHTTPServer(cfg, logger, bus, tickets, nonces, liveSvc, dmSvc, stSvc, health, string(version2), auditSvc, rt.deps,
+		streamSvc, collectorSvc, collectorTracker, preflight)
 }
 
-func provideApp(s *http.Server, d *data.Data, logger *slog.Logger, m *live.Manager) *App {
-	return &App{Server: s, Data: d, Logger: logger, Manager: m}
+func provideApp(s *http.Server, d *data.Data, logger *slog.Logger, m *live.Manager, dmWorker *danmaku.Worker, ix *interactionRuntime, pkgs *contentpkg.Service) *App {
+	return &App{Server: s, Data: d, Logger: logger, Manager: m, DanmakuWorker: dmWorker, Interaction: ix, Contentpkg: pkgs}
+}
+
+// providePublisher DZ 批：stream.enabled=false 时返回 nil（路由不注册，前端按 404/unconfigured
+// 处理，Manager 不装配 PushGate、开播不做推流前置检查）；enabled=true 时开播必须先推流
+// （fail-closed，allow_unpushed_live 为唯一显式豁免）。
+// 注意：本 provider 不依赖 *live.Manager（Manager 反向依赖 Publisher 做 SetPushGate，
+// 直接引用会成环）；场次/epoch 经 bus.PublishScoped 由 Manager 启动时绑定的 Scope 填充
+// （live.NewManagerWithStores → bus.SetScope(m.Scope)），无场次时 session="" epoch=0。
+func providePublisher(cfg *conf.Config, bus *eventbus.Bus, logger *slog.Logger) *publish.Publisher {
+	if !cfg.Stream.Enabled {
+		return nil
+	}
+	pcfg := publish.Config{
+		Platform: "douyin",
+		Source:   publish.SourceKind(cfg.Stream.Source),
+		Stage: publish.CaptureConfig{
+			URL:      cfg.Stream.StageURL,
+			AllowGPU: cfg.Stream.AllowGPU,
+		},
+
+		Logf: func(f string, a ...any) { logger.Info(fmt.Sprintf("publish: "+f, a...)) },
+		OnEvent: func(ev publish.Event) {
+
+			bus.PublishScoped(context.Background(), "push.status", map[string]any{
+				"state": string(ev.State), "reason": ev.Reason, "at_ms": ev.At.UnixMilli(),
+			})
+		},
+	}
+	store := &publish.LayeredStore{
+		Mem:  &publish.MemTargetStore{},
+		File: publish.NewSecretsFileStore("var"),
+		Env:  publish.EnvTargetStore{},
+	}
+	return publish.NewPublisher(pcfg, store)
+}
+
+func provideCollectorTracker(cfg *conf.Config) *relay.Tracker {
+	if !cfg.Collector.Enabled {
+		return nil
+	}
+	return relay.NewTracker()
+}
+
+// provideStreamService 推流 HTTP 接口；pub 为 nil 时返回 nil（http.go 条件注册）。
+func provideStreamService(pub *publish.Publisher) *publish.StreamService {
+	if pub == nil {
+		return nil
+	}
+	return publish.NewStreamService(pub)
+}
+
+func provideCollectorService(t *relay.Tracker) *relay.CollectorService {
+	if t == nil {
+		return nil
+	}
+	return relay.NewCollectorService(t, relay.NewRoomConfigStore())
+}
+
+// interactionRuntime 互动一致性闭环装配产物（§5.4/§5.5）。
+type interactionRuntime struct {
+	svc  *interaction.Service
+	disp *interaction.Dispatcher
+	gift *interaction.GiftSpeaker
+}
+
+// provideInteraction B3：Decision/EffectOutbox 存储（内存启动、PG 热切）+ dispatcher
+// lease 骨架 + 礼物答谢链路（gift 合并触发 → 落库 → 派发 Say → 回执写状态）。
+func provideInteraction(d *data.Data, mgr *live.Manager) (*interactionRuntime, error) {
+	sw := repo.NewSwitchableInteractionStore(interaction.NewMemoryStore())
+	d.SetOnDBReady(sw.SetEnt)
+	svc := interaction.NewService(sw)
+	disp, err := interaction.NewDispatcher(sw, 30*time.Second, 30*time.Second, nil)
+	if err != nil {
+		return nil, err
+	}
+	gs := interaction.NewGiftSpeaker(svc, disp, giftSpeaker{m: mgr}, func() (string, bool) {
+		snap := mgr.Snapshot()
+		if snap.Phase == live.PhaseLive || snap.Phase == live.PhaseStarting {
+			return snap.SessionID, true
+		}
+		return "", false
+	})
+	gs.RegisterGiftHandler()
+	return &interactionRuntime{svc: svc, disp: disp, gift: gs}, nil
+}
+
+// provideCapabilities B2 §2.2：能力矩阵由装配点显式计算——按实际装配的实现类型给
+// 状态词，绝不只按配置存在报 real；探测未做的一律 unknown。
+func provideCapabilities(
+	cfg *conf.Config,
+	rt *panelRuntime,
+	pub *publish.Publisher,
+	sessions live.SessionStore,
+	d *data.Data,
+) live.CapabilitySource {
+	return func(ctx context.Context) capability.Matrix {
+		mx := capability.Matrix{}
+
+		if rt != nil && rt.sender != nil {
+			switch rt.sender.(type) {
+			case *action.FakeSender:
+				mx["action_sender"] = capability.Fake
+				mx["action_remote"] = capability.Fake
+			default:
+				mx["action_sender"] = capability.Unknown
+				mx["action_remote"] = capability.Unknown
+			}
+		} else {
+			mx["action_sender"] = capability.Unconfigured
+			mx["action_remote"] = capability.Unconfigured
+		}
+
+		if rt != nil && rt.player != nil {
+			switch rt.player.(type) {
+			case *media.FakePlayer:
+				mx["song_player"] = capability.Fake
+			case media.UnavailablePlayer:
+				mx["song_player"] = capability.Unconfigured
+			case *media.FfmpegPlayer:
+				mx["song_player"] = capability.Unknown
+			default:
+				mx["song_player"] = capability.Unknown
+			}
+		} else {
+			mx["song_player"] = capability.Unconfigured
+		}
+
+		if rt != nil && rt.synth != nil {
+			switch rt.synth.(type) {
+			case *tts2.FakeSynth:
+				mx["tts"] = capability.Fake
+			case tts2.UnavailableSynth:
+				mx["tts"] = capability.Unconfigured
+			default:
+				mx["tts"] = capability.Unknown
+			}
+		} else {
+			mx["tts"] = capability.Unconfigured
+		}
+
+		switch {
+		case cfg.Engine.Mode == "dev":
+			mx["vidu"] = capability.Fake
+		case cfg.Engine.ViduKey == "":
+			mx["vidu"] = capability.Unconfigured
+		default:
+			mx["vidu"] = capability.Unknown
+		}
+
+		mx["koubo_actiongen"] = capability.Fake
+
+		if pub == nil {
+			mx["push_gate"] = capability.Unconfigured
+		} else if pub.Status().State == publish.StatePushing {
+			mx["push_gate"] = capability.Real
+		} else {
+			mx["push_gate"] = capability.Unknown
+		}
+
+		if p, ok := sessions.(interface{ Persistent() bool }); ok && p.Persistent() {
+			mx["storage_persistent"] = capability.Real
+		} else {
+			mx["storage_persistent"] = capability.Fake
+		}
+		return mx
+	}
+}
+
+// providePreflight B1 §7.5：唯一 ready 判定服务装配 + 严格 Start 缺省模式（§7.6）。
+func providePreflight(
+	cfg *conf.Config,
+	resolver avatar.ProfileResolver,
+	caps live.CapabilitySource,
+	pub *publish.Publisher,
+	sessions live.SessionStore,
+	mgr *live.Manager,
+	rt *panelRuntime,
+) *live.Preflight {
+	pf := live.NewPreflight(resolver, caps,
+		func() (publish.PushGate, bool) {
+			if pub == nil {
+				return nil, false
+			}
+			return pub, cfg.Stream.AllowUnpushedLive
+		},
+		func() bool {
+			p, ok := sessions.(interface{ Persistent() bool })
+			return ok && p.Persistent()
+		})
+	mgr.SetPreflight(pf)
+
+	mode := live.Mode(cfg.Live.StartMode)
+	if mode == "" {
+		if cfg.Engine.Mode == "dev" {
+			mode = live.ModeLocalPreview
+		} else {
+			mode = live.ModePublicLive
+		}
+	}
+	mgr.SetDefaultMode(mode)
+	return pf
+}
+
+// provideContentpkg B4 §7.1/§7.3/§7.4：LiveDraft CAS + ApplyJournal 骨架存储
+// （内存启动、PG 热切）；apply 提交点/补偿为显式未实现错误。
+func provideContentpkg(d *data.Data) *contentpkg.Service {
+	sw := repo.NewSwitchableContentpkgStore(contentpkg.NewMemoryStore())
+	d.SetOnDBReady(sw.SetEnt)
+	return contentpkg.NewService(sw)
 }

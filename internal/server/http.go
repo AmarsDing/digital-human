@@ -9,11 +9,16 @@ import (
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	collectorv1 "github.com/teamwork/digital-human/api/gen/go/collector/v1"
 	configv1 "github.com/teamwork/digital-human/api/gen/go/config/v1"
 	livev1 "github.com/teamwork/digital-human/api/gen/go/live/v1"
+	streamv1 "github.com/teamwork/digital-human/api/gen/go/stream/v1"
 
 	"github.com/teamwork/digital-human/internal/biz/audit"
+	"github.com/teamwork/digital-human/internal/biz/live"
 	"github.com/teamwork/digital-human/internal/conf"
+	"github.com/teamwork/digital-human/internal/publish"
+	"github.com/teamwork/digital-human/internal/relay"
 	"github.com/teamwork/digital-human/internal/service"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 	"github.com/teamwork/digital-human/pkg/logx"
@@ -21,11 +26,13 @@ import (
 
 // NewHTTPServer 组装 Kratos HTTP 服务。所有写接口由鉴权 filter 先行拦截；
 // 未登记在公开白名单中的路径默认要求鉴权，避免新增接口时漏口。
+// nonces 由装配层按 Redis 可用性注入（内存版重启即清空，多实例不共享）。
 func NewHTTPServer(
 	cfg *conf.Config,
 	logger *slog.Logger,
 	bus *eventbus.Bus,
 	tickets TicketStore,
+	nonces NonceStore,
 	liveSvc *service.LiveService,
 	dmSvc *service.DanmakuService,
 	stSvc *service.SettingsService,
@@ -33,7 +40,14 @@ func NewHTTPServer(
 	version string,
 	auditSvc *audit.Service,
 	panels PanelDeps,
+	streamSvc *publish.StreamService,
+	collectorSvc *relay.CollectorService,
+	collectorTracker *relay.Tracker,
+	preflight *live.Preflight, // 深化方案 v2 §7.5 唯一预检服务；nil 时无路由（fail-closed）
 ) *khttp.Server {
+	if nonces == nil {
+		nonces = NewMemoryNonceStore(defaultNonceWindow)
+	}
 	// 注意：kratos 的 Filter 选项是整体赋值而非追加，多个 Filter 只会保留最后一个；
 	// 因此统一由 serverFilters 聚合成一次调用，避免鉴权链丢中间件。
 	srv := khttp.NewServer(
@@ -41,7 +55,7 @@ func NewHTTPServer(
 		// 全局短超时不能作用到长连；改为 Timeout(0)，由 timeoutFilter 对非 WS 路由施加短超时。
 		// WS handler 继续监听 req.Context().Done()，该 Done 只在客户端断开时触发。
 		khttp.Timeout(0),
-		khttp.Filter(serverFilters(cfg, logger, tickets, auditSvc)...),
+		khttp.Filter(serverFiltersWithNonces(cfg, logger, tickets, auditSvc, nonces)...),
 	)
 
 	r := srv.Route("/")
@@ -73,19 +87,46 @@ func NewHTTPServer(
 	livev1.RegisterLiveServiceHTTPServer(srv, liveSvc)
 	livev1.RegisterDanmakuServiceHTTPServer(srv, dmSvc)
 	configv1.RegisterSettingsServiceHTTPServer(srv, stSvc)
+	// DZ 批：推流与采集状态接口；未装配（nil）时不注册，前端按 404/unconfigured 处理。
+	if streamSvc != nil {
+		streamv1.RegisterStreamServiceHTTPServer(srv, streamServiceAdapter{streamSvc})
+	}
+	if collectorSvc != nil {
+		collectorv1.RegisterCollectorServiceHTTPServer(srv, collectorSvc)
+	}
+	if collectorTracker != nil {
+		// 心跳为 plain handler：HMAC 验签在 handler 内部完成（collectorauth，
+		// 与服务端 checkCollectorHMAC 同口径，auth filter 侧放行见 auth.go）。
+		srv.Handle("/api/v1/collector/heartbeat", collectorTracker.HeartbeatHandler(cfg.Security.CollectorSecret))
+		srv.Handle("/api/v1/collector/status", http.HandlerFunc(collectorTracker.StatusHandler))
+	}
 	registerPanelRoutes(srv, panels)
+	registerPreflightRoute(srv, preflight)
 	return srv
 }
 
+// streamServiceAdapter 适配 DZ 批命名差异：publish.StreamService 实现的方法名是 SetTarget，
+// 而生成接口（stream.proto rpc SetPushTarget）要求 SetPushTarget；接线层薄适配，不改 DZ 包。
+type streamServiceAdapter struct{ *publish.StreamService }
+
+// SetPushTarget 实现 streamv1.StreamServiceHTTPServer。
+func (a streamServiceAdapter) SetPushTarget(ctx context.Context, req *streamv1.SetPushTargetRequest) (*streamv1.SetPushTargetReply, error) {
+	return a.SetTarget(ctx, req)
+}
+
 // serverFilters 聚合全部 HTTP 中间件，顺序即执行顺序：日志 -> 审计 -> Origin -> 鉴权。
-// 审计放在鉴权之前，保证被拒绝的写请求也留痕。
+// 审计放在鉴权之前，保证被拒绝的写请求也留痕。nonce 去重默认内存实现。
 func serverFilters(cfg *conf.Config, logger *slog.Logger, tickets TicketStore, auditSvc *audit.Service) []khttp.FilterFunc {
+	return serverFiltersWithNonces(cfg, logger, tickets, auditSvc, NewMemoryNonceStore(defaultNonceWindow))
+}
+
+func serverFiltersWithNonces(cfg *conf.Config, logger *slog.Logger, tickets TicketStore, auditSvc *audit.Service, nonces NonceStore) []khttp.FilterFunc {
 	return []khttp.FilterFunc{
 		timeoutFilter(cfg.Server.ReadTimeout),
 		requestLoggerFilter(logger),
 		auditFilter(auditSvc),
 		originFilter(cfg),
-		authFilter(cfg, tickets),
+		authFilterWithNonces(cfg, tickets, nonces),
 	}
 }
 

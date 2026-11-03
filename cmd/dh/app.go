@@ -6,9 +6,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 
+	"github.com/teamwork/digital-human/internal/biz/contentpkg"
+	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/live"
 	"github.com/teamwork/digital-human/internal/data"
 )
@@ -22,6 +25,12 @@ type App struct {
 	Data    *data.Data
 	Logger  *slog.Logger
 	Manager *live.Manager
+	// DanmakuWorker F24 弹幕批读消费循环；持有引用保证 wire 装配（副作用：注册进 Manager 生命周期）。
+	DanmakuWorker *danmaku.Worker
+	// Interaction B3 互动一致性闭环（§5.4/§5.5）：持有引用启动崩溃扫描 goroutine。
+	Interaction *interactionRuntime
+	// Contentpkg B4 内容包原子性骨架（§7.1/§7.4）：持有引用保证 wire 装配（含 PG 热切）。
+	Contentpkg *contentpkg.Service
 }
 
 func (a *App) Run() error {
@@ -30,6 +39,11 @@ func (a *App) Run() error {
 		if err := a.Manager.Recover(context.Background()); err != nil {
 			a.Logger.Warn("recover stale sessions failed", "err", err)
 		}
+	}
+	// B3 §5.5：崩溃扫描 goroutine——启动即扫一次，此后 30s 周期
+	//（补建缺失 Decision、lease 过期回收、超回执期转 unknown+reconcile_pending）。
+	if a.Interaction != nil && a.Interaction.disp != nil {
+		a.Interaction.disp.Run(context.Background(), 30*time.Second)
 	}
 
 	errCh := make(chan error, 1)

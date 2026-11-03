@@ -41,7 +41,7 @@ func startLiveHTTPWithRTC(t *testing.T, ctrl live.Controller, issuer *rtc.Issuer
 	t.Helper()
 	bus := eventbus.New(64)
 	mgr := live.NewManagerWithStores(bus, live.NewMemorySink(64), ctrl, nil,
-		live.NewMemoryIdempotencyStore(time.Hour))
+		live.NewMemoryIdempotencyStore(time.Hour), nil)
 	dm := danmaku.NewService(danmaku.ModeConfirm)
 	svc := service.NewLiveService(mgr, nil, dm, issuer)
 
@@ -246,7 +246,7 @@ func TestGetLiveStatusRejectsForeignSession(t *testing.T) {
 func TestDanmakuStatsScopedToSession(t *testing.T) {
 	dm := danmaku.NewService(danmaku.ModeConfirm)
 	dm.BeginSession("s-1")
-	dm.Ingest("chat", "u1", "用户1", "hello", 0, "")
+	dm.Ingest(context.Background(), "chat", "u1", "用户1", "hello", 0, "", false)
 	if pending, dropped, t2, ok := dm.StatsFor("s-1"); !ok || pending != 1 || dropped != 0 || t2 != 0 {
 		t.Fatalf("s-1 stats: pending=%d dropped=%d t2=%d ok=%v", pending, dropped, t2, ok)
 	}

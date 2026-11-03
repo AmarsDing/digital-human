@@ -14,7 +14,7 @@ import (
 func TestRestartDifferentKeyWhileLiveStopsReconnect(t *testing.T) {
 	ctrl := &recController{}
 	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
-		nil, NewMemoryIdempotencyStore(time.Hour))
+		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
 	sid1, phase1, _, err := m.StartIdempotent(ctx, "k-1", "p", "a", "")
@@ -43,7 +43,7 @@ func TestRestartDifferentKeyWhileLiveStopsReconnect(t *testing.T) {
 func TestConcurrentDifferentKeyKeepsExactlyOneLiveSession(t *testing.T) {
 	ctrl := &counterController{}
 	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
-		nil, NewMemoryIdempotencyStore(time.Hour))
+		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
 	const n = 10

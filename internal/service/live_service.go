@@ -34,14 +34,20 @@ func (s *LiveService) StartLive(ctx context.Context, req *livev1.StartLiveReques
 	if err != nil {
 		return nil, err
 	}
-	sessionID, phase, liveID, err := s.m.StartIdempotent(ctx, key, req.GetPersonaId(), req.GetAvatarId(), req.GetGreeting())
+	// 深化方案 v2 §7.6 严格 Start：mode/preflight_token 透传给 Manager 在 opMu 临界区复核。
+	sessionID, phase, liveID, mode, err := s.m.StartIdempotentWithMode(ctx, key, req.GetPersonaId(), req.GetAvatarId(), req.GetGreeting(), live.StartRequest{
+		Mode:             live.Mode(req.GetMode()),
+		PreflightToken:   req.GetPreflightToken(),
+		DraftID:          req.GetDraftId(),
+		ExpectedRevision: req.GetExpectedRevision(),
+	})
 	if err != nil {
 		return nil, mapLiveError(err)
 	}
 	if s.dm != nil {
 		s.dm.BeginSession(sessionID)
 	}
-	return &livev1.StartLiveReply{SessionId: sessionID, Phase: string(phase), LiveId: liveID}, nil
+	return &livev1.StartLiveReply{SessionId: sessionID, Phase: string(phase), LiveId: liveID, Mode: string(mode)}, nil
 }
 
 func (s *LiveService) StopLive(ctx context.Context, req *livev1.StopLiveRequest) (*livev1.StopLiveReply, error) {
@@ -53,7 +59,7 @@ func (s *LiveService) StopLive(ctx context.Context, req *livev1.StopLiveRequest)
 	if err != nil {
 		return nil, mapLiveError(err)
 	}
-	return &livev1.StopLiveReply{Phase: string(live.PhaseEnded), Ok: ok, Note: note, RecordingState: "none"}, nil
+	return &livev1.StopLiveReply{Phase: string(live.PhaseEnded), Ok: ok, Note: note, RecordingState: s.m.RecordingState()}, nil
 }
 
 func (s *LiveService) GetLiveStatus(ctx context.Context, req *livev1.GetLiveStatusRequest) (*livev1.GetLiveStatusReply, error) {
@@ -108,6 +114,12 @@ func (s *LiveService) GetLiveStatus(ctx context.Context, req *livev1.GetLiveStat
 		},
 		Danmaku: dm,
 		Rtc:     rtc,
+		// F34/N2：录播运行态随状态轮询下发（蓝本 stage 轮询 /api/record 语义）。
+		Record: &livev1.RecordStatus{
+			Enabled: s.m.RecordingEnabled(),
+			State:   s.m.RecordingState(),
+			Url:     s.m.RecordingURL(),
+		},
 	}, nil
 }
 
@@ -158,8 +170,23 @@ func mapLiveError(err error) error {
 	switch {
 	case errors.Is(err, live.ErrEngineUnavailable):
 		return kerrors.New(503, "engine_unavailable", err.Error())
+	case errors.Is(err, live.ErrAvatarExpired):
+		// v3 §3.3 预检失败分支：reason 与前端 client.ts/StagePage 归一码对齐（avatar_expired）。
+		return kerrors.New(400, "avatar_expired", "档案形象未同步或 Vidu 资产已过期，请重新同步后开播")
 	case errors.Is(err, live.ErrSessionMismatch):
 		return kerrors.New(404, "session_not_found", err.Error())
+	case errors.Is(err, live.ErrPreflightRequired):
+		// §7.6：public-live 缺/错/过期 preflight_token → 428 前置要求（先走唯一预检）。
+		return kerrors.New(428, "preflight_required", err.Error())
+	case errors.Is(err, live.ErrResolveFailed):
+		// §7.6-3：Resolve 失败/档案删除不回落旧路径，显式 409（不创建场次）。
+		return kerrors.New(409, "avatar_resolve_failed", err.Error())
+	case errors.Is(err, live.ErrCapabilityBlocked):
+		return kerrors.New(409, "capability_blocked", err.Error())
+	case errors.Is(err, live.ErrPushGateRequired):
+		return kerrors.New(409, "push_gate_required", err.Error())
+	case errors.Is(err, live.ErrPreviewWhilePushing):
+		return kerrors.New(409, "local_preview_while_pushing", err.Error())
 	default:
 		return err
 	}

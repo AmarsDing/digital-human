@@ -181,6 +181,71 @@ func (o *Ownership) Owner() string {
 	return o.owner.task.ID
 }
 
+// OwnerInfo 返回当前持有者 ID 与类别（song/chat/say）与取得时刻；空闲 ok=false。
+func (o *Ownership) OwnerInfo() (id, kind string, acquired time.Time, ok bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.owner == nil {
+		return "", "", time.Time{}, false
+	}
+	kind = "say"
+	if o.owner.task.Song {
+		kind = "song"
+	} else if o.owner.task.Chat {
+		kind = "chat"
+	}
+	return o.owner.task.ID, kind, o.owner.acquired, true
+}
+
+// RevokeStale 音频守卫：当前持有者非歌曲、最近喂流已超过 stale 且持有超过 hold 时
+// 强制收回（gen++ 使在途帧失效 + 取消任务 + 在确实在播时发一次 type7 并静默）。
+// 歌曲持有者与正常喂流一律不动。返回是否发生了收回。
+func (o *Ownership) RevokeStale(ctx context.Context, stale, hold time.Duration) (bool, error) {
+	o.mu.Lock()
+	cur := o.owner
+	if cur == nil || cur.task.Song {
+		o.mu.Unlock()
+		return false, nil
+	}
+	now := o.cfg.Clock.Now()
+	if now.Sub(cur.acquired) < hold {
+		o.mu.Unlock()
+		return false, nil
+	}
+	if o.cfg.Hooks.LastFeed != nil {
+		if last := o.cfg.Hooks.LastFeed(); !last.IsZero() && now.Sub(last) < stale {
+			o.mu.Unlock()
+			return false, nil
+		}
+	}
+	o.mu.Unlock()
+
+	invokeCancel(cur.task)
+	if err := o.waitDone(ctx, cur.task.Done, o.cfg.RoundWait); err != nil {
+		return false, err
+	}
+	o.clearIf(cur)
+	// 持有仍未能清出（Done 未通知）时也强制清场：守卫语义优先于等待。
+	o.mu.Lock()
+	if o.owner == cur {
+		o.gen++
+		o.owner = nil
+	}
+	o.mu.Unlock()
+	if (o.cfg.Hooks.Speaking == nil || o.speaking()) && o.cfg.Hooks.Interrupt != nil {
+		if err := o.cfg.Hooks.Interrupt(ctx); err != nil {
+			return false, err
+		}
+		if err := o.cfg.Clock.Sleep(ctx, o.cfg.Quiet); err != nil {
+			return false, err
+		}
+	}
+	if o.cfg.Hooks.OnForce != nil {
+		o.cfg.Hooks.OnForce("audio_guard_stale", cur.task.ID)
+	}
+	return true, nil
+}
+
 var ErrEmptyTaskID = errors.New("engine: acquire without task id")
 
 // Acquire 复刻 _own_audio：

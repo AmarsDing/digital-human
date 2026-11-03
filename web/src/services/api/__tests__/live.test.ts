@@ -1,6 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { idemFor, normalizeRestEvent, normalizeRtcToken } from '../live'
+import { idemFor, normalizeRestEvent, normalizeRtcToken, startLive } from '../live'
+import * as liveApi from '../live'
 import type { RestLiveEvent } from '../types'
+
+interface PreflightResultForTest {
+  ready: boolean
+  preflightToken: string
+  expiresAtMs: number
+  resultDigest: string
+  checks: Array<{ code: string; status: string; detail?: string }>
+}
+
+type PreflightForTest = (input: {
+  mode: 'local-preview' | 'public-live'
+  personaId?: string
+  draftId?: string
+  expectedRevision?: number
+}) => Promise<PreflightResultForTest>
+
+function jsonResponse(body: unknown): Response {
+  return { ok: true, status: 200, text: async () => JSON.stringify(body) } as Response
+}
 
 describe('idemFor（幂等键 2s 时间片复用）', () => {
   afterEach(() => {
@@ -83,5 +103,59 @@ describe('normalizeRtcToken（RTC 凭据回复）', () => {
     expect(t.token).toBe('')
     expect(t.expiresAt).toBe(0)
     expect(t.reason).toBe('rtc_not_configured')
+  })
+})
+
+describe('live preflight/start HTTP 请求体', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('preflight 使用后端 snake_case 契约并归一化 token/checks/digest', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      check_id: 'check-1', preflight_token: 'pft-1', ready: true, mode: 'public-live',
+      draft_id: '', draft_revision: 0, input_revisions: { avatar: 7 },
+      result_digest: 'sha256:bound', observed_at_ms: 1000, expires_at_ms: 31000,
+      checks: [{ code: 'vidu', status: 'pass', blocking: true, source: 'probe', observed_at_ms: 1000 }]
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const preflight = (liveApi as { preflightLive?: PreflightForTest }).preflightLive
+    expect(preflight).toBeTypeOf('function')
+
+    const result = await preflight!({
+      mode: 'public-live', personaId: 'p1', draftId: '', expectedRevision: 0
+    })
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(path).toBe('/api/v1/live/preflight')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({
+      mode: 'public-live', persona_id: 'p1', draft_id: '', expected_revision: 0
+    })
+    expect(result).toMatchObject({
+      ready: true, preflightToken: 'pft-1', expiresAtMs: 31000, resultDigest: 'sha256:bound'
+    })
+    expect(result.checks[0]).toMatchObject({ code: 'vidu', status: 'pass' })
+  })
+
+  it('Start 透传相同 mode/persona/draft/revision/token，不添加 digest 字段', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      sessionId: 's1', phase: 'live', liveId: 'l1', mode: 'public-live'
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const reply = await startLive({
+      sessionId: '', personaId: 'p1', avatarId: 'a1', greeting: 'hello',
+      mode: 'public-live', draftId: '', expectedRevision: 0, preflightToken: 'pft-1'
+    })
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    expect(path).toBe('/api/v1/live/start')
+    expect(init.method).toBe('POST')
+    expect(body).toMatchObject({
+      personaId: 'p1', avatarId: 'a1', greeting: 'hello', mode: 'public-live',
+      draftId: '', expectedRevision: 0, preflightToken: 'pft-1'
+    })
+    expect(body).not.toHaveProperty('resultDigest')
+    expect(reply.mode).toBe('public-live')
   })
 })
