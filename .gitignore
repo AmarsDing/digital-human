@@ -1,0 +1,50 @@
+# 构建产物
+/bin/
+*.exe
+*.test
+*.out
+node_modules/
+
+# 日志与临时烟测产物
+*.log
+/logs/
+/tmp/
+*.tmp
+coverage/
+web/coverage/
+
+# 前端
+web/node_modules/
+web/dist/
+web/.quasar/
+web/.eslintcache
+
+# 运行时与本地数据：忽略任意层级的 storage/ 产物目录，
+# 但源码树内的 storage/ 包目录通过下方的否定规则保留。
+/var/
+/storage/
+**/storage/
+!internal/**/storage/
+!pkg/**/storage/
+
+# 配置文件中的本机覆盖
+configs/*.local.yaml
+.env
+.env.*
+
+# 编辑器与系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 证书与密钥
+*.pem
+*.key
+*.p12
+
+# ----- 项目外统一产物目录约定（2026-11-03）-----
+*.log
+test-results/
+coverage/
+*.out

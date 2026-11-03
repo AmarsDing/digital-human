@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "description": "前后端共享事件契约：后端 pkg/eventcontract 与 web/src/services/api/contract.ts 均以此文件为准，Go 测试会校验常量与字段集合一致。",
+  "envelope": {
+    "fields": ["seq", "event_id", "session_id", "type", "ts_ms", "epoch", "request_id", "payload"],
+    "rules": {
+      "seq": "按场次单调递增；换场次从 1 重新开始，不跨场次串号。",
+      "event_id": "全局唯一，前端去重键。",
+      "session_id": "事件所属场次；live./song./refs./action. 全部必须等于当前场次。",
+      "epoch": "场次 epoch；同一场次内恒定，仅换场次时改变。",
+      "payload": "业务字段，字符串键。"
+    }
+  },
+  "events": {
+    "transcript.partial": ["text", "index", "mode"],
+    "transcript.final": ["text", "index", "utterance_id"],
+    "live.start_requested": ["persona_id", "avatar_id"],
+    "live.start_failed": ["error", "error_code"],
+    "live.started": ["live_id"],
+    "live.stop_failed": ["reason", "error"],
+    "live.stopped": ["reason", "session_id"],
+    "live.interrupted": [],
+    "song.playing": ["file", "script", "epoch", "song_playing", "caption_lines", "lyrics_source"],
+    "song.stopped": ["song_playing", "file"],
+    "refs.mounted": ["type", "op", "ok", "images"],
+    "refs.error": ["type", "op", "ok", "error"],
+    "action.sent": ["text", "source", "queued"],
+    "action.send_failed": ["text", "error"],
+    "action.deferred": ["text", "source", "priority", "gap_s", "queued"],
+    "action.stopped": ["cleared"]
+  }
+}

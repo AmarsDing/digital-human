@@ -1,0 +1,35 @@
+server:
+  http_addr: "127.0.0.1:8795"
+  read_timeout: 15s
+  write_timeout: 30s
+  shutdown_timeout: 5s
+  metrics_loopback: true
+
+data:
+  # 本机未部署 PG/Redis 时留空，进程以 degraded 模式启动（/healthz 会返回 503 并标注）。
+  postgres_dsn: ""
+  redis_addr: ""
+  connect_timeout: 5s
+  required: false
+  event_retention_days: 90
+
+security:
+  # local: 仅允许 loopback 访问（默认）。lan: 必须配置 admin_token_sha256。
+  # collector: 弹幕采集器走 HMAC，其余走 Bearer。
+  mode: "local"
+  admin_token_sha256: ""
+  allowed_origins: []
+  ticket_ttl: 60s
+
+log:
+  level: "info"
+  format: "json"
+
+# RTC 凭据签发：默认 disabled（/api/v1/live/rtc-token 返回 unconfigured，前端显示"未配置"）。
+# dev 联调：DH_RTC_MODE=dev + DH_RTC_API_KEY/DH_RTC_API_SECRET 环境变量（密钥不入 yaml）。
+# managed：需装配真实厂商签发器，未装配时仍 fail-closed。
+rtc:
+  mode: "disabled"
+  provider: "artc"
+  room_prefix: "dh-"
+  token_ttl: 10m

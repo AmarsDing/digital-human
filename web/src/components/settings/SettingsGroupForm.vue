@@ -1,0 +1,199 @@
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import NtSelect from '../ui/NtSelect.vue'
+import NtToggle from '../ui/NtToggle.vue'
+import NtTextarea from '../ui/NtTextarea.vue'
+import NtSecretText from '../ui/NtSecretText.vue'
+import type { FieldSpec, GroupSpec } from './schema'
+
+const props = defineProps<{
+  spec: GroupSpec
+  values: Record<string, unknown>
+}>()
+const emit = defineEmits<{
+  (e: 'update', key: string, value: unknown): void
+  // 数字字段失焦校验结果：越界/非数字时 valid=false，父级据此禁保存。
+  (e: 'validity', valid: boolean): void
+}>()
+
+const invalid = ref<Record<string, string>>({})
+
+// 切组时重置校验态。
+watch(
+  () => props.spec.id,
+  () => {
+    invalid.value = {}
+    emit('validity', true)
+  }
+)
+
+function onBlur(col: FieldSpec, ev: Event): void {
+  if (col.type !== 'number') return
+  const v = Number((ev.target as HTMLInputElement).value)
+  let msg = ''
+  if (!Number.isFinite(v)) msg = '请输入数字'
+  else if (col.min !== undefined && v < col.min) msg = `不能小于 ${col.min}`
+  else if (col.max !== undefined && v > col.max) msg = `不能大于 ${col.max}`
+  const next = { ...invalid.value }
+  if (msg) next[col.key] = msg
+  else delete next[col.key]
+  invalid.value = next
+  emit('validity', Object.keys(next).length === 0)
+}
+
+function str(key: string): string {
+  const v = props.values[key]
+  return v === null || v === undefined ? '' : String(v)
+}
+function bool(key: string): boolean {
+  return Boolean(props.values[key])
+}
+function field(col: FieldSpec): string {
+  return col.type === 'textarea' ? 'field field--wide' : 'field'
+}
+</script>
+
+<template>
+  <div class="settings-form">
+    <p v-if="spec.note" class="settings-form__note">{{ spec.note }}</p>
+    <div class="settings-form__grid">
+      <div v-for="col in spec.fields" :key="col.key" :class="field(col)">
+        <NtSelect
+          v-if="col.type === 'select'"
+          :label="col.label"
+          :model-value="str(col.key)"
+          :options="col.options || []"
+          @update:model-value="emit('update', col.key, $event)"
+        />
+        <NtToggle
+          v-else-if="col.type === 'toggle'"
+          :label="col.label"
+          :hint="col.hint"
+          :model-value="bool(col.key)"
+          @update:model-value="emit('update', col.key, $event)"
+        />
+        <NtTextarea
+          v-else-if="col.type === 'textarea'"
+          :label="col.label"
+          :hint="col.hint"
+          :model-value="str(col.key)"
+          @update:model-value="emit('update', col.key, $event)"
+        />
+        <div v-else-if="col.type === 'secret'" class="field__secret">
+          <span class="field__label">{{ col.label }}</span>
+          <NtSecretText :value="str(col.key)" :label="col.hint" />
+        </div>
+        <div v-else-if="col.type === 'readonly'" class="field__readonly">
+          <span class="field__label">{{ col.label }}</span>
+          <span class="field__readonly-value">{{ str(col.key) || '—' }}</span>
+        </div>
+        <label v-else class="field__input">
+          <span class="field__label">{{ col.label }}</span>
+          <span class="field__control">
+            <input
+              :type="col.type === 'number' ? 'number' : 'text'"
+              :value="str(col.key)"
+              :min="col.min"
+              :max="col.max"
+              :step="col.step"
+              :aria-invalid="!!invalid[col.key]"
+              :class="{ 'field__control--invalid': !!invalid[col.key] }"
+              @input="
+                emit(
+                  'update',
+                  col.key,
+                  col.type === 'number'
+                    ? Number(($event.target as HTMLInputElement).value)
+                    : ($event.target as HTMLInputElement).value
+                )
+              "
+              @blur="onBlur(col, $event)"
+            />
+            <span v-if="col.suffix" class="field__suffix">{{ col.suffix }}</span>
+          </span>
+          <span v-if="invalid[col.key]" class="field__invalid" role="alert">{{ invalid[col.key] }}</span>
+          <span v-else-if="col.hint" class="field__hint">{{ col.hint }}</span>
+        </label>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.settings-form__note {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--nt-accent-border);
+  background: var(--nt-accent-soft);
+  color: var(--nt-text-2);
+  font-size: var(--nt-fs-caption);
+  line-height: 1.5;
+}
+.settings-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+.field--wide {
+  grid-column: 1 / -1;
+}
+.field__label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--nt-text-3);
+  font-size: var(--nt-fs-caption);
+}
+.field__input {
+  display: block;
+  min-width: 0;
+}
+.field__control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.field__control input {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 0 10px;
+  border-radius: var(--nt-radius-m);
+  border: 1px solid var(--nt-border-1);
+  background: var(--nt-data-inset);
+  color: var(--nt-text-0);
+  font: inherit;
+}
+.field__control input:focus {
+  outline: none;
+  border-color: var(--nt-accent-border);
+  box-shadow: 0 0 0 2px var(--nt-focus-ring);
+}
+.field__suffix {
+  color: var(--nt-text-3);
+  font-size: var(--nt-fs-caption);
+}
+.field__hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--nt-text-3);
+  font-size: var(--nt-fs-micro);
+}
+.field__control--invalid {
+  border-color: var(--nt-danger-border) !important;
+}
+.field__invalid {
+  display: block;
+  margin-top: 4px;
+  color: var(--nt-danger);
+  font-size: var(--nt-fs-micro);
+}
+.field__secret,
+.field__readonly {
+  min-width: 0;
+}
+.field__readonly-value {
+  color: var(--nt-text-2);
+  font-family: var(--nt-font-mono);
+  font-size: var(--nt-fs-caption);
+}
+</style>

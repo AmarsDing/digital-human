@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package dh.live.v1;
+
+option go_package = "github.com/teamwork/digital-human/api/gen/go/live/v1;livev1";
+
+import "google/api/annotations.proto";
+
+// DanmakuService：Ingest 保留旧路径 /api/danmaku，永远 200 + {ok, reason}，
+// 采集器依赖该语义，不能改 4xx。
+service DanmakuService {
+  rpc Ingest(IngestRequest) returns (IngestReply) {
+    option (google.api.http) = {
+      post: "/api/danmaku"
+      body: "*"
+      additional_bindings {post: "/api/v1/danmaku" body: "*"}
+    };
+  }
+  rpc SetMode(SetModeRequest) returns (SetModeReply) {
+    option (google.api.http) = {
+      post: "/api/v1/danmaku/mode"
+      body: "*"
+    };
+  }
+  rpc Confirm(ConfirmRequest) returns (ConfirmReply) {
+    option (google.api.http) = {
+      post: "/api/v1/danmaku/confirm"
+      body: "*"
+    };
+  }
+  rpc Dismiss(DismissRequest) returns (DismissReply) {
+    option (google.api.http) = {
+      post: "/api/v1/danmaku/dismiss"
+      body: "*"
+    };
+  }
+  rpc ListPending(ListPendingRequest) returns (ListPendingReply) {
+    option (google.api.http) = {get: "/api/v1/danmaku/pending"};
+  }
+}
+
+message IngestRequest {
+  string kind = 1; // chat | gift | join
+  string user_id = 2;
+  string user_name = 3;
+  string text = 4;
+  int64 diamond = 5;
+  string source = 6;
+  string idempotency_key = 7;
+}
+
+message IngestReply {
+  bool ok = 1;
+  string reason = 2;
+}
+
+message SetModeRequest {
+  string mode = 1; // off | confirm | auto
+}
+
+message SetModeReply {
+  bool changed = 1;
+  string mode = 2;
+}
+
+message ConfirmRequest {
+  string pending_id = 1;
+}
+
+message ConfirmReply {
+  bool ok = 1;
+  string reason = 2;
+}
+
+message DismissRequest {
+  string pending_id = 1;
+}
+
+message DismissReply {
+  bool ok = 1;
+}
+
+message PendingItem {
+  string id = 1;
+  string user_name = 2;
+  string text = 3;
+  int64 created_at_ms = 4;
+}
+
+message ListPendingRequest {}
+
+message ListPendingReply {
+  repeated PendingItem items = 1;
+}

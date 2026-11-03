@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-density="normal" data-colorvision="base">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- CSP：内联主题引导脚本需要 'unsafe-inline'；构建产物均为 'self'。 -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss: http: https:; font-src 'self' data:"
+    />
+    <!-- 首帧防白闪 + 同步恢复主题偏好（localStorage 只读，失败静默）。 -->
+    <script>
+      ;(function () {
+        try {
+          var html = document.documentElement
+          var read = function (k) {
+            try {
+              return JSON.parse(localStorage.getItem(k) || 'null')
+            } catch (e) {
+              return null
+            }
+          }
+          var theme = read('s2s.theme')
+          if (theme === 'dark' || theme === 'light') html.dataset.theme = theme
+          var density = read('s2s.density')
+          if (density === 'normal' || density === 'compact') html.dataset.density = density
+          var vision = read('s2s.colorvision')
+          if (vision === 'base' || vision === 'safe') html.setAttribute('data-colorvision', vision)
+          var motion = read('s2s.motion')
+          if (motion === 'full' || motion === 'reduced') html.dataset.motion = motion
+          html.style.background = theme === 'light' ? '#f4f6f8' : '#0c1014'
+        } catch (e) {
+          /* 忽略：主题恢复失败不影响启动 */
+        }
+      })()
+    </script>
+    <title>数字人直播 · 控制台</title>
+  </head>
+  <body>
+    <!-- quasar:entry-point -->
+  </body>
+</html>

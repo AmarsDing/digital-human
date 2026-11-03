@@ -1,0 +1,241 @@
+syntax = "proto3";
+
+package dh.live.v1;
+
+option go_package = "github.com/teamwork/digital-human/api/gen/go/live/v1;livev1";
+
+import "google/api/annotations.proto";
+
+// LiveService 只承载控制面；实时音频与 Vidu 信令在引擎进程内。
+// 重复开播语义：phase==live 时先 stop(reason=reconnect) 再创建，绝不返回 409。
+service LiveService {
+  rpc StartLive(StartLiveRequest) returns (StartLiveReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/start"
+      body: "*"
+    };
+  }
+  rpc StopLive(StopLiveRequest) returns (StopLiveReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/stop"
+      body: "*"
+    };
+  }
+  rpc GetLiveStatus(GetLiveStatusRequest) returns (GetLiveStatusReply) {
+    option (google.api.http) = {get: "/api/v1/live/status"};
+  }
+  rpc Say(SayRequest) returns (SayReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/say"
+      body: "*"
+    };
+  }
+  rpc SendCommand(SendCommandRequest) returns (SendCommandReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/command"
+      body: "*"
+    };
+  }
+  rpc Interrupt(InterruptRequest) returns (InterruptReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/interrupt"
+      body: "*"
+    };
+  }
+  rpc ClearTranscript(ClearTranscriptRequest) returns (ClearTranscriptReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/transcript/clear"
+      body: "*"
+    };
+  }
+  rpc StopActions(StopActionsRequest) returns (StopActionsReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/actions/stop"
+      body: "*"
+    };
+  }
+  rpc ClearActions(ClearActionsRequest) returns (ClearActionsReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/actions/clear"
+      body: "*"
+    };
+  }
+  rpc ResetLlm(ResetLlmRequest) returns (ResetLlmReply) {
+    option (google.api.http) = {
+      post: "/api/v1/live/llm/reset"
+      body: "*"
+    };
+  }
+  rpc ListEvents(ListEventsRequest) returns (ListEventsReply) {
+    option (google.api.http) = {get: "/api/v1/live/events"};
+  }
+  // 签发/刷新 RTC 凭据；未配置时返回 mode=unconfigured 且 ok=false（HTTP 200）。
+  rpc GetRtcToken(GetRtcTokenRequest) returns (GetRtcTokenReply) {
+    option (google.api.http) = {get: "/api/v1/live/rtc-token"};
+  }
+}
+
+message StartLiveRequest {
+  string persona_id = 1;
+  string avatar_id = 2;
+  string greeting = 3;
+  string idempotency_key = 4;
+}
+
+message StartLiveReply {
+  string session_id = 1;
+  string phase = 2;
+  string live_id = 3;
+}
+
+message StopLiveRequest {
+  string session_id = 1;
+  string reason = 2;
+  string idempotency_key = 3;
+}
+
+message StopLiveReply {
+  string phase = 1;
+  string recording_state = 2;
+  bool ok = 3;
+  string note = 4;
+}
+
+message GetLiveStatusRequest {
+  string session_id = 1;
+  int32 transcript_since = 2;
+  int64 event_seq = 3;
+}
+
+message FeedStatus {
+  int64 epoch = 1;
+  int64 lag_ms = 2;
+  bool owner = 3;
+  string owner_kind = 4;
+}
+
+message WsStatus {
+  string state = 1;
+  int32 reconnect_total = 2;
+  int64 last_pong_ms = 3;
+}
+
+message DanmakuStatus {
+  int32 pending = 1;
+  int64 dropped_total = 2;
+  int64 t2_skipped_total = 3;
+}
+
+message RtcStatus {
+  string mode = 1;
+  string provider = 2;
+  int64 token_expire_at = 3;
+}
+
+message GetLiveStatusReply {
+  string session_id = 1;
+  string phase = 2;
+  string live_id = 3;
+  int64 started_at_ms = 4;
+  int64 duration_s = 5;
+  FeedStatus feed = 6;
+  WsStatus ws = 7;
+  DanmakuStatus danmaku = 8;
+  RtcStatus rtc = 9;
+  int64 event_seq = 10;
+  repeated string transcripts = 11;
+  string error_code = 12;
+  string error_message = 13;
+}
+
+message SayRequest {
+  string text = 1;
+  string mode = 2; // sentence | whole
+  string source = 3;
+  string idempotency_key = 4;
+}
+
+message SayReply {
+  string utterance_id = 1;
+}
+
+message SendCommandRequest {
+  string text = 1;
+  string idempotency_key = 2;
+}
+
+message SendCommandReply {
+  bool accepted = 1;
+  string reason = 2;
+}
+
+message InterruptRequest {}
+
+message InterruptReply {
+  bool ok = 1;
+}
+
+message ClearTranscriptRequest {}
+
+message ClearTranscriptReply {
+  bool ok = 1;
+  int32 cleared = 2;
+}
+
+message StopActionsRequest {}
+
+message StopActionsReply {
+  bool ok = 1;
+  int32 cleared = 2;
+}
+
+message ClearActionsRequest {}
+
+message ClearActionsReply {
+  bool ok = 1;
+  int32 cleared = 2;
+}
+
+message ResetLlmRequest {
+  string session_id = 1;
+}
+
+message ResetLlmReply {
+  int32 cleared_turns = 1;
+}
+
+message ListEventsRequest {
+  string session_id = 1;
+  int64 after_seq = 2;
+  int32 limit = 3;
+}
+
+message LiveEvent {
+  int64 seq = 1;
+  string event_id = 2;
+  string session_id = 3;
+  string type = 4;
+  int64 ts_ms = 5;
+  int64 epoch = 6;
+  bytes payload_json = 7;
+  string request_id = 8;
+}
+
+message ListEventsReply {
+  repeated LiveEvent events = 1;
+}
+
+message GetRtcTokenRequest {
+  string session_id = 1;
+}
+
+message GetRtcTokenReply {
+  string mode = 1;               // managed | unconfigured
+  string provider = 2;           // artc | trtc | none
+  string token = 3;
+  int64 expires_at = 4;          // epoch ms
+  string room_id = 5;
+  string user_id = 6;
+  bool ok = 7;
+  string reason = 8;             // 未配置/失败原因
+}

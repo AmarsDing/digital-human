@@ -1,0 +1,256 @@
+/* 视觉令牌唯一来源（doc/开发文档/前端UI/README.md 第2节）。
+   所有颜色/间距/字号只能从这里取；亮暗主题与密度通过 <html data-theme|data-density> 切换。 */
+
+:root {
+  color-scheme: dark;
+
+  /* 深海控制台：蓝黑结构底、分层舱面、冰青仪器读出。 */
+  --nt-bg-0: #050d17;
+  --nt-bg-1: #0b1b2b;
+  --nt-bg-2: #10263a;
+  --nt-bg-3: #18364d;
+  --nt-bg-glass: rgba(7, 22, 36, 0.86);
+  --nt-chrome: #071624;
+
+  --nt-border-1: #213e53;
+  --nt-border-2: #365e78;
+
+  --nt-text-0: #eef6fa; /* hero 焦点大数字档（方案 §5.1）：单面板 ≤1 组，禁用于段落/表格正文 */
+  --nt-text-1: #d3dee6;
+  --nt-text-2: #adc8da;
+  --nt-text-3: #85a5bc;
+
+  --nt-accent: #45e0ff;
+  --nt-accent-2: #769dff;
+  --nt-warn: #ffe852; /* G4：h52 黄琥珀，涨-警 CVD 最短距 0.044→0.080，且 safe≥base 成对成立 */
+  --nt-danger: #ff5c7c;
+  --nt-success: #35dfb1;
+  --nt-info: #66b5ff;
+  /* 状态色半透明档：避免组件内写裸 rgba，也避开 color-mix 在 chrome100 目标下的兼容缺口。 */
+  --nt-danger-soft: rgba(255, 92, 124, 0.12);
+  --nt-danger-border: rgba(255, 92, 124, 0.4);
+  --nt-success-border: rgba(53, 223, 177, 0.4);
+  --nt-warn-border: rgba(255, 232, 82, 0.4);
+  /* AI 紫（直觉2 第五个词·B2 入册）：AI 产物/研判专属语义色，不再借 accent 顶替。
+     未入 CVD 涨跌/警示硬门禁谱系，colorvision=safe 档继承本值；glow 切换留 B1.5 重刷批。 */
+  --nt-ai: #c792ea;
+  --nt-on-accent: #04131e;
+  --nt-on-danger: #230710;
+  --nt-on-success: #041c17;
+  --nt-accent-soft: rgba(69, 224, 255, 0.09);
+  --nt-accent-hover: rgba(69, 224, 255, 0.17);
+  --nt-accent-border: rgba(69, 224, 255, 0.42);
+  --nt-focus-ring: rgba(69, 224, 255, 0.3);
+  /* 状态脉冲高光（NovaStatusPulse 径向渐变亮芯）：深壳场景固定冰青芯；亮主题沿用原值，亮壳化时再随 accent 校准。 */
+  --nt-pulse-glow: #7dfff8;
+
+  /* 红涨绿跌（A 股约定）。2026-10-21 明度调和（用户拍板，方案 §2.5-6）：up 冻结值保持 #ff6b81(6.36:1 已在 [6.0,7.5] 带)，
+     down #35dfb1(10.2:1) → #60b296（6.89，与 up 感知亮度比 1.70→1.095 ≤1.15；warn/色觉/×1.3 门禁全套带余量）。 */
+  --nt-up: #ff6b81;
+  --nt-down: #60b296;
+
+  /* 空间与材质：只在壳层合成 blur，密集正文始终有稳定背板。 */
+  --nt-glass-bg: rgba(10, 29, 46, 0.84);
+  --nt-glass-raised: rgba(17, 42, 63, 0.88);
+  --nt-glass-border: rgba(118, 186, 222, 0.38);
+  --nt-glass-highlight: rgba(167, 229, 255, 0.23);
+  --nt-glass-sheen-color: rgba(167, 229, 255, 0.065);
+  --nt-glass-blur: 16px;
+  --nt-glass-filter: blur(var(--nt-glass-blur)) saturate(125%);
+  --nt-data-bg: rgba(11, 27, 43, 0.98);
+  --nt-data-raised: rgba(16, 38, 58, 0.98);
+  --nt-data-inset: rgba(5, 13, 23, 0.98);
+  --nt-scrim: rgba(2, 8, 15, 0.62);
+  /* 轻档遮罩：非模态的浮层（命令面板等），压场强度低于模态 scrim。 */
+  --nt-scrim-light: rgba(2, 8, 15, 0.5);
+  --nt-shadow-depth: 0 16px 48px rgba(0, 5, 13, 0.44);
+  --nt-glow-soft: 0 0 20px rgba(69, 224, 255, 0.1);
+  --nt-glow-active: 0 0 0 1px rgba(69, 224, 255, 0.2), 0 0 24px rgba(69, 224, 255, 0.18);
+  --nt-edge-light: inset 0 1px 0 var(--nt-glass-highlight);
+  --nt-space-cyan: rgba(27, 168, 216, 0.12);
+  --nt-space-blue: rgba(69, 100, 211, 0.12);
+  --nt-space-grid: rgba(118, 186, 222, 0.045);
+  --nt-grid-opacity: 0.22;
+  --nt-canvas-tint-alpha: 0.035;
+  --nt-space-bg: radial-gradient(ellipse at 8% 0%, var(--nt-space-cyan), transparent 52%),
+    radial-gradient(ellipse at 92% 96%, var(--nt-space-blue), transparent 55%), var(--nt-bg-0);
+  --nt-glass-sheen: linear-gradient(115deg, var(--nt-glass-sheen-color), transparent 42%);
+  --nt-track-gradient: linear-gradient(90deg, var(--nt-accent), var(--nt-accent-2) 65%, transparent);
+
+  /* 语义发光，不覆盖正文或涨跌色。 */
+  --nt-glow-accent: 0 0 14px rgba(69, 224, 255, 0.28);
+  --nt-glow-danger: 0 0 14px rgba(255, 92, 124, 0.35);
+  --nt-glow-warn: 0 0 14px rgba(255, 232, 82, 0.28);
+
+  --nt-radius-s: 6px;
+  --nt-radius-m: 8px;
+  --nt-radius-l: 12px;
+
+  --nt-row-h: 26px;
+  --nt-cell-pad: 4px 8px;
+  --nt-pad-panel: 12px 14px;
+
+  --nt-font-sans: 'Segoe UI', system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --nt-font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
+
+  /* 字号阶梯（方案 §5.3，治 P-10）：normal 根字号 12.5px 基准；compact 密度按 12/12.5 等比缩小，见下方密度块。
+     用途：hero=现价/权益（text-0 搭配）；num-lg=卡片大字数值；title=面板页头标题；panel=面板内小节标题；
+     body=正文/表格（现根字号）；caption=次信息/徽标；micro=时间戳/单位/脚注（最小值，低于此不设档）。 */
+  --nt-fs-hero: 24px;
+  --nt-fs-num-lg: 17px;
+  --nt-fs-title: 15px;
+  --nt-fs-panel: 13px;
+  --nt-fs-body: 12.5px;
+  --nt-fs-caption: 11.5px;
+  --nt-fs-micro: 10.5px;
+
+  --nt-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 滚动条（中性色，hover 才显青） */
+  --nt-scroll: #365e78;
+  --nt-scroll-hover: #45e0ff;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --nt-bg-0: #e9f2f7;
+  --nt-bg-1: #f8fcff;
+  --nt-bg-2: #e3eef5;
+  --nt-bg-3: #d2e3ee;
+  --nt-bg-glass: rgba(248, 252, 255, 0.96);
+  --nt-chrome: #dcebf4;
+
+  --nt-border-1: #b6cddb;
+  --nt-border-2: #6f8ea1;
+
+  --nt-text-0: #0a2136; /* 亮主题 hero 档（方案 §5.1）：比 text-1 更深一档，与暗色 hero 镜像 */
+  --nt-text-1: #102c41;
+  --nt-text-2: #3d5c72;
+  --nt-text-3: #496579;
+
+  --nt-accent: #00677f;
+  --nt-accent-2: #2c58c3;
+  --nt-warn: #705600; /* G4：深金琥珀，涨-警 CVD 最短距 0.088→0.133 */
+  --nt-danger: #b92249;
+  --nt-success: #066c4c;
+  --nt-info: #1964b1;
+  --nt-danger-soft: rgba(185, 34, 73, 0.1);
+  --nt-danger-border: rgba(185, 34, 73, 0.4);
+  --nt-success-border: rgba(6, 108, 76, 0.4);
+  --nt-warn-border: rgba(112, 86, 0, 0.4);
+  /* AI 紫（亮主题档，与 --nt-accent #00677f 拉开红轴距离；safe 档继承本值）。 */
+  --nt-ai: #7c3aed;
+  --nt-on-accent: #ffffff;
+  --nt-on-danger: #ffffff;
+  --nt-on-success: #ffffff;
+  --nt-accent-soft: rgba(0, 103, 127, 0.07);
+  --nt-accent-hover: rgba(0, 103, 127, 0.13);
+  --nt-accent-border: rgba(0, 103, 127, 0.4);
+  --nt-focus-ring: rgba(0, 103, 127, 0.25);
+  /* 状态脉冲高光（NovaStatusPulse）：亮主题沿用原值，亮壳化时再随 accent 校准。 */
+  --nt-pulse-glow: #7dfff8;
+
+  --nt-glass-bg: rgba(248, 252, 255, 0.93);
+  --nt-glass-raised: rgba(227, 238, 245, 0.96);
+  --nt-glass-border: rgba(79, 121, 148, 0.46);
+  --nt-glass-highlight: rgba(255, 255, 255, 0.9);
+  --nt-glass-sheen-color: rgba(255, 255, 255, 0.6);
+  --nt-data-bg: rgba(248, 252, 255, 0.99);
+  --nt-data-raised: rgba(227, 238, 245, 0.99);
+  --nt-data-inset: rgba(233, 242, 247, 0.99);
+  --nt-scrim: rgba(16, 44, 65, 0.28);
+  /* 轻档遮罩：非模态的浮层（命令面板等），压场强度低于模态 scrim。 */
+  --nt-scrim-light: rgba(16, 44, 65, 0.22);
+  --nt-shadow-depth: 0 14px 38px rgba(31, 66, 91, 0.14);
+  --nt-glow-soft: 0 3px 14px rgba(0, 103, 127, 0.1);
+  --nt-glow-active: 0 0 0 1px rgba(0, 103, 127, 0.2), 0 3px 16px rgba(0, 103, 127, 0.16);
+  --nt-space-cyan: rgba(27, 168, 216, 0.07);
+  --nt-space-blue: rgba(69, 100, 211, 0.06);
+  --nt-space-grid: rgba(49, 93, 129, 0.055);
+
+  /* 亮模式独立校准对比度，继续红涨绿跌。 */
+  --nt-up: #b52548;
+  --nt-down: #066c4c;
+
+  --nt-glow-accent: 0 0 10px rgba(0, 103, 127, 0.2);
+  --nt-glow-danger: 0 0 10px rgba(185, 34, 73, 0.24);
+  --nt-glow-warn: 0 0 10px rgba(112, 86, 0, 0.2);
+
+  --nt-scroll: #8aa9bd;
+  --nt-scroll-hover: #00677f;
+}
+
+/* 色觉安全（data-colorvision='safe'，G4）：涨=朱红、跌=钴蓝——暖涨冷跌语义保持，
+   红绿色盲下靠明度与黄蓝轴仍可辨（OKLab ≥0.15 由 theme/__tests__/color-vision.test.ts 硬门禁）。
+   danger/success 归并到同一暖/冷族，保证 fail/pass 与涨/跌在色盲下同样可辨。 */
+:root[data-colorvision='safe'] {
+  /* 2026-10-21 明度调和：up 5.35→#f87e64(6.77) 入带、down #4da3ff→#46a0fe(6.40)（Y 比 1.285→1.065；
+     safe≥base×1.3 依调后 base 复测通过；glow-danger rgba 与 up 同源同步）。 */
+  --nt-up: #f87e64;
+  --nt-down: #46a0fe;
+  --nt-danger: #f87e64;
+  --nt-success: #46a0fe;
+  --nt-danger-soft: rgba(248, 126, 100, 0.12);
+  --nt-danger-border: rgba(248, 126, 100, 0.4);
+  --nt-success-border: rgba(70, 160, 254, 0.4);
+  --nt-glow-danger: 0 0 14px rgba(248, 126, 100, 0.35);
+}
+
+:root[data-theme='light'][data-colorvision='safe'] {
+  /* 2026-10-21 明度调和：up 4.17(低于 AA)→#b62000(6.37) 脱 belowAA、down 5.01→#003afc(6.76)（Y 比 1.268→1.092）。 */
+  --nt-up: #b62000;
+  --nt-down: #003afc;
+  --nt-danger: #b62000;
+  --nt-success: #003afc;
+  --nt-danger-soft: rgba(182, 32, 0, 0.1);
+  --nt-danger-border: rgba(182, 32, 0, 0.4);
+  --nt-success-border: rgba(0, 58, 252, 0.4);
+  --nt-glow-danger: 0 0 10px rgba(182, 32, 0, 0.24);
+}
+
+:root[data-density='compact'] {
+  --nt-row-h: 22px;
+  --nt-cell-pad: 2px 6px;
+  --nt-pad-panel: 8px 10px;
+  font-size: 12px;
+  /* 字号阶梯按 12/12.5 等比缩小（方案 §5.3），四舍五入到 0.5px */
+  --nt-fs-hero: 23px;
+  --nt-fs-num-lg: 16.5px;
+  --nt-fs-title: 14.5px;
+  --nt-fs-panel: 12.5px;
+  --nt-fs-body: 12px;
+  --nt-fs-caption: 11px;
+  --nt-fs-micro: 10px;
+}
+
+/* 节能保留结构/文字/告警，去除多层合成与光晕。系统减少动态由运行时写入 data-motion。 */
+:root[data-visual-quality='eco'] {
+  --nt-bg-glass: var(--nt-bg-1);
+  --nt-glass-bg: var(--nt-bg-1);
+  --nt-glass-raised: var(--nt-bg-2);
+  --nt-glass-blur: 0px;
+  --nt-glass-filter: none;
+  --nt-glass-sheen: none;
+  --nt-glow-soft: none;
+  --nt-glow-active: none;
+  --nt-glow-accent: none;
+  --nt-glow-danger: none;
+  --nt-glow-warn: none;
+  --nt-space-cyan: transparent;
+  --nt-space-blue: transparent;
+}
+
+:root[data-motion='reduced'],
+:root[data-visual-quality='eco'] {
+  --nt-transition: 0s;
+}
+
+/* 减少动效：禁用全部动画/过渡（P2-8），避免闪烁类效果对敏感用户的影响。 */
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}

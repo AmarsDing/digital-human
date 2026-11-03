@@ -1,0 +1,27 @@
+{
+  "name": "digital-human-web",
+  "version": "0.1.0-m3",
+  "private": true,
+  "description": "数字人直播控制台前端（Quasar 壳 + NovaTrader 视觉原子）",
+  "scripts": {
+    "dev": "quasar dev",
+    "build": "quasar build",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pinia": "^2.2.6",
+    "quasar": "^2.19.3",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@quasar/app-vite": "^2.1.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.5.1",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9",
+    "vue-tsc": "^2.2.12"
+  }
+}

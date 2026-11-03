@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package dh.config.v1;
+
+option go_package = "github.com/teamwork/digital-human/api/gen/go/config/v1;configv1";
+
+import "google/api/annotations.proto";
+
+// SettingsService：12 组设置（会话/声音/专属会员/人设/LLM/自备 RTC/
+// 动作库/资产库/Vidu Key/画面内字幕层/弹幕主播模式/其他）。
+// 保存后不重启；生效时机由服务端返回的 effective[] 逐组标注。
+service SettingsService {
+  rpc Get(GetSettingsRequest) returns (GetSettingsReply) {
+    option (google.api.http) = {get: "/api/v1/settings"};
+  }
+  rpc Save(SaveSettingsRequest) returns (SaveSettingsReply) {
+    option (google.api.http) = {
+      post: "/api/v1/settings"
+      body: "*"
+    };
+  }
+  rpc Reload(ReloadSettingsRequest) returns (ReloadSettingsReply) {
+    option (google.api.http) = {
+      post: "/api/v1/settings/reload"
+      body: "*"
+    };
+  }
+}
+
+message SettingGroup {
+  string id = 1;
+  string title = 2;
+  bytes values_json = 3;
+  string effective = 4; // immediate | next_session
+}
+
+message GetSettingsRequest {}
+
+message GetSettingsReply {
+  repeated SettingGroup groups = 1;
+  int64 revision = 2;
+}
+
+message SaveSettingsRequest {
+  repeated SettingGroup groups = 1;
+  int64 base_revision = 2;
+  string idempotency_key = 3;
+}
+
+message SaveSettingsReply {
+  bool saved = 1;
+  int64 revision = 2;
+  repeated string reload_required = 3;
+  repeated string rejected = 4;
+}
+
+message ReloadSettingsRequest {}
+
+message ReloadSettingsReply {
+  bool ok = 1;
+  int64 revision = 2;
+}
