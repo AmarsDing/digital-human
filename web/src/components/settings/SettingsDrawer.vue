@@ -3,9 +3,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import NtDrawer from '../ui/NtDrawer.vue'
 import NtConfirmDialog from '../ui/NtConfirmDialog.vue'
 import SettingsGroupForm from './SettingsGroupForm.vue'
+import ViduKeysPanel from './ViduKeysPanel.vue'
+import PatronsPanel from './PatronsPanel.vue'
 import { GROUP_SPECS } from './schema'
 import { useSettingsStore } from '../../stores/settings'
 import { useLiveStore } from '../../stores/live'
+import { listAvatars, getAvatar, getCredits, type AvatarDetail, type AvatarListItem } from '../../services/api/panels'
 
 const props = defineProps<{ open: boolean; inline?: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -20,6 +23,26 @@ const savedFlash = ref('')
 const formValid = ref(true)
 const confirmClose = ref(false)
 
+// F08/F36/G03/N3 额度：credits_balance readonly 字段展示真实 Vidu 余额。
+// 声明必须先于下方 immediate watch（TDZ）。
+const creditsText = ref('')
+let creditsFetched = false
+async function loadCredits(): Promise<void> {
+  if (creditsFetched) return
+  creditsFetched = true
+  try {
+    const r = await getCredits()
+    if (!r.configured) {
+      creditsText.value = '未配置 Vidu Key'
+      return
+    }
+    const v = r.remain ?? r.remain_credit
+    creditsText.value = typeof v === 'number' ? String(v) : '—'
+  } catch {
+    creditsText.value = '查询失败'
+  }
+}
+
 watch(
   () => props.open,
   (open) => {
@@ -27,6 +50,10 @@ watch(
     savedFlash.value = ''
     // 仅首次打开拉取；已有数据时不再重复 load，避免打开抽屉把未保存修改冲掉。
     if (!store.groups.length) void store.load()
+    // 只读派生字段（7 键）依赖 active 档案，打开抽屉即拉取一次。
+    void loadActiveAvatar()
+    // F08/F36/G03/N3：积分余额接 /api/v1/credits 实时值（无凭据显示明确空态）。
+    void loadCredits()
   },
   { immediate: true }
 )
@@ -74,11 +101,71 @@ async function resetLlmMemory(): Promise<void> {
   llmMsg.value = ok ? `已清空 ${live.llmClearedTurns} 轮记忆` : live.error || '清空失败'
 }
 
-// persona 组：应用人设 = 保存设置 + 提示下次开播生效。
-async function applyPersona(): Promise<void> {
-  const ok = await store.save()
-  savedFlash.value = ok ? '已保存，下次开播生效' : ''
+// persona 组（v3 §1.2）：人设已迁移至数字人档案，此处只读派生当前 active 档案 + 跳档案页。
+const activeAvatar = ref<AvatarListItem | null>(null)
+const activeAvatarDetail = ref<AvatarDetail | null>(null)
+const activeAvatarLoaded = ref(false)
+
+async function loadActiveAvatar(): Promise<void> {
+  try {
+    const r = await listAvatars(1, 100)
+    activeAvatar.value = r.avatars.find((a) => a.is_active) ?? null
+    // detail 提供 system_prompt / voice_id / vidu_avatar_id 等派生所需字段。
+    activeAvatarDetail.value = activeAvatar.value ? await getAvatar(activeAvatar.value.persona_id) : null
+  } catch {
+    activeAvatar.value = null
+    activeAvatarDetail.value = null
+  } finally {
+    activeAvatarLoaded.value = true
+  }
 }
+
+// 只读派生值（v3 §1.2）：7 个 readonly 键展示 active 档案派生值而非 settings 库存储旧值。
+// 仅注入展示层（displayValues），不写入 store，保存通路不受影响。
+const NO_PROFILE = '未配置档案'
+// F42/G18：Vidu Key 激活后由 ViduKeysPanel 回填生效尾号（后端已同步 settings，这里只刷展示）。
+const viduActiveTail8 = ref('')
+function onViduKeyChanged(tail8: string): void {
+  viduActiveTail8.value = tail8
+}
+const derivedByGroup = computed((): Record<string, Record<string, string>> => {
+  const extra: Record<string, Record<string, string>> = {}
+  if (viduActiveTail8.value) {
+    extra.vidu_key = { active_tail8: '…' + viduActiveTail8.value }
+  }
+  // F08/F36/G03/N3：积分余额展示 /api/v1/credits 实时值；未拉到前保留 schema 占位 '—'。
+  if (creditsText.value) {
+    extra.misc = { credits_balance: creditsText.value }
+  }
+  // 未拉取完成前不覆盖展示值，避免旧值→「未配置档案」→派生值的闪烁。
+  if (!activeAvatarLoaded.value) return extra
+  const d = activeAvatarDetail.value
+  if (!d) {
+    const none = { avatar_id: NO_PROFILE }
+    return {
+      ...extra,
+      session: { avatar_id: NO_PROFILE, image_uri: NO_PROFILE },
+      voice: { voice_id: NO_PROFILE },
+      persona: { active_id: NO_PROFILE, content: NO_PROFILE },
+      llm: { system: NO_PROFILE },
+      assets: none
+    }
+  }
+  const chars = [...(d.system_prompt || '')]
+  const prompt = chars.length ? chars.slice(0, 200).join('') + (chars.length > 200 ? '…' : '') : '（档案未填写人设提示词）'
+  const viduAvatar = d.vidu_avatar_id || '（未同步 Vidu）'
+  return {
+    ...extra,
+    session: { avatar_id: viduAvatar, image_uri: d.vidu_image_uri || '（未同步 Vidu）' },
+    voice: { voice_id: d.voice_id || '（档案未配置音色）' },
+    persona: { active_id: `${d.name}（${d.slug}）`, content: prompt },
+    llm: { system: prompt },
+    assets: { avatar_id: viduAvatar }
+  }
+})
+
+// 传给表单的展示值：存储值之上叠加派生值（readonly 键无 emit，不会回流 store）。
+const displayValues = computed(() => ({ ...values.value, ...(derivedByGroup.value[spec.value.id] ?? {}) }))
 
 function effectLabel(effective: string): string {
   return effective === 'immediate' ? '即时' : '下次连线'
@@ -118,15 +205,26 @@ function effectLabel(effective: string): string {
         </header>
 
         <div v-if="store.loading" class="drawer__loading">正在读取设置…</div>
-        <SettingsGroupForm v-else :spec="spec" :values="values" @update="update" @validity="formValid = $event" />
+        <SettingsGroupForm v-else :spec="spec" :values="displayValues" @update="update" @validity="formValid = $event">
+          <template #custom="{ field }">
+            <PatronsPanel v-if="field.key === 'patrons' && active === 'member'" />
+          </template>
+        </SettingsGroupForm>
 
         <div v-if="active === 'llm'" class="drawer__group-action">
           <button type="button" class="foot__btn" :disabled="live.busy" @click="resetLlmMemory">清空记忆</button>
           <span v-if="llmMsg" class="drawer__action-msg">{{ llmMsg }}</span>
         </div>
         <div v-if="active === 'persona'" class="drawer__group-action">
-          <button type="button" class="foot__btn" :disabled="store.saving" @click="applyPersona">应用人设</button>
-          <span class="drawer__action-msg">保存后下次开播生效</span>
+          <span v-if="activeAvatar" class="drawer__action-msg">
+            当前档案：{{ activeAvatar.name }}（{{ activeAvatar.slug }}）
+          </span>
+          <span v-else class="drawer__action-msg">尚未选择数字人档案</span>
+          <router-link class="drawer__link" to="/avatars" @click="emit('close')">前往数字人档案页</router-link>
+        </div>
+        <!-- F42/G18 多 key 管理：激活后同步 vidu_key.active_tail8 展示值（不写 dirty） -->
+        <div v-if="active === 'vidu_key'" class="drawer__group-action drawer__group-action--block">
+          <ViduKeysPanel @changed="onViduKeyChanged" />
         </div>
 
         <p v-if="store.missingGroups.length" class="drawer__missing">
@@ -266,9 +364,25 @@ function effectLabel(effective: string): string {
   padding-top: 12px;
   border-top: 1px dashed var(--nt-border-1);
 }
+.drawer__group-action--block {
+  display: block;
+}
 .drawer__action-msg {
   color: var(--nt-text-3);
   font-size: var(--nt-fs-micro);
+}
+.drawer__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--nt-accent);
+  font-size: var(--nt-fs-micro);
+  text-decoration: none;
+}
+.drawer__link:focus-visible {
+  outline: 2px solid var(--nt-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--nt-radius-s);
 }
 .foot {
   display: flex;

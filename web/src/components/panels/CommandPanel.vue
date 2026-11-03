@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { classifyApiError } from '../../services/api/client'
+import { useChoreoDraftStore } from '../../stores/choreoDraft'
 import NtConfirmDialog from '../ui/NtConfirmDialog.vue'
 import {
   createAction,
@@ -36,8 +37,8 @@ const choreo = ref<ChoreoStatus | null>(null)
 const loading = ref(false)
 const error = ref('')
 const note = ref('')
-const libName = ref('')
-const actionName = ref('')
+// 编排/动作编辑草稿（v2 §2.2）：建库/加动作表单跨 Tab 保留，组件卸载不丢。
+const choreoDraft = useChoreoDraftStore()
 
 async function load(): Promise<void> {
   loading.value = true
@@ -79,11 +80,11 @@ async function fire(text: string): Promise<void> {
 }
 
 async function addLibrary(): Promise<void> {
-  const name = libName.value.trim()
+  const name = choreoDraft.libName.trim()
   if (!name) return
   try {
     await createActionLibrary(name)
-    libName.value = ''
+    choreoDraft.clearLibName()
     await load()
   } catch (err) {
     error.value = classifyApiError(err).message
@@ -91,7 +92,7 @@ async function addLibrary(): Promise<void> {
 }
 
 async function addAction(): Promise<void> {
-  const name = actionName.value.trim()
+  const name = choreoDraft.actionName.trim()
   if (!name) return
   if (libraries.value.length === 0) {
     error.value = '请先创建动作库'
@@ -99,7 +100,7 @@ async function addAction(): Promise<void> {
   }
   try {
     await createAction(libraries.value[0].id, name, name)
-    actionName.value = ''
+    choreoDraft.clearActionName()
     actions.value = await listActions()
   } catch (err) {
     error.value = classifyApiError(err).message
@@ -191,12 +192,23 @@ onBeforeUnmount(() => (actions.value = []))
     </div>
 
     <div class="row">
-      <input v-model="libName" type="text" placeholder="新动作库名称" />
-      <button type="button" class="mini" :disabled="!libName.trim()" @click="addLibrary">建库</button>
+      <input
+        :value="choreoDraft.libName"
+        type="text"
+        placeholder="新动作库名称"
+        @input="choreoDraft.setLibName(($event.target as HTMLInputElement).value)"
+      />
+      <button type="button" class="mini" :disabled="!choreoDraft.libName.trim()" @click="addLibrary">建库</button>
     </div>
     <div class="row">
-      <input v-model="actionName" type="text" placeholder="新动作名称（右键动作删除）" @keyup.enter="addAction" />
-      <button type="button" class="mini" :disabled="!actionName.trim()" @click="addAction">加动作</button>
+      <input
+        :value="choreoDraft.actionName"
+        type="text"
+        placeholder="新动作名称（右键动作删除）"
+        @input="choreoDraft.setActionName(($event.target as HTMLInputElement).value)"
+        @keyup.enter="addAction"
+      />
+      <button type="button" class="mini" :disabled="!choreoDraft.actionName.trim()" @click="addAction">加动作</button>
     </div>
 
     <div class="row">

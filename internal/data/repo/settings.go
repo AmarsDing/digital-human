@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -12,10 +13,10 @@ import (
 	"github.com/teamwork/digital-human/internal/data/ent/setting"
 )
 
-// revisionRowID 是设置 revision 的保留行；不参与 12 组业务设置。
+// revisionRowID 是设置 revision 的保留行；不参与 13 组业务设置。
 const revisionRowID = "__revision"
 
-// EntSettingStore 实现 settings.Store：12 组设置各自一行，revision 存于保留行。
+// EntSettingStore 实现 settings.Store：13 组设置各自一行，revision 存于保留行。
 type EntSettingStore struct {
 	client *ent.Client
 }
@@ -24,7 +25,7 @@ func NewEntSettingStore(client *ent.Client) *EntSettingStore {
 	return &EntSettingStore{client: client}
 }
 
-// Load 按 DefaultGroups 顺序返回 12 组；库里缺失的组用默认值补齐，未知 id 忽略。
+// Load 按 DefaultGroups 顺序返回 13 组；库里缺失的组用默认值补齐，未知 id 忽略。
 func (s *EntSettingStore) Load(ctx context.Context) ([]settings.Group, int64, error) {
 	rows, err := s.client.Setting.Query().All(ctx)
 	if err != nil {
@@ -48,7 +49,42 @@ func (s *EntSettingStore) Load(ctx context.Context) ([]settings.Group, int64, er
 		}
 		out = append(out, g)
 	}
+	decryptLLMAPIKey(out)
 	return out, revision, nil
+}
+
+// decryptLLMAPIKey 把 llm 组落库密文解为内存明文（仅内存态，密文不出存储层）。
+// 明文行（迁移前的旧数据）原样透传；带 enc:v1: 前缀但解密失败（密钥不可用/密文损坏）
+// fail-closed 置空——消费方 llm client 拿到空 key 返回 ErrLLMNotConfigured，
+// 绝不把密文当明文上抛，也不因此让整组设置不可用。
+func decryptLLMAPIKey(groups []settings.Group) {
+	for i := range groups {
+		if groups[i].ID != "llm" {
+			continue
+		}
+		v, _ := groups[i].Values["api_key"].(string)
+		if !isEncryptedSettingSecret(v) {
+			continue
+		}
+		plain, err := decryptSettingSecret(v)
+		if err != nil {
+			slog.Default().Warn("settings: llm.api_key 解密失败，按未配置处理", "err", err)
+			groups[i].Values["api_key"] = ""
+			continue
+		}
+		groups[i].Values["api_key"] = plain
+	}
+}
+
+// encryptLLMAPIKeyValue 落库前加密明文 api_key；空值/已带 enc:v1: 前缀的密文原样
+// 通过（幂等，重复 Save 不会双重加密）。加密不可用（非 Windows 缺 DH_SECRET_KEY）
+// 返回错误 fail-closed，宁可 Save 失败也绝不落明文。
+func encryptLLMAPIKeyValue(v any) (any, error) {
+	s, _ := v.(string)
+	if s == "" || isEncryptedSettingSecret(s) {
+		return v, nil
+	}
+	return encryptSettingSecret(s)
 }
 
 // Save 在单个事务内校验 baseRevision 并逐组 upsert，最后推进 revision。
@@ -78,13 +114,21 @@ func (s *EntSettingStore) Save(ctx context.Context, groups []settings.Group, bas
 
 	now := time.Now().UnixMilli()
 	for _, g := range groups {
+		vals := cloneValues(g.Values)
+		if g.ID == "llm" {
+			enc, err := encryptLLMAPIKeyValue(vals["api_key"])
+			if err != nil {
+				return revision, fmt.Errorf("settings: llm.api_key 加密失败（不落明文）: %w", err)
+			}
+			vals["api_key"] = enc
+		}
 		exists, err := cli.Setting.Query().Where(setting.ID(g.ID)).Exist(ctx)
 		if err != nil {
 			return revision, err
 		}
 		if exists {
 			if _, err := cli.Setting.UpdateOneID(g.ID).
-				SetValueJSON(cloneValues(g.Values)).
+				SetValueJSON(vals).
 				SetUpdatedAtMs(now).
 				SetUpdatedBy("local").
 				Save(ctx); err != nil {
@@ -94,7 +138,7 @@ func (s *EntSettingStore) Save(ctx context.Context, groups []settings.Group, bas
 		}
 		if _, err := cli.Setting.Create().
 			SetID(g.ID).
-			SetValueJSON(cloneValues(g.Values)).
+			SetValueJSON(vals).
 			SetUpdatedAtMs(now).
 			SetUpdatedBy("local").
 			Save(ctx); err != nil {
@@ -160,7 +204,7 @@ func revisionFrom(v map[string]any) int64 {
 	return 1
 }
 
-// validateGroups 复用 biz/settings 的 12 组与取值约束。
+// validateGroups 复用 biz/settings 的 13 组与取值约束。
 func validateGroups(groups []settings.Group) error {
 	def := settings.DefaultGroups()
 	known := make(map[string]struct{}, len(def))
@@ -173,7 +217,7 @@ func validateGroups(groups []settings.Group) error {
 		}
 	}
 	if len(groups) != len(def) {
-		return errors.New("必须提交全部 12 组设置")
+		return errors.New("必须提交全部 13 组设置")
 	}
 	return settings.Validate(groups)
 }

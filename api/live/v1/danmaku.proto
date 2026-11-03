@@ -47,6 +47,7 @@ message IngestRequest {
   int64 diamond = 5;
   string source = 6;
   string idempotency_key = 7;
+  bool vip = 8; // 采集侧判定的送礼/贵宾观众标记（蓝本 priority=vip），进弹幕 VIP 快通道
 }
 
 message IngestReply {

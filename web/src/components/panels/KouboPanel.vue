@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { classifyApiError } from '../../services/api/client'
+import { useKouboDraftStore } from '../../stores/kouboDraft'
 import NtSelect from '../ui/NtSelect.vue'
 import {
   getKouboState,
@@ -22,13 +23,13 @@ import {
 } from '../../services/api/panels'
 
 const state = ref<KouboState | null>(null)
-const draft = ref('')
-const maxChars = ref(120)
+// 跨 Tab 草稿（v2 §2.2）：源文本/字数上限/勾选归 kouboDraft store，组件卸载不丢；
+// 服务端刷新不覆盖 dirty 草稿。
+const draftStore = useKouboDraftStore()
 const loading = ref(false)
 const busy = ref(false)
 const error = ref('')
 const note = ref('')
-const picked = ref<string[]>([])
 const editors = new Map<string, HTMLTextAreaElement>()
 const editErr = ref<Record<string, string>>({})
 let audio: HTMLAudioElement | null = null
@@ -40,7 +41,7 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     state.value = await getKouboState()
-    if (!draft.value && state.value.text) draft.value = state.value.text
+    draftStore.syncFromServer(state.value.text)
   } catch (err) {
     error.value = classifyApiError(err).message
   } finally {
@@ -64,10 +65,11 @@ async function run(fn: () => Promise<KouboState | void>, msg = ''): Promise<void
 }
 
 async function split(): Promise<void> {
-  if (!draft.value.trim()) return
+  if (!draftStore.text.trim()) return
   await run(async () => {
-    const st = await splitKoubo(draft.value.trim(), Math.max(10, maxChars.value))
+    const st = await splitKoubo(draftStore.text.trim(), Math.max(10, draftStore.maxChars))
     note.value = `已拆分为 ${st.segments.length} 段`
+    draftStore.markSubmitted()
     return st
   })
 }
@@ -85,17 +87,15 @@ async function action(seg: KouboSegment): Promise<void> {
 }
 
 function togglePick(id: string): void {
-  const i = picked.value.indexOf(id)
-  if (i >= 0) picked.value.splice(i, 1)
-  else picked.value.push(id)
+  draftStore.togglePick(id)
 }
 
 // 合并选中段（至少 2 段相邻/连续），供口播整段起播。
 async function mergePicked(): Promise<void> {
-  if (picked.value.length < 2) return
+  if (draftStore.picked.length < 2) return
   await run(async () => {
-    const st = await mergeKouboSegments([...picked.value])
-    picked.value = []
+    const st = await mergeKouboSegments([...draftStore.picked])
+    draftStore.clearPicked()
     note.value = `已合并为 ${st.segments.length} 段`
     return st
   })
@@ -238,19 +238,24 @@ onBeforeUnmount(() => {
 
     <label class="row">
       <span class="mono">字数上限</span>
-      <input v-model.number="maxChars" type="number" min="10" max="2000" />
+      <input v-model.number="draftStore.maxChars" type="number" min="10" max="2000" />
     </label>
-    <textarea v-model="draft" rows="4" placeholder="输入口播文本，按标点拆分…" />
+    <textarea
+      :value="draftStore.text"
+      rows="4"
+      placeholder="输入口播文本，按标点拆分…"
+      @input="draftStore.setText(($event.target as HTMLTextAreaElement).value)"
+    />
     <div class="row btns">
-      <button type="button" class="mini" :disabled="busy || !draft.trim()" @click="split">拆分</button>
+      <button type="button" class="mini" :disabled="busy || !draftStore.text.trim()" @click="split">拆分</button>
       <button
         type="button"
         class="mini"
-        :disabled="busy || picked.length < 2"
-        :title="picked.length < 2 ? '至少勾选 2 段才能合并' : '合并勾选的分段'"
+        :disabled="busy || draftStore.picked.length < 2"
+        :title="draftStore.picked.length < 2 ? '至少勾选 2 段才能合并' : '合并勾选的分段'"
         @click="mergePicked"
       >
-        合并选中（{{ picked.length }}）
+        合并选中（{{ draftStore.picked.length }}）
       </button>
       <button type="button" class="mini" :disabled="busy || !state" @click="ttsAll">合成全部</button>
       <button type="button" class="mini" :disabled="busy || !state" @click="actionsAll">全部动作</button>
@@ -269,7 +274,7 @@ onBeforeUnmount(() => {
       <li v-for="(seg, i) in state?.segments ?? []" :key="seg.id" class="seg">
         <div class="seg__head">
           <label class="pick mono">
-            <input type="checkbox" :checked="picked.includes(seg.id)" @change="togglePick(seg.id)" />
+            <input type="checkbox" :checked="draftStore.picked.includes(seg.id)" @change="togglePick(seg.id)" />
             选中
           </label>
           <span class="mono" :title="seg.status">#{{ i + 1 }} · {{ seg.takes.length }} takes · {{ segStatus(seg.status) }}</span>

@@ -84,6 +84,25 @@ func (s *FakeSynth) Snapshot() (active int, calls int64) {
 	return s.active, s.seq
 }
 
+// UnavailableSynth real 模式缺 OmniVoice 地址时的 fail-closed 合成器：
+// 绝不静默产出假音频，合成请求一律返回明确错误。
+type UnavailableSynth struct{ Reason string }
+
+// NewUnavailableSynth 返回一个永远失败的 Synth，错误信息含原因。
+func NewUnavailableSynth(reason string) UnavailableSynth { return UnavailableSynth{Reason: reason} }
+
+// Name 返回合成器标识。
+func (u UnavailableSynth) Name() string { return "unavailable" }
+
+// Synth 永远失败：real 模式下没有 OmniVoice 边车就明确报错。
+func (u UnavailableSynth) Synth(context.Context, string, string) ([]byte, error) {
+	reason := u.Reason
+	if reason == "" {
+		reason = "omnivoice_addr_not_configured"
+	}
+	return nil, errors.New("tts_unavailable: " + reason)
+}
+
 // Queue 对齐蓝本队列状态：deep<=8，active 为正在合成数。
 type Queue struct {
 	Depth     int   `json:"depth"`
@@ -195,10 +214,13 @@ func (s *Service) Files() (string, []media.File, error) {
 	return s.lib.Dir(), files, err
 }
 
-// Source 返回合成器来源（fake/real），由真实装配决定，面板不得硬编码。
+// Source 返回合成器来源（fake/real/unavailable），由真实装配决定，面板不得硬编码。
 func (s *Service) Source() string {
-	if _, ok := s.synth.(*FakeSynth); ok {
+	switch s.synth.(type) {
+	case *FakeSynth:
 		return "fake"
+	case UnavailableSynth:
+		return "unavailable"
 	}
 	return "real"
 }

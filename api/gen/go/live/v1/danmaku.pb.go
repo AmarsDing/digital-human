@@ -31,6 +31,7 @@ type IngestRequest struct {
 	Diamond        int64                  `protobuf:"varint,5,opt,name=diamond,proto3" json:"diamond,omitempty"`
 	Source         string                 `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
 	IdempotencyKey string                 `protobuf:"bytes,7,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	Vip            bool                   `protobuf:"varint,8,opt,name=vip,proto3" json:"vip,omitempty"` // 采集侧判定的送礼/贵宾观众标记（蓝本 priority=vip），进弹幕 VIP 快通道
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -112,6 +113,13 @@ func (x *IngestRequest) GetIdempotencyKey() string {
 		return x.IdempotencyKey
 	}
 	return ""
+}
+
+func (x *IngestRequest) GetVip() bool {
+	if x != nil {
+		return x.Vip
+	}
+	return false
 }
 
 type IngestReply struct {
@@ -599,7 +607,7 @@ var File_live_v1_danmaku_proto protoreflect.FileDescriptor
 const file_live_v1_danmaku_proto_rawDesc = "" +
 	"\n" +
 	"\x15live/v1/danmaku.proto\x12\n" +
-	"dh.live.v1\x1a\x1cgoogle/api/annotations.proto\"\xc8\x01\n" +
+	"dh.live.v1\x1a\x1cgoogle/api/annotations.proto\"\xda\x01\n" +
 	"\rIngestRequest\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x1b\n" +
@@ -607,7 +615,8 @@ const file_live_v1_danmaku_proto_rawDesc = "" +
 	"\x04text\x18\x04 \x01(\tR\x04text\x12\x18\n" +
 	"\adiamond\x18\x05 \x01(\x03R\adiamond\x12\x16\n" +
 	"\x06source\x18\x06 \x01(\tR\x06source\x12'\n" +
-	"\x0fidempotency_key\x18\a \x01(\tR\x0eidempotencyKey\"5\n" +
+	"\x0fidempotency_key\x18\a \x01(\tR\x0eidempotencyKey\x12\x10\n" +
+	"\x03vip\x18\b \x01(\bR\x03vip\"5\n" +
 	"\vIngestReply\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"$\n" +

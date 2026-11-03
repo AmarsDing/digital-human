@@ -1,5 +1,5 @@
-// 12 组设置字段定义：只描述“本机 UI 需要的形状”，密钥类字段只读展示尾号。
-export type FieldType = 'text' | 'number' | 'toggle' | 'select' | 'textarea' | 'secret' | 'readonly'
+// 13 组设置字段定义：只描述“本机 UI 需要的形状”，密钥类字段只读展示尾号。
+export type FieldType = 'text' | 'number' | 'toggle' | 'select' | 'textarea' | 'secret' | 'readonly' | 'custom'
 
 export interface FieldSpec {
   key: string
@@ -11,6 +11,9 @@ export interface FieldSpec {
   max?: number
   step?: number
   suffix?: string
+  // 只读派生字段的跳转链接（v3 §1.2：已迁移至数字人档案）。
+  linkTo?: string
+  linkLabel?: string
 }
 
 export interface GroupSpec {
@@ -56,8 +59,8 @@ export const GROUP_SPECS: GroupSpec[] = [
           { label: 'TRTC', value: 'trtc' }
         ]
       },
-      { key: 'avatar_id', label: '形象 ID', type: 'text' },
-      { key: 'image_uri', label: '形象图片 URI', type: 'text', hint: '与形象 ID 至少填一项' },
+      { key: 'avatar_id', label: '形象 ID', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' },
+      { key: 'image_uri', label: '形象图片 URI', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' },
       { key: 'greeting', label: '开场白', type: 'textarea' },
       { key: 'idle_timeout_s', label: '闲置挂断', type: 'number', min: 30, max: 3600, suffix: '秒' },
       { key: 'max_duration_s', label: '单场上限', type: 'number', min: 300, max: 14400, suffix: '秒' },
@@ -81,7 +84,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     effective: 'immediate',
     note: '音色切换即时生效；喂流帧长在下次连线生效。OmniVoice 边车未接入前只能查看。',
     fields: [
-      { key: 'voice_id', label: '音色预设', type: 'text', hint: '来自边车 /v1/voices（未接入）' },
+      { key: 'voice_id', label: '音色预设', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' },
       { key: 'preview_text', label: '试听文本', type: 'text' },
       { key: 'frame_ms', label: '喂流帧长', type: 'select', options: [
         { label: '50ms', value: '50' },
@@ -100,51 +103,87 @@ export const GROUP_SPECS: GroupSpec[] = [
     id: 'member',
     title: '专属会员',
     effective: 'immediate',
-    note: '会员名单与欢迎语由 PatronService 管理（后端未实现）。',
+    note: '贵宾名单在下方管理；贵宾礼按单件钻石价 > 门槛触发（连击按单价），每场每人一次 + 冷却双闸。',
     fields: [
       { key: 'enabled', label: '启用', type: 'toggle' },
-      { key: 'display_name', label: '称呼', type: 'text' },
-      { key: 'title', label: '备注', type: 'text' },
       { key: 'threshold_diamond', label: '门槛钻石', type: 'number', min: 0, suffix: '钻石' },
       { key: 'cooldown_s', label: '欢迎冷却', type: 'number', min: 5, suffix: '秒' },
-      { key: 'once_per_session', label: '每场仅一次', type: 'toggle' }
+      { key: 'once_per_session', label: '每场仅一次', type: 'toggle' },
+      { key: 'template', label: '贵宾礼模板', type: 'text', hint: '{nick}/{item} 占位' },
+      { key: 'forward_joins', label: '进场欢迎', type: 'toggle' },
+      { key: 'welcome_template', label: '进场欢迎模板', type: 'text', hint: '{nick}/{note} 占位' },
+      { key: 'patrons', label: '贵宾名单', type: 'custom' }
     ],
     defaults: {
       enabled: true,
-      display_name: '',
-      title: '',
       threshold_diamond: 99,
       cooldown_s: 30,
-      once_per_session: true
+      once_per_session: true,
+      template: '{nick}，欢迎光临！',
+      forward_joins: true,
+      welcome_template: '诶，{nick}来啦，欢迎欢迎。',
+      patrons: []
     }
   },
   {
     id: 'persona',
     title: '人设',
     effective: 'next_session',
-    note: '保存人设需后端 PersonaService；应用后清空记忆（ResetLlm 即时）。',
+    note: '人设提示词已迁移至数字人档案（v3 §1.2 唯一真相源 = Persona.system_prompt）；以下为当前 active 档案的只读派生值，修改请到档案页。',
     fields: [
-      { key: 'active_id', label: '当前人设 ID', type: 'text' },
-      { key: 'content', label: '人设文本', type: 'textarea' }
+      { key: 'active_id', label: '当前档案 ID', type: 'readonly', linkTo: '/avatars', linkLabel: '前往档案页' },
+      { key: 'content', label: '人设提示词（只读派生）', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' }
     ],
     defaults: { active_id: '', content: '' }
+  },
+  {
+    id: 'gift',
+    title: '礼物合并播报',
+    effective: 'immediate',
+    note: '同人同礼在窗口内合并为一条感谢；达到人数/钻石阈值立即播报，否则窗口到期再播。',
+    fields: [
+      { key: 'enabled', label: '启用', type: 'toggle' },
+      { key: 'window_s', label: '合并窗口', type: 'number', min: 1, suffix: '秒' },
+      { key: 'flush_people', label: '立即播报人数', type: 'number', min: 1, suffix: '人' },
+      { key: 'flush_diamond', label: '立即播报钻石', type: 'number', min: 1, suffix: '钻石' },
+      { key: 'max_names', label: '最多上榜', type: 'number', min: 1, max: 8, suffix: '名' },
+      { key: 'min_interval_s', label: '最小间隔', type: 'number', min: 0, suffix: '秒' },
+      { key: 'urgent_min_interval_s', label: '紧急最小间隔', type: 'number', min: 0, suffix: '秒' },
+      { key: 'max_per_minute', label: '每分钟最多', type: 'number', min: 1, suffix: '次' },
+      { key: 'max_items', label: '窗口内最多组合', type: 'number', min: 4, suffix: '组' }
+    ],
+    defaults: {
+      enabled: true,
+      window_s: 6,
+      flush_people: 4,
+      flush_diamond: 50,
+      max_names: 4,
+      min_interval_s: 25,
+      urgent_min_interval_s: 10,
+      max_per_minute: 2,
+      max_items: 12
+    }
   },
   {
     id: 'llm',
     title: 'LLM',
     effective: 'next_session',
-    note: 'Key 只显示尾号，写入需后端密钥托管（未实现）；清空记忆按钮即时生效。',
+    note: 'API Key 只写不回显（保存后仅见尾号）；降级模型在主模型重试 2 次失败后依次顶替；清空记忆按钮即时生效。',
     fields: [
       { key: 'base_url', label: 'Base URL', type: 'text' },
       { key: 'model', label: '模型', type: 'text' },
+      { key: 'fallback_models', label: '降级模型', type: 'text', hint: '逗号分隔，主模型失败时依次降级' },
+      { key: 'api_key', label: 'API Key', type: 'secret', hint: '只写不回显' },
       { key: 'api_key_tail8', label: 'Key 尾号', type: 'secret', hint: '只读' },
       { key: 'temperature', label: 'temperature', type: 'number', min: 0, max: 2, step: 0.1 },
       { key: 'max_tokens', label: 'max_tokens', type: 'number', min: 64, max: 32768 },
-      { key: 'system', label: 'System Prompt', type: 'textarea' }
+      { key: 'system', label: 'System Prompt', type: 'readonly', hint: '人设提示词已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' }
     ],
     defaults: {
       base_url: '',
       model: '',
+      fallback_models: '',
+      api_key: '',
       api_key_tail8: '',
       temperature: 0.7,
       max_tokens: 1024,
@@ -202,7 +241,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     effective: 'next_session',
     note: '资产拉取/上传由资产接口提供（后端未实现）。',
     fields: [
-      { key: 'avatar_id', label: '当前形象', type: 'text' },
+      { key: 'avatar_id', label: '当前形象', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' },
       { key: 'ref_image_count', label: '参考图数量', type: 'readonly' }
     ],
     defaults: { avatar_id: '', ref_image_count: 0 }
@@ -211,13 +250,9 @@ export const GROUP_SPECS: GroupSpec[] = [
     id: 'vidu_key',
     title: 'Vidu Key',
     effective: 'next_session',
-    note: 'Key 明文不落前端；启用/删除需后端密钥托管（未实现）。',
-    fields: [
-      { key: 'active_tail8', label: '当前生效尾号', type: 'secret' },
-      { key: 'backup_count', label: '备用数量', type: 'readonly' },
-      { key: 'new_key_tail8', label: '新增 Key 尾号', type: 'secret', hint: '只读占位' }
-    ],
-    defaults: { active_tail8: '', backup_count: 0, new_key_tail8: '' }
+    note: 'Key 密文落库、只展示尾号；下方管理区支持新增/激活/删除（激活即时热切换）。',
+    fields: [{ key: 'active_tail8', label: '当前生效尾号', type: 'secret' }],
+    defaults: { active_tail8: '' }
   },
   {
     id: 'captions',
@@ -248,12 +283,15 @@ export const GROUP_SPECS: GroupSpec[] = [
       { key: 'mode', label: '模式', type: 'select', options: [
         { label: '关闭', value: 'off' },
         { label: '确认后播报', value: 'confirm' },
-        { label: '自动播报', value: 'auto' }
-      ] },
+        { label: '自动播报', value: 'auto' },
+        { label: '顺序复读', value: 'read_all' },
+        { label: '弹幕主播（复读+AI 回答）', value: 'dm_anchor' }
+      ], hint: 'read_all 按顺序只复读；dm_anchor 取最新弹幕复读并给 AI 完整回答（需配 LLM）' },
       { key: 'read_interval_ms', label: '播报间隔', type: 'number', min: 500, step: 100, suffix: 'ms' },
-      { key: 'vip_interval_ms', label: 'VIP 间隔', type: 'number', min: 500, step: 100, suffix: 'ms' }
+      { key: 'vip_interval_ms', label: 'VIP 间隔', type: 'number', min: 500, step: 100, suffix: 'ms' },
+      { key: 'block_words', label: '屏蔽词（逗号/换行分隔）', type: 'textarea' }
     ],
-    defaults: { mode: 'off', read_interval_ms: 3000, vip_interval_ms: 2000 }
+    defaults: { mode: 'off', read_interval_ms: 20000, vip_interval_ms: 2000, block_words: '' }
   },
   {
     id: 'misc',

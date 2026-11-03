@@ -100,7 +100,7 @@ func (s *Service) Play(ctx context.Context, name, script string) (State, error) 
 	if err != nil {
 		return State{}, ErrNotFound
 	}
-	pcm, err := s.dec.Decode(path)
+	pcm, err := s.dec.Decode(ctx, path)
 	if err != nil {
 		return State{}, err
 	}

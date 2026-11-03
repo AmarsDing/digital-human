@@ -36,7 +36,7 @@ describe('settings store', () => {
     const store = useSettingsStore()
     await store.load()
 
-    expect(store.groups).toHaveLength(12)
+    expect(store.groups).toHaveLength(13)
     expect(store.groups.find((g) => g.id === 'session')?.values.avatar_id).toBe('a-1')
     expect(store.groups.find((g) => g.id === 'session')?.values.model).toBe('vidu-s2')
     expect(store.groups.find((g) => g.id === 'voice')?.values.frame_ms).toBe('100')
@@ -59,7 +59,7 @@ describe('settings store', () => {
     expect(saveSettings).toHaveBeenCalledTimes(1)
     const [groups, revision] = saveSettings.mock.calls[0]
     expect(revision).toBe(3)
-    expect(groups).toHaveLength(12)
+    expect(groups).toHaveLength(13)
     expect(store.revision).toBe(4)
     expect(store.dirtyCount).toBe(0)
   })
@@ -84,12 +84,13 @@ describe('settings store', () => {
     expect(store.dirtyCount).toBe(0)
   })
 
-  it('schema 固定 12 组且顺序稳定', () => {
+  it('schema 固定 13 组且顺序稳定（F 批新增 gift）', () => {
     expect(GROUP_SPECS.map((g) => g.id)).toEqual([
       'session',
       'voice',
       'member',
       'persona',
+      'gift',
       'llm',
       'rtc',
       'action_library',

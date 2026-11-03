@@ -86,6 +86,12 @@ function field(col: FieldSpec): string {
         <div v-else-if="col.type === 'readonly'" class="field__readonly">
           <span class="field__label">{{ col.label }}</span>
           <span class="field__readonly-value">{{ str(col.key) || '—' }}</span>
+          <router-link v-if="col.linkTo" class="field__link" :to="col.linkTo">{{ col.linkLabel || col.linkTo }}</router-link>
+          <span v-if="col.hint" class="field__hint">{{ col.hint }}</span>
+        </div>
+        <div v-else-if="col.type === 'custom'" class="field--wide field__custom">
+          <span class="field__label">{{ col.label }}</span>
+          <slot name="custom" :field="col" />
         </div>
         <label v-else class="field__input">
           <span class="field__label">{{ col.label }}</span>
@@ -195,5 +201,20 @@ function field(col: FieldSpec): string {
   color: var(--nt-text-2);
   font-family: var(--nt-font-mono);
   font-size: var(--nt-fs-caption);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.field__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--nt-accent);
+  font-size: var(--nt-fs-micro);
+  text-decoration: none;
+}
+.field__link:focus-visible {
+  outline: 2px solid var(--nt-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--nt-radius-s);
 }
 </style>

@@ -43,7 +43,7 @@ onMounted(() => {
     <header class="head">
       <button type="button" @click="router.push('/')">← 返回直播台</button>
       <h1>设置</h1>
-      <span class="head__hint">12 组服务端设置 + 本机界面偏好</span>
+      <span class="head__hint">13 组服务端设置 + 本机界面偏好</span>
     </header>
 
     <div class="body">

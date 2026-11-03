@@ -14,8 +14,8 @@ type DanmakuService struct {
 func NewDanmakuService(svc *danmaku.Service) *DanmakuService { return &DanmakuService{svc: svc} }
 
 // Ingest 永远返回成功响应体（HTTP 200），由 {ok,reason} 表达拒绝原因。
-func (s *DanmakuService) Ingest(_ context.Context, req *livev1.IngestRequest) (*livev1.IngestReply, error) {
-	ok, reason := s.svc.Ingest(req.GetKind(), req.GetUserId(), req.GetUserName(), req.GetText(), req.GetDiamond(), req.GetSource())
+func (s *DanmakuService) Ingest(ctx context.Context, req *livev1.IngestRequest) (*livev1.IngestReply, error) {
+	ok, reason := s.svc.Ingest(ctx, req.GetKind(), req.GetUserId(), req.GetUserName(), req.GetText(), req.GetDiamond(), req.GetSource(), req.GetVip())
 	return &livev1.IngestReply{Ok: ok, Reason: reason}, nil
 }
 
