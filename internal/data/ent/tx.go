@@ -12,6 +12,8 @@ import (
 // Tx is a transactional client that is created by calling Client.Tx().
 type Tx struct {
 	config
+	// ApplyJournal is the client for interacting with the ApplyJournal builders.
+	ApplyJournal *ApplyJournalClient
 	// Asset is the client for interacting with the Asset builders.
 	Asset *AssetClient
 	// AuditLog is the client for interacting with the AuditLog builders.
@@ -20,10 +22,22 @@ type Tx struct {
 	CostLedger *CostLedgerClient
 	// DanmakuEvent is the client for interacting with the DanmakuEvent builders.
 	DanmakuEvent *DanmakuEventClient
+	// EffectOutbox is the client for interacting with the EffectOutbox builders.
+	EffectOutbox *EffectOutboxClient
+	// IdemKey is the client for interacting with the IdemKey builders.
+	IdemKey *IdemKeyClient
+	// InteractionDecision is the client for interacting with the InteractionDecision builders.
+	InteractionDecision *InteractionDecisionClient
+	// LiveDraft is the client for interacting with the LiveDraft builders.
+	LiveDraft *LiveDraftClient
 	// LiveSession is the client for interacting with the LiveSession builders.
 	LiveSession *LiveSessionClient
+	// Patron is the client for interacting with the Patron builders.
+	Patron *PatronClient
 	// Persona is the client for interacting with the Persona builders.
 	Persona *PersonaClient
+	// PersonaRef is the client for interacting with the PersonaRef builders.
+	PersonaRef *PersonaRefClient
 	// Recording is the client for interacting with the Recording builders.
 	Recording *RecordingClient
 	// SessionEvent is the client for interacting with the SessionEvent builders.
@@ -163,12 +177,19 @@ func (tx *Tx) Client() *Client {
 }
 
 func (tx *Tx) init() {
+	tx.ApplyJournal = NewApplyJournalClient(tx.config)
 	tx.Asset = NewAssetClient(tx.config)
 	tx.AuditLog = NewAuditLogClient(tx.config)
 	tx.CostLedger = NewCostLedgerClient(tx.config)
 	tx.DanmakuEvent = NewDanmakuEventClient(tx.config)
+	tx.EffectOutbox = NewEffectOutboxClient(tx.config)
+	tx.IdemKey = NewIdemKeyClient(tx.config)
+	tx.InteractionDecision = NewInteractionDecisionClient(tx.config)
+	tx.LiveDraft = NewLiveDraftClient(tx.config)
 	tx.LiveSession = NewLiveSessionClient(tx.config)
+	tx.Patron = NewPatronClient(tx.config)
 	tx.Persona = NewPersonaClient(tx.config)
+	tx.PersonaRef = NewPersonaRefClient(tx.config)
 	tx.Recording = NewRecordingClient(tx.config)
 	tx.SessionEvent = NewSessionEventClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
@@ -182,7 +203,7 @@ func (tx *Tx) init() {
 // of them in order to commit or rollback the transaction.
 //
 // If a closed transaction is embedded in one of the generated entities, and the entity
-// applies a query, for example: Asset.QueryXXX(), the query will be executed
+// applies a query, for example: ApplyJournal.QueryXXX(), the query will be executed
 // through the driver which created this transaction.
 //
 // Note that txDriver is not goroutine safe.

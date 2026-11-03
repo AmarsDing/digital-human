@@ -18,21 +18,39 @@ type CostLedger struct {
 	ID string `json:"id,omitempty"`
 	// SessionID holds the value of the "session_id" field.
 	SessionID string `json:"session_id,omitempty"`
+	// AccountID holds the value of the "account_id" field.
+	AccountID string `json:"account_id,omitempty"`
 	// CreditsStart holds the value of the "credits_start" field.
 	CreditsStart int64 `json:"credits_start,omitempty"`
 	// CreditsEnd holds the value of the "credits_end" field.
 	CreditsEnd int64 `json:"credits_end,omitempty"`
+	// CreditsSpent holds the value of the "credits_spent" field.
+	CreditsSpent int64 `json:"credits_spent,omitempty"`
 	// TokensIn holds the value of the "tokens_in" field.
 	TokensIn int64 `json:"tokens_in,omitempty"`
 	// TokensOut holds the value of the "tokens_out" field.
 	TokensOut int64 `json:"tokens_out,omitempty"`
+	// TokensTotal holds the value of the "tokens_total" field.
+	TokensTotal int64 `json:"tokens_total,omitempty"`
+	// LlmCalls holds the value of the "llm_calls" field.
+	LlmCalls int64 `json:"llm_calls,omitempty"`
 	// Diamonds holds the value of the "diamonds" field.
 	Diamonds int64 `json:"diamonds,omitempty"`
 	// GiftCount holds the value of the "gift_count" field.
 	GiftCount int64 `json:"gift_count,omitempty"`
 	// EstimatedCost holds the value of the "estimated_cost" field.
 	EstimatedCost float64 `json:"estimated_cost,omitempty"`
-	selectValues  sql.SelectValues
+	// CostSource holds the value of the "cost_source" field.
+	CostSource string `json:"cost_source,omitempty"`
+	// Source holds the value of the "source" field.
+	Source string `json:"source,omitempty"`
+	// StartedAtMs holds the value of the "started_at_ms" field.
+	StartedAtMs int64 `json:"started_at_ms,omitempty"`
+	// EndedAtMs holds the value of the "ended_at_ms" field.
+	EndedAtMs int64 `json:"ended_at_ms,omitempty"`
+	// UpdatedAtMs holds the value of the "updated_at_ms" field.
+	UpdatedAtMs  int64 `json:"updated_at_ms,omitempty"`
+	selectValues sql.SelectValues
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -42,9 +60,9 @@ func (*CostLedger) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case costledger.FieldEstimatedCost:
 			values[i] = new(sql.NullFloat64)
-		case costledger.FieldCreditsStart, costledger.FieldCreditsEnd, costledger.FieldTokensIn, costledger.FieldTokensOut, costledger.FieldDiamonds, costledger.FieldGiftCount:
+		case costledger.FieldCreditsStart, costledger.FieldCreditsEnd, costledger.FieldCreditsSpent, costledger.FieldTokensIn, costledger.FieldTokensOut, costledger.FieldTokensTotal, costledger.FieldLlmCalls, costledger.FieldDiamonds, costledger.FieldGiftCount, costledger.FieldStartedAtMs, costledger.FieldEndedAtMs, costledger.FieldUpdatedAtMs:
 			values[i] = new(sql.NullInt64)
-		case costledger.FieldID, costledger.FieldSessionID:
+		case costledger.FieldID, costledger.FieldSessionID, costledger.FieldAccountID, costledger.FieldCostSource, costledger.FieldSource:
 			values[i] = new(sql.NullString)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -73,6 +91,12 @@ func (_m *CostLedger) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.SessionID = value.String
 			}
+		case costledger.FieldAccountID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field account_id", values[i])
+			} else if value.Valid {
+				_m.AccountID = value.String
+			}
 		case costledger.FieldCreditsStart:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field credits_start", values[i])
@@ -85,6 +109,12 @@ func (_m *CostLedger) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.CreditsEnd = value.Int64
 			}
+		case costledger.FieldCreditsSpent:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field credits_spent", values[i])
+			} else if value.Valid {
+				_m.CreditsSpent = value.Int64
+			}
 		case costledger.FieldTokensIn:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field tokens_in", values[i])
@@ -96,6 +126,18 @@ func (_m *CostLedger) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field tokens_out", values[i])
 			} else if value.Valid {
 				_m.TokensOut = value.Int64
+			}
+		case costledger.FieldTokensTotal:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tokens_total", values[i])
+			} else if value.Valid {
+				_m.TokensTotal = value.Int64
+			}
+		case costledger.FieldLlmCalls:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field llm_calls", values[i])
+			} else if value.Valid {
+				_m.LlmCalls = value.Int64
 			}
 		case costledger.FieldDiamonds:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -114,6 +156,36 @@ func (_m *CostLedger) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field estimated_cost", values[i])
 			} else if value.Valid {
 				_m.EstimatedCost = value.Float64
+			}
+		case costledger.FieldCostSource:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field cost_source", values[i])
+			} else if value.Valid {
+				_m.CostSource = value.String
+			}
+		case costledger.FieldSource:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field source", values[i])
+			} else if value.Valid {
+				_m.Source = value.String
+			}
+		case costledger.FieldStartedAtMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field started_at_ms", values[i])
+			} else if value.Valid {
+				_m.StartedAtMs = value.Int64
+			}
+		case costledger.FieldEndedAtMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field ended_at_ms", values[i])
+			} else if value.Valid {
+				_m.EndedAtMs = value.Int64
+			}
+		case costledger.FieldUpdatedAtMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field updated_at_ms", values[i])
+			} else if value.Valid {
+				_m.UpdatedAtMs = value.Int64
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -154,17 +226,29 @@ func (_m *CostLedger) String() string {
 	builder.WriteString("session_id=")
 	builder.WriteString(_m.SessionID)
 	builder.WriteString(", ")
+	builder.WriteString("account_id=")
+	builder.WriteString(_m.AccountID)
+	builder.WriteString(", ")
 	builder.WriteString("credits_start=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CreditsStart))
 	builder.WriteString(", ")
 	builder.WriteString("credits_end=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CreditsEnd))
 	builder.WriteString(", ")
+	builder.WriteString("credits_spent=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CreditsSpent))
+	builder.WriteString(", ")
 	builder.WriteString("tokens_in=")
 	builder.WriteString(fmt.Sprintf("%v", _m.TokensIn))
 	builder.WriteString(", ")
 	builder.WriteString("tokens_out=")
 	builder.WriteString(fmt.Sprintf("%v", _m.TokensOut))
+	builder.WriteString(", ")
+	builder.WriteString("tokens_total=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TokensTotal))
+	builder.WriteString(", ")
+	builder.WriteString("llm_calls=")
+	builder.WriteString(fmt.Sprintf("%v", _m.LlmCalls))
 	builder.WriteString(", ")
 	builder.WriteString("diamonds=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Diamonds))
@@ -174,6 +258,21 @@ func (_m *CostLedger) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("estimated_cost=")
 	builder.WriteString(fmt.Sprintf("%v", _m.EstimatedCost))
+	builder.WriteString(", ")
+	builder.WriteString("cost_source=")
+	builder.WriteString(_m.CostSource)
+	builder.WriteString(", ")
+	builder.WriteString("source=")
+	builder.WriteString(_m.Source)
+	builder.WriteString(", ")
+	builder.WriteString("started_at_ms=")
+	builder.WriteString(fmt.Sprintf("%v", _m.StartedAtMs))
+	builder.WriteString(", ")
+	builder.WriteString("ended_at_ms=")
+	builder.WriteString(fmt.Sprintf("%v", _m.EndedAtMs))
+	builder.WriteString(", ")
+	builder.WriteString("updated_at_ms=")
+	builder.WriteString(fmt.Sprintf("%v", _m.UpdatedAtMs))
 	builder.WriteByte(')')
 	return builder.String()
 }

@@ -1,11 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,14 +18,21 @@ import (
 
 	"github.com/teamwork/digital-human/internal/biz/action"
 	"github.com/teamwork/digital-human/internal/biz/archive"
+	"github.com/teamwork/digital-human/internal/biz/avatar"
 	"github.com/teamwork/digital-human/internal/biz/billing"
 	"github.com/teamwork/digital-human/internal/biz/choreo"
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/koubo"
 	"github.com/teamwork/digital-human/internal/biz/media"
+	"github.com/teamwork/digital-human/internal/biz/patron"
+	"github.com/teamwork/digital-human/internal/biz/persona"
+	"github.com/teamwork/digital-human/internal/biz/recording"
 	"github.com/teamwork/digital-human/internal/biz/refs"
+	"github.com/teamwork/digital-human/internal/biz/settings"
 	"github.com/teamwork/digital-human/internal/biz/song"
 	"github.com/teamwork/digital-human/internal/biz/tts"
+	"github.com/teamwork/digital-human/internal/biz/vidukeys"
+	"github.com/teamwork/digital-human/internal/llm"
 	"github.com/teamwork/digital-human/pkg/logx"
 )
 
@@ -31,15 +41,45 @@ const maxUploadFileBytes = 50 << 20 // 50MB
 
 // PanelDeps 是 M3 面板后端的依赖集合；nil 服务会被跳过注册，便于渐进接线。
 type PanelDeps struct {
-	TTS     *tts.Service
-	Actions *action.Service
-	Choreo  *choreo.Service
-	Koubo   *koubo.Service
-	Refs    *refs.Service
-	Songs   *song.Service
-	Archive *archive.Service
-	Billing *billing.Service
-	Danmaku *danmaku.Service
+	TTS      *tts.Service
+	Actions  *action.Service
+	Choreo   *choreo.Service
+	Koubo    *koubo.Service
+	Refs     *refs.Service
+	Songs    *song.Service
+	Archive  *archive.Service
+	Billing  *billing.Service
+	Danmaku  *danmaku.Service
+	Personas *persona.Service
+	// Patrons F29/G24 贵宾名单与欢迎（蓝本 bridge.py:878-940 五路由）；nil 跳过注册。
+	Patrons *patron.Service
+	// Avatars 数字人档案服务（G 批 M2，v2 §3.1 11 RPC + 图片路由）；nil 跳过注册。
+	Avatars *avatar.Service
+	// AvatarImages 图片上传/读取管线（§5.3）；nil 时上传与图片路由跳过注册。
+	AvatarImages *avatar.ImageService
+	// AvatarSync sync-vidu 异步管线（G 批 M3，v3 §2.2 202 任务化）；
+	// nil 时 sync-vidu 返回 503 vidu_key_unconfigured（fail-closed）。
+	AvatarSync *avatar.SyncService
+	// ResetLLM 人设切换后立即清当前场次 LLM 记忆（G04），由 live.Manager.ResetLlm 装配；nil 跳过。
+	ResetLLM func(ctx context.Context) int
+	// Chat N1 管理员对话调试（蓝本 bridge.py:469 /api/chat）：发文本走 chat.Manager
+	// （独立 admin 记忆 + 人设），应答经 sink 上屏播报；返回 reply 文本。
+	// 未开播 → 409 not_live（对齐蓝本 engine.chat "没有进行中的会话"）；nil 跳过注册。
+	Chat func(ctx context.Context, text string) (string, error)
+	// ViduKeys F42/G18 多 key 管理（蓝本 bridge.py:1458,1476 /api/vidu/keys）；nil 跳过注册。
+	ViduKeys *vidukeys.Service
+	// ViduKeyCurrent 返回当前生效 key 明文（蓝本首访落库语义：列表为空时把当前 key 落为 active）；
+	// 仅服务层内部使用，绝不写进响应。nil 时 Adopt 跳过。
+	ViduKeyCurrent func() string
+	// Settings F34 录播开关持久化（misc.record_enabled）；nil 时录播 GET/POST 跳过注册。
+	Settings *settings.Service
+	// Recording F34/N2 云录制 Supervisor（蓝本 bridge.py:408-434 /api/record）；
+	// nil（dev 模式或未开通）时 fetch 返回 503 recording_unavailable（fail-closed），
+	// GET 仍返回开关 + unavailable 状态。
+	Recording *recording.Supervisor
+	// Credits F08/F36/G03/N3 实时额度查询（蓝本 bridge.py:1508 /api/credits 透传 vidu credits）；
+	// nil（无凭据/dev）时返回 200 明确空态 configured=false，不报错。
+	Credits func(ctx context.Context) (map[string]any, error)
 	// StorageRoot 是 import-folder 允许的白名单根目录；为空时回退到 TTS 素材库所在根。
 	StorageRoot string
 }
@@ -354,6 +394,37 @@ func registerPanelRoutes(srv *khttp.Server, d PanelDeps) {
 			d.Refs.NoteType14(c.Request().Context(), body.Error)
 			return c.JSON(http.StatusOK, map[string]any{"ok": true, "state": d.Refs.State()})
 		})
+		// F33 本地 refs 文件列表（蓝本 bridge.py:1348 GET /api/refs → {dir, items:[{name,size}]}）。
+		r.GET("/api/v1/refs", func(c khttp.Context) error {
+			items, err := d.Refs.ListFiles()
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "items": items})
+		})
+		// F33 上传（multipart file 字段；png/jpeg ≤10MB ≤4096px，校验顺序对齐 avatar §5.3）。
+		r.POST("/api/v1/refs/upload", func(c khttp.Context) error {
+			if err := c.Request().ParseMultipartForm(avatar.MaxImageBytes + 1); err != nil {
+				return badRequest(c, err)
+			}
+			if c.Request().MultipartForm == nil {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "file_required"})
+			}
+			fh := c.Request().MultipartForm.File["file"]
+			if len(fh) == 0 {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "file_required"})
+			}
+			f, err := fh[0].Open()
+			if err != nil {
+				return badRequest(c, err)
+			}
+			defer func() { _ = f.Close() }()
+			saved, err := d.Refs.SaveUpload(fh[0].Filename, f)
+			if err != nil {
+				return mapRefUploadErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "file": saved})
+		})
 	}
 
 	if d.Songs != nil {
@@ -485,10 +556,503 @@ func registerPanelRoutes(srv *khttp.Server, d PanelDeps) {
 		})
 	}
 
+	// F34/N2 录播（蓝本 bridge.py:408-434）：GET 开关+引擎状态；POST 保存开关（下一场生效）；
+	// POST /fetch 手动再拉一场出片（异步，立即返回）。
+	if d.Settings != nil {
+		// GET /api/v1/record → {enabled, state, url?, live_id?}（蓝本 {enabled, record_dir, state}）。
+		r.GET("/api/v1/record", func(c khttp.Context) error {
+			enabled, err := recordEnabled(c.Request().Context(), d.Settings)
+			if err != nil {
+				return internal(c, err)
+			}
+			resp := map[string]any{"ok": true, "enabled": enabled, "state": recording.StateUnavailable}
+			if d.Recording != nil {
+				resp["state"] = d.Recording.State()
+				if u := d.Recording.URL(); u != "" {
+					resp["url"] = u
+				}
+			}
+			return c.JSON(http.StatusOK, resp)
+		})
+		// POST /api/v1/record {enabled} → 持久化 misc.record_enabled；开关只在建会话时生效。
+		r.POST("/api/v1/record", func(c khttp.Context) error {
+			var body struct {
+				Enabled bool `json:"enabled"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			if err := d.Settings.Patch(c.Request().Context(), "misc", map[string]any{"record_enabled": body.Enabled}); err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{
+				"ok": true, "enabled": body.Enabled,
+				"note": "已保存；本场已连线的话，下一场生效",
+			})
+		})
+		// POST /api/v1/record/fetch {live_id?} → 手动再拉出片；不传 live_id 用最近一场。
+		// 长轮询（最长 1800s）放 goroutine，立即返回 processing；dev/未开通 fail-closed 503。
+		r.POST("/api/v1/record/fetch", func(c khttp.Context) error {
+			if d.Recording == nil || !d.Recording.Enabled() {
+				return c.JSON(http.StatusServiceUnavailable, map[string]any{
+					"ok": false, "error": "recording_unavailable",
+				})
+			}
+			var body struct {
+				LiveID string `json:"live_id"`
+			}
+			_ = decodeJSONBody(c, &body) // 空 body 合法（用最近一场）
+			go func() {
+				if _, err := d.Recording.OnSessionStop(context.Background(), body.LiveID); err != nil {
+					slog.Warn("record fetch 失败", "err", err)
+				}
+			}()
+			return c.JSON(http.StatusOK, map[string]any{
+				"ok": true, "live_id": body.LiveID, "state": recording.StateProcessing,
+			})
+		})
+	}
+
+	// F08/F36/G03/N3 额度实时查询（蓝本 bridge.py:1508 /api/credits 透传 vidu credits）。
+	// 无凭据/未装配 → 200 明确空态（configured=false）；Vidu 错误 → 502（对齐蓝本）。
+	r.GET("/api/v1/credits", func(c khttp.Context) error {
+		if d.Credits == nil {
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "configured": false, "remain": nil})
+		}
+		raw, err := d.Credits(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		}
+		// 透传 Vidu 原始字段（含 remain_credit），附归一化 remain 便于前端直读。
+		resp := map[string]any{"ok": true, "configured": true}
+		for k, v := range raw {
+			resp[k] = v
+		}
+		if _, has := resp["remain"]; !has {
+			if rc, ok := raw["remain_credit"]; ok {
+				resp["remain"] = rc
+			}
+		}
+		return c.JSON(http.StatusOK, resp)
+	})
+
 	if d.Danmaku != nil {
 		r.GET("/api/v1/danmaku/state", func(c khttp.Context) error {
 			return c.JSON(http.StatusOK, map[string]any{"ok": true, "state": d.Danmaku.State(time.Now()), "top_scope": "calendar_day"})
 		})
+	}
+
+	if d.Patrons != nil {
+		// 蓝本 bridge.py:878 GET /api/patrons：名单 + 状态（welcomed/count）。
+		r.GET("/api/v1/patrons", func(c khttp.Context) error {
+			items, err := d.Patrons.List(c.Request().Context())
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{
+				"ok": true, "items": items, "state": d.Patrons.State(c.Request().Context()),
+			})
+		})
+		// 蓝本 bridge.py:884 GET /api/patrons/ids：阅读端本地匹配 join 用。
+		r.GET("/api/v1/patrons/ids", func(c khttp.Context) error {
+			nicks, uids, err := d.Patrons.IDs(c.Request().Context())
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "nicks": nicks, "uids": uids})
+		})
+		// 蓝本 bridge.py:891 POST /api/patrons/save：全量替换名单。
+		r.POST("/api/v1/patrons/save", func(c khttp.Context) error {
+			var body struct {
+				Items []patron.Entry `json:"items"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			n, err := d.Patrons.Save(c.Request().Context(), body.Items)
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "count": n})
+		})
+		// 蓝本 bridge.py:912 POST /api/patron/join：贵宾进场欢迎（未开播静默 skipped）。
+		r.POST("/api/v1/patron/join", func(c khttp.Context) error {
+			var body struct {
+				Nick string `json:"nick"`
+				UID  string `json:"uid"`
+				Note string `json:"note"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			line, ok := d.Patrons.OnJoin(c.Request().Context(), body.Nick, body.UID, body.Note)
+			if !ok {
+				skipped := "not_patron"
+				if !d.Patrons.IsLive() {
+					skipped = "idle"
+				}
+				return c.JSON(http.StatusOK, map[string]any{"ok": true, "skipped": skipped})
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "line": line})
+		})
+		// 蓝本 bridge.py:926 POST /api/patron/welcome：强制欢迎（未开播 409）。
+		r.POST("/api/v1/patron/welcome", func(c khttp.Context) error {
+			var body struct {
+				Nick string `json:"nick"`
+				UID  string `json:"uid"`
+				Note string `json:"note"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			if !d.Patrons.IsLive() {
+				return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "not_live"})
+			}
+			line, ok := d.Patrons.Welcome(c.Request().Context(), body.Nick, body.Note)
+			if !ok {
+				return c.JSON(http.StatusOK, map[string]any{"ok": true, "skipped": "already_welcomed"})
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "line": line})
+		})
+	}
+
+	if d.Personas != nil {
+		// 蓝本 bridge.py:1090 GET /api/personas：items + active + 当前人设完整 prompt。
+		r.GET("/api/v1/personas", func(c khttp.Context) error {
+			items, active, err := d.Personas.List(c.Request().Context())
+			if err != nil {
+				return internal(c, err)
+			}
+			prompt := ""
+			for _, p := range items {
+				if p.ID == active {
+					prompt = p.SystemPrompt
+					break
+				}
+			}
+			return c.JSON(http.StatusOK, map[string]any{
+				"ok": true, "active": active, "items": items,
+				"prompt": prompt, "prompt_chars": len([]rune(prompt)),
+				"storage": d.Personas.Storage(),
+			})
+		})
+		// 蓝本 bridge.py:1105 personas_select：404 校验 + 切换后立即清记忆（G04，消除 restart_required）。
+		r.POST("/api/v1/personas/select", func(c khttp.Context) error {
+			var body struct {
+				ID string `json:"id"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			p, err := d.Personas.Select(c.Request().Context(), body.ID)
+			if err != nil {
+				return mapPersonaErr(c, err)
+			}
+			cleared := 0
+			if d.ResetLLM != nil {
+				cleared = d.ResetLLM(c.Request().Context())
+			}
+			return c.JSON(http.StatusOK, map[string]any{
+				"ok": true, "active": p.ID, "name": p.Name,
+				"chars": len([]rune(p.SystemPrompt)), "cleared_turns": cleared,
+			})
+		})
+		// 蓝本 bridge.py:1122 personas_save：id/prompt 校验失败 400。
+		r.POST("/api/v1/personas/save", func(c khttp.Context) error {
+			var body struct {
+				ID           string `json:"id"`
+				Name         string `json:"name"`
+				Tagline      string `json:"tagline"`
+				Voice        string `json:"voice"`
+				VoiceID      string `json:"voice_id"`
+				AvatarNote   string `json:"avatar_note"`
+				SystemPrompt string `json:"system_prompt"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			voice := body.Voice
+			if voice == "" {
+				voice = body.VoiceID
+			}
+			p, err := d.Personas.Save(c.Request().Context(), body.ID, persona.SaveInput{
+				Name:         body.Name,
+				Tagline:      body.Tagline,
+				VoiceID:      voice,
+				AvatarNote:   body.AvatarNote,
+				SystemPrompt: body.SystemPrompt,
+			})
+			if err != nil {
+				return mapPersonaErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "persona": p})
+		})
+		// 蓝本 bridge.py:1132 personas_delete：删 active 409，不存在 404。
+		r.POST("/api/v1/personas/delete", func(c khttp.Context) error {
+			var body struct {
+				ID string `json:"id"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			if err := d.Personas.Delete(c.Request().Context(), body.ID); err != nil {
+				return mapPersonaErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "deleted": body.ID})
+		})
+	}
+
+	// N1 管理员对话调试（蓝本 bridge.py:469 /api/chat → engine.chat）：
+	// 发文本走 chat.Manager（admin 独立记忆 + 人设），应答经 sink 上屏播报并返回 reply。
+	// 蓝本语义：无进行中会话 409；LLM 未配置 fail-closed 503。
+	if d.Chat != nil {
+		r.POST("/api/v1/chat", func(c khttp.Context) error {
+			var body struct {
+				Text    string `json:"text"`
+				Content string `json:"content"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			text := strings.TrimSpace(body.Text)
+			if text == "" {
+				text = strings.TrimSpace(body.Content)
+			}
+			if text == "" {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "text_required"})
+			}
+			reply, err := d.Chat(c.Request().Context(), text)
+			if err != nil {
+				return mapChatErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "reply": reply})
+		})
+	}
+
+	// F42/G18 Vidu 多 key 管理（蓝本 bridge.py:1458 GET、1476 POST /api/vidu/keys）。
+	if d.ViduKeys != nil {
+		// GET：首访把当前生效 key 落库为 active（蓝本行 1458-1465）；响应只带尾 8 位。
+		r.GET("/api/v1/vidu/keys", func(c khttp.Context) error {
+			ctx := c.Request().Context()
+			if d.ViduKeyCurrent != nil {
+				if _, err := d.ViduKeys.Adopt(ctx, d.ViduKeyCurrent()); err != nil {
+					return internal(c, err)
+				}
+			}
+			active, keys, err := d.ViduKeys.List(ctx)
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "active": active, "keys": keys})
+		})
+		// POST：action=add|activate|delete（蓝本单端点分发）。
+		r.POST("/api/v1/vidu/keys", func(c khttp.Context) error {
+			var body struct {
+				Action   string `json:"action"`
+				Key      string `json:"key"`
+				Activate bool   `json:"activate"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			ctx := c.Request().Context()
+			switch strings.ToLower(strings.TrimSpace(body.Action)) {
+			case "add":
+				entry, err := d.ViduKeys.Add(ctx, body.Key, body.Activate)
+				if err != nil {
+					return mapViduKeysErr(c, err)
+				}
+				return c.JSON(http.StatusOK, map[string]any{"ok": true, "key": entry})
+			case "activate":
+				if err := d.ViduKeys.Activate(ctx, body.Key); err != nil {
+					return mapViduKeysErr(c, err)
+				}
+				active, keys, err := d.ViduKeys.List(ctx)
+				if err != nil {
+					return internal(c, err)
+				}
+				return c.JSON(http.StatusOK, map[string]any{"ok": true, "active": active, "keys": keys})
+			case "delete":
+				if err := d.ViduKeys.Delete(ctx, body.Key); err != nil {
+					return mapViduKeysErr(c, err)
+				}
+				active, keys, err := d.ViduKeys.List(ctx)
+				if err != nil {
+					return internal(c, err)
+				}
+				return c.JSON(http.StatusOK, map[string]any{"ok": true, "active": active, "keys": keys})
+			default:
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "unknown_action"})
+			}
+		})
+	}
+
+	// G 批 M2 数字人档案 11 RPC + 图片路由（v2 §3.1）；追加式，不改既有 handler。
+	// 鉴权：filter 已强制 Bearer（含 GET），handler 内不做冗余鉴权（v3 §5 论证）。
+	if d.Avatars != nil {
+		// #1 ListAvatars：分页 + storage 标识 + include_deleted。
+		r.GET("/api/v1/avatars", func(c khttp.Context) error {
+			_, size, offset := pageQuery(c)
+			includeDeleted := c.Request().URL.Query().Get("include_deleted") == "true"
+			items, total, err := d.Avatars.List(c.Request().Context(), size, offset, includeDeleted)
+			if err != nil {
+				return internal(c, err)
+			}
+			out := make([]map[string]any, 0, len(items))
+			for _, a := range items {
+				out = append(out, avatarListItem(a))
+			}
+			return c.JSON(http.StatusOK, map[string]any{
+				"ok": true, "avatars": out, "total": total, "storage": d.Avatars.Storage(),
+			})
+		})
+		// #3 CreateAvatar → 201。
+		r.POST("/api/v1/avatars", func(c khttp.Context) error {
+			var body struct {
+				Name            string `json:"name"`
+				Slug            string `json:"slug"`
+				SystemPrompt    string `json:"system_prompt"`
+				Greeting        string `json:"greeting"`
+				VoiceID         string `json:"voice_id"`
+				ActionLibraryID string `json:"action_library_id"`
+				ImageAssetID    string `json:"image_asset_id"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			a, err := d.Avatars.Create(c.Request().Context(), avatar.CreateInput{
+				Name: body.Name, Slug: body.Slug, SystemPrompt: body.SystemPrompt,
+				Greeting: body.Greeting, VoiceID: body.VoiceID,
+				ActionLibraryID: body.ActionLibraryID, ImageAssetID: body.ImageAssetID,
+			})
+			if err != nil {
+				return mapAvatarErr(c, err)
+			}
+			return c.JSON(http.StatusCreated, map[string]any{"ok": true, "avatar": avatarDetail(a)})
+		})
+		// #2 GetAvatar。
+		r.GET("/api/v1/avatars/{id}", func(c khttp.Context) error {
+			a, err := d.Avatars.Get(c.Request().Context(), param(c, "id"))
+			if err != nil {
+				return mapAvatarErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "avatar": avatarDetail(a)})
+		})
+		// #4 UpdateAvatar：body.revision 乐观锁（CAS），撞 → 409 revision_conflict。
+		r.PUT("/api/v1/avatars/{id}", func(c khttp.Context) error {
+			var body struct {
+				Name            string `json:"name"`
+				Slug            string `json:"slug"`
+				SystemPrompt    string `json:"system_prompt"`
+				Greeting        string `json:"greeting"`
+				VoiceID         string `json:"voice_id"`
+				ActionLibraryID string `json:"action_library_id"`
+				ImageAssetID    string `json:"image_asset_id"`
+				Revision        int64  `json:"revision"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			a, err := d.Avatars.Update(c.Request().Context(), param(c, "id"), avatar.UpdateInput{
+				Name: body.Name, Slug: body.Slug, SystemPrompt: body.SystemPrompt,
+				Greeting: body.Greeting, VoiceID: body.VoiceID,
+				ActionLibraryID: body.ActionLibraryID, ImageAssetID: body.ImageAssetID,
+			}, body.Revision)
+			if err != nil {
+				return mapAvatarErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "avatar": avatarDetail(a)})
+		})
+		// #5 DeleteAvatar：软删；当前 active → 409 avatar_in_use。
+		r.POST("/api/v1/avatars/{id}/delete", func(c khttp.Context) error {
+			id := param(c, "id")
+			if err := d.Avatars.Delete(c.Request().Context(), id); err != nil {
+				return mapAvatarErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "deleted": id})
+		})
+		// #6 DuplicateAvatar：slug 递增 -copy/-copy2…；vidu_* 清空待重同步 → 201。
+		r.POST("/api/v1/avatars/{id}/duplicate", func(c khttp.Context) error {
+			a, err := d.Avatars.Duplicate(c.Request().Context(), param(c, "id"))
+			if err != nil {
+				return mapAvatarErr(c, err)
+			}
+			return c.JSON(http.StatusCreated, map[string]any{"ok": true, "avatar": avatarDetail(a)})
+		})
+		// #7 SetActiveAvatar：排他置 active。
+		r.POST("/api/v1/avatars/{id}/activate", func(c khttp.Context) error {
+			if err := d.Avatars.SetActive(c.Request().Context(), param(c, "id")); err != nil {
+				return mapAvatarErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true})
+		})
+		// #9 SyncAvatarToVidu —— M2 仅路由占位（501）。
+		// M3 已落地：202 异步任务化（入队即返 202 {job_id, state:"queued"}；
+		// 幂等复放 200：进行中复放当前任务、sha256 未变复放 dedup:true；
+		// ListAvatars/GetAvatar 的 vidu_sync_state 轮询闭环，v3 §2.2）。
+		r.POST("/api/v1/avatars/{id}/sync-vidu", func(c khttp.Context) error {
+			if d.AvatarSync == nil {
+				return c.JSON(http.StatusServiceUnavailable,
+					map[string]any{"ok": false, "error": "vidu_key_unconfigured", "detail": "sync-vidu 需要 vidu.engine=real 且配置 api_key"})
+			}
+			job, created, dedup, err := d.AvatarSync.Start(c.Request().Context(), param(c, "id"))
+			if err != nil {
+				return mapAvatarErr(c, err)
+			}
+			code := http.StatusOK
+			if created {
+				code = http.StatusAccepted
+			}
+			body := map[string]any{"ok": true, "job_id": job.ID, "state": job.State}
+			if dedup {
+				body["dedup"] = true
+			}
+			return c.JSON(code, body)
+		})
+		// #11 RemoveAvatarRef：解绑参考图，剩余 ord 重排。
+		r.POST("/api/v1/avatars/{id}/refs/remove", func(c khttp.Context) error {
+			var body struct {
+				AssetID string `json:"asset_id"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			if body.AssetID == "" {
+				return badRequest(c, errors.New("asset_id 必填"))
+			}
+			if err := d.Avatars.RemoveRef(c.Request().Context(), param(c, "id"), body.AssetID); err != nil {
+				return mapAvatarErr(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true})
+		})
+		if d.AvatarImages != nil {
+			// #8 UploadAvatarImage：multipart 上传（§5.3 校验链），dedup 复用同 sha256。
+			r.POST("/api/v1/avatars/upload", func(c khttp.Context) error {
+				return uploadAvatarImage(c, d.AvatarImages, "image", nil)
+			})
+			// #10 UploadAvatarRef：上传 + 绑定（ord 追加）；>3 → 400 too_many_refs。
+			r.POST("/api/v1/avatars/{id}/refs", func(c khttp.Context) error {
+				personaID := param(c, "id")
+				return uploadAvatarImage(c, d.AvatarImages, "ref", func(a avatar.Asset) error {
+					return d.Avatars.AddRef(c.Request().Context(), personaID, a.ID)
+				})
+			})
+			// GetAvatarImage：读取时 http.DetectContentType 嗅探（v3 §5.2，零 schema 变更）。
+			r.GET("/api/v1/avatars/{id}/image", func(c khttp.Context) error {
+				a, err := d.Avatars.Get(c.Request().Context(), param(c, "id"))
+				if err != nil {
+					return mapAvatarErr(c, err)
+				}
+				if a.ImageAsset.ID == "" {
+					return c.JSON(http.StatusNotFound, map[string]any{"ok": false, "error": "avatar_image_not_found"})
+				}
+				return serveAvatarAsset(c, d.AvatarImages, a.ImageAsset.ID)
+			})
+			// GetAvatarAssetImage：refs[].url 落点（v2 §3.1 #2 refs[].url）。
+			r.GET("/api/v1/avatars/{aid}/assets/{asset_id}/image", func(c khttp.Context) error {
+				return serveAvatarAsset(c, d.AvatarImages, param(c, "asset_id"))
+			})
+		}
 	}
 }
 
@@ -791,6 +1355,67 @@ func badRequest(c khttp.Context, err error) error {
 	return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
 }
 
+// mapChatErr N1 对话路由错误映射（蓝本 engine.chat：无会话 RuntimeError → 409）：
+// not_live → 409；LLM 未配置 fail-closed → 503；其余 LLM/播报失败 → 502。
+func mapChatErr(c khttp.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrChatNotLive):
+		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "not_live"})
+	case errors.Is(err, llm.ErrLLMNotConfigured):
+		return c.JSON(http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "llm_not_configured"})
+	default:
+		return c.JSON(http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+	}
+}
+
+// ErrChatNotLive 无进行中会话时拒绝对话（对齐蓝本 engine.chat "没有进行中的会话" → 409）。
+var ErrChatNotLive = errors.New("not_live")
+
+// recordEnabled 读 misc.record_enabled 持久化开关（蓝本 config.rtc.managed_recording 语义）。
+func recordEnabled(ctx context.Context, st *settings.Service) (bool, error) {
+	groups, _, err := st.Get(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, g := range groups {
+		if g.ID == "misc" {
+			v, _ := g.Values["record_enabled"].(bool)
+			return v, nil
+		}
+	}
+	return false, nil
+}
+
+// mapRefUploadErr F33 上传错误映射：校验失败 → 400 稳定错误码（与 avatar §5.3 同码）；目录未配置 → 503。
+func mapRefUploadErr(c khttp.Context, err error) error {
+	switch {
+	case errors.Is(err, refs.ErrRefNoDir):
+		return c.JSON(http.StatusServiceUnavailable, map[string]any{"ok": false, "error": err.Error()})
+	case errors.Is(err, refs.ErrRefTooLarge), errors.Is(err, refs.ErrRefType),
+		errors.Is(err, refs.ErrRefPixels), errors.Is(err, refs.ErrRefName):
+		return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+	default:
+		return internal(c, err)
+	}
+}
+
+// mapViduKeysErr F42 多 key 错误映射（蓝本 bridge.py:1488-1530）：
+// 非法 key / 重复 → 400；找不到 → 404；删当前生效 → 409（任务拍板，蓝本为 400）；加密不可用 → 503。
+func mapViduKeysErr(c khttp.Context, err error) error {
+	switch {
+	case errors.Is(err, vidukeys.ErrInvalidKey), errors.Is(err, vidukeys.ErrDuplicate):
+		return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+	case errors.Is(err, vidukeys.ErrNotFound):
+		return c.JSON(http.StatusNotFound, map[string]any{"ok": false, "error": err.Error()})
+	case errors.Is(err, vidukeys.ErrActiveKey):
+		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": err.Error()})
+	case errors.Is(err, vidukeys.ErrUnavailable):
+		return c.JSON(http.StatusServiceUnavailable, map[string]any{"ok": false, "error": err.Error()})
+	default:
+		return internal(c, err)
+	}
+}
+
 // internal 统一返回稳定错误码 internal_error；真实错误只进服务端日志，不外泄给客户端。
 func internal(c khttp.Context, err error) error {
 	if err != nil {
@@ -827,6 +1452,134 @@ func mapSongErr(c khttp.Context, err error) error {
 		return badRequest(c, err)
 	case errors.Is(err, song.ErrNotFound):
 		return c.JSON(http.StatusNotFound, map[string]any{"ok": false, "error": err.Error()})
+	default:
+		return internal(c, err)
+	}
+}
+
+// mapPersonaErr 对齐蓝本：不存在 404、删 active 409、id/prompt 校验失败 400。
+func mapPersonaErr(c khttp.Context, err error) error {
+	switch {
+	case errors.Is(err, persona.ErrNotFound):
+		return c.JSON(http.StatusNotFound, map[string]any{"ok": false, "error": err.Error()})
+	case errors.Is(err, persona.ErrActiveConflict):
+		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": err.Error()})
+	case errors.Is(err, persona.ErrInvalidID), errors.Is(err, persona.ErrEmptyPrompt):
+		return badRequest(c, err)
+	default:
+		return internal(c, err)
+	}
+}
+
+// avatarListItem ListAvatars 响应项（v2 §3.1 #1 键集 + avatar_asset_id：
+// 前端「设为当前」预检依赖列表项直读主形象素材 id，与 detail 对齐）。
+func avatarListItem(a avatar.Avatar) map[string]any {
+	return map[string]any{
+		"persona_id":      a.ID,
+		"slug":            a.Slug,
+		"name":            a.Name,
+		"vidu_avatar_id":  a.ViduAvatarID,
+		"vidu_image_uri":  a.ViduImageURI,
+		"avatar_asset_id": a.ImageAsset.ID,
+		"expires_at_ms":   a.ImageAsset.ExpiresAtMs,
+		"vidu_sync_state": a.ViduSync,
+		"is_active":       a.IsActive,
+		"updated_at_ms":   a.UpdatedAtMs,
+		"revision":        a.Revision,
+	}
+}
+
+// avatarDetail GetAvatar/Create/Update/Duplicate 响应（v2 §3.1 #2：list 键集 + 详情键）。
+func avatarDetail(a avatar.Avatar) map[string]any {
+	m := avatarListItem(a)
+	m["system_prompt"] = a.SystemPrompt
+	m["greeting"] = a.Greeting
+	m["voice_id"] = a.VoiceID
+	m["action_library_id"] = a.ActionLibraryID
+	refs := make([]map[string]any, 0, len(a.Refs))
+	for _, ref := range a.Refs {
+		refs = append(refs, map[string]any{
+			"asset_id": ref.AssetID,
+			"ord":      ref.Ord,
+			"url": "/api/v1/avatars/" + url.PathEscape(a.ID) +
+				"/assets/" + url.PathEscape(ref.AssetID) + "/image",
+			"vidu_uri": ref.Asset.URI,
+			"sha256":   ref.Asset.SHA256,
+		})
+	}
+	m["refs"] = refs
+	return m
+}
+
+// uploadAvatarImage 图片上传统一入口（#8/#10）：multipart file 字段 → §5.3 校验链
+// → dedup 落盘登记 → 可选后置动作（#10 绑定 ref）。
+func uploadAvatarImage(c khttp.Context, images *avatar.ImageService, kind string, after func(avatar.Asset) error) error {
+	if err := c.Request().ParseMultipartForm(avatar.MaxImageBytes + (1 << 20)); err != nil {
+		return badRequest(c, errors.New("请求必须是 multipart/form-data"))
+	}
+	file, header, err := c.Request().FormFile("file")
+	if err != nil {
+		return badRequest(c, errors.New("file 必填（multipart/form-data）"))
+	}
+	defer func() { _ = file.Close() }()
+	asset, dedup, err := images.SaveUpload(c.Request().Context(), kind, header.Filename, file)
+	if err != nil {
+		return mapAvatarErr(c, err)
+	}
+	if after != nil {
+		if err := after(asset); err != nil {
+			return mapAvatarErr(c, err)
+		}
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"ok": true, "asset_id": asset.ID, "sha256": asset.SHA256, "dedup": dedup,
+	})
+}
+
+// serveAvatarAsset 图片读取：路径只来自 DB（v3 §5.1），读取时 http.DetectContentType
+// 嗅探（§5.2，mime 零 schema 变更），nosniff + 私有缓存头。
+func serveAvatarAsset(c khttp.Context, images *avatar.ImageService, assetID string) error {
+	p, err := images.ResolvePath(c.Request().Context(), assetID)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"ok": false, "error": "avatar_image_not_found"})
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]any{"ok": false, "error": "avatar_image_not_found"})
+	}
+	head := make([]byte, 512)
+	n, _ := f.Read(head)
+	_ = f.Close()
+	h := c.Response().Header()
+	h.Set("Content-Type", http.DetectContentType(head[:n]))
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "private, max-age=86400, immutable")
+	http.ServeFile(c.Response(), c.Request(), p)
+	return nil
+}
+
+// mapAvatarErr v2 §3.1 错误码：400 validation_failed/too_many_refs/图片校验，
+// 404 avatar_not_found，409 revision_conflict/avatar_in_use/slug_conflict。
+func mapAvatarErr(c khttp.Context, err error) error {
+	switch {
+	case errors.Is(err, avatar.ErrValidation):
+		return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "validation_failed", "detail": err.Error()})
+	case errors.Is(err, avatar.ErrTooManyRefs):
+		return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "too_many_refs"})
+	case errors.Is(err, avatar.ErrImageTooLarge), errors.Is(err, avatar.ErrImageType), errors.Is(err, avatar.ErrImagePixels):
+		return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+	case errors.Is(err, avatar.ErrNotFound):
+		return c.JSON(http.StatusNotFound, map[string]any{"ok": false, "error": "avatar_not_found"})
+	case errors.Is(err, avatar.ErrViduKeyUnavailable):
+		return c.JSON(http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "vidu_key_unconfigured"})
+	case errors.Is(err, avatar.ErrSyncImageRequired):
+		return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "avatar_image_required"})
+	case errors.Is(err, avatar.ErrRevisionConflict):
+		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "revision_conflict"})
+	case errors.Is(err, avatar.ErrAvatarInUse):
+		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "avatar_in_use"})
+	case errors.Is(err, avatar.ErrSlugConflict):
+		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "slug_conflict"})
 	default:
 		return internal(c, err)
 	}

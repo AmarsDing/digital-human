@@ -25,6 +25,20 @@ func (_c *CostLedgerCreate) SetSessionID(v string) *CostLedgerCreate {
 	return _c
 }
 
+// SetAccountID sets the "account_id" field.
+func (_c *CostLedgerCreate) SetAccountID(v string) *CostLedgerCreate {
+	_c.mutation.SetAccountID(v)
+	return _c
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableAccountID(v *string) *CostLedgerCreate {
+	if v != nil {
+		_c.SetAccountID(*v)
+	}
+	return _c
+}
+
 // SetCreditsStart sets the "credits_start" field.
 func (_c *CostLedgerCreate) SetCreditsStart(v int64) *CostLedgerCreate {
 	_c.mutation.SetCreditsStart(v)
@@ -53,6 +67,20 @@ func (_c *CostLedgerCreate) SetNillableCreditsEnd(v *int64) *CostLedgerCreate {
 	return _c
 }
 
+// SetCreditsSpent sets the "credits_spent" field.
+func (_c *CostLedgerCreate) SetCreditsSpent(v int64) *CostLedgerCreate {
+	_c.mutation.SetCreditsSpent(v)
+	return _c
+}
+
+// SetNillableCreditsSpent sets the "credits_spent" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableCreditsSpent(v *int64) *CostLedgerCreate {
+	if v != nil {
+		_c.SetCreditsSpent(*v)
+	}
+	return _c
+}
+
 // SetTokensIn sets the "tokens_in" field.
 func (_c *CostLedgerCreate) SetTokensIn(v int64) *CostLedgerCreate {
 	_c.mutation.SetTokensIn(v)
@@ -77,6 +105,34 @@ func (_c *CostLedgerCreate) SetTokensOut(v int64) *CostLedgerCreate {
 func (_c *CostLedgerCreate) SetNillableTokensOut(v *int64) *CostLedgerCreate {
 	if v != nil {
 		_c.SetTokensOut(*v)
+	}
+	return _c
+}
+
+// SetTokensTotal sets the "tokens_total" field.
+func (_c *CostLedgerCreate) SetTokensTotal(v int64) *CostLedgerCreate {
+	_c.mutation.SetTokensTotal(v)
+	return _c
+}
+
+// SetNillableTokensTotal sets the "tokens_total" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableTokensTotal(v *int64) *CostLedgerCreate {
+	if v != nil {
+		_c.SetTokensTotal(*v)
+	}
+	return _c
+}
+
+// SetLlmCalls sets the "llm_calls" field.
+func (_c *CostLedgerCreate) SetLlmCalls(v int64) *CostLedgerCreate {
+	_c.mutation.SetLlmCalls(v)
+	return _c
+}
+
+// SetNillableLlmCalls sets the "llm_calls" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableLlmCalls(v *int64) *CostLedgerCreate {
+	if v != nil {
+		_c.SetLlmCalls(*v)
 	}
 	return _c
 }
@@ -123,6 +179,76 @@ func (_c *CostLedgerCreate) SetNillableEstimatedCost(v *float64) *CostLedgerCrea
 	return _c
 }
 
+// SetCostSource sets the "cost_source" field.
+func (_c *CostLedgerCreate) SetCostSource(v string) *CostLedgerCreate {
+	_c.mutation.SetCostSource(v)
+	return _c
+}
+
+// SetNillableCostSource sets the "cost_source" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableCostSource(v *string) *CostLedgerCreate {
+	if v != nil {
+		_c.SetCostSource(*v)
+	}
+	return _c
+}
+
+// SetSource sets the "source" field.
+func (_c *CostLedgerCreate) SetSource(v string) *CostLedgerCreate {
+	_c.mutation.SetSource(v)
+	return _c
+}
+
+// SetNillableSource sets the "source" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableSource(v *string) *CostLedgerCreate {
+	if v != nil {
+		_c.SetSource(*v)
+	}
+	return _c
+}
+
+// SetStartedAtMs sets the "started_at_ms" field.
+func (_c *CostLedgerCreate) SetStartedAtMs(v int64) *CostLedgerCreate {
+	_c.mutation.SetStartedAtMs(v)
+	return _c
+}
+
+// SetNillableStartedAtMs sets the "started_at_ms" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableStartedAtMs(v *int64) *CostLedgerCreate {
+	if v != nil {
+		_c.SetStartedAtMs(*v)
+	}
+	return _c
+}
+
+// SetEndedAtMs sets the "ended_at_ms" field.
+func (_c *CostLedgerCreate) SetEndedAtMs(v int64) *CostLedgerCreate {
+	_c.mutation.SetEndedAtMs(v)
+	return _c
+}
+
+// SetNillableEndedAtMs sets the "ended_at_ms" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableEndedAtMs(v *int64) *CostLedgerCreate {
+	if v != nil {
+		_c.SetEndedAtMs(*v)
+	}
+	return _c
+}
+
+// SetUpdatedAtMs sets the "updated_at_ms" field.
+func (_c *CostLedgerCreate) SetUpdatedAtMs(v int64) *CostLedgerCreate {
+	_c.mutation.SetUpdatedAtMs(v)
+	return _c
+}
+
+// SetNillableUpdatedAtMs sets the "updated_at_ms" field if the given value is not nil.
+func (_c *CostLedgerCreate) SetNillableUpdatedAtMs(v *int64) *CostLedgerCreate {
+	if v != nil {
+		_c.SetUpdatedAtMs(*v)
+	}
+	return _c
+}
+
 // SetID sets the "id" field.
 func (_c *CostLedgerCreate) SetID(v string) *CostLedgerCreate {
 	_c.mutation.SetID(v)
@@ -164,6 +290,10 @@ func (_c *CostLedgerCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *CostLedgerCreate) defaults() {
+	if _, ok := _c.mutation.AccountID(); !ok {
+		v := costledger.DefaultAccountID
+		_c.mutation.SetAccountID(v)
+	}
 	if _, ok := _c.mutation.CreditsStart(); !ok {
 		v := costledger.DefaultCreditsStart
 		_c.mutation.SetCreditsStart(v)
@@ -172,6 +302,10 @@ func (_c *CostLedgerCreate) defaults() {
 		v := costledger.DefaultCreditsEnd
 		_c.mutation.SetCreditsEnd(v)
 	}
+	if _, ok := _c.mutation.CreditsSpent(); !ok {
+		v := costledger.DefaultCreditsSpent
+		_c.mutation.SetCreditsSpent(v)
+	}
 	if _, ok := _c.mutation.TokensIn(); !ok {
 		v := costledger.DefaultTokensIn
 		_c.mutation.SetTokensIn(v)
@@ -179,6 +313,14 @@ func (_c *CostLedgerCreate) defaults() {
 	if _, ok := _c.mutation.TokensOut(); !ok {
 		v := costledger.DefaultTokensOut
 		_c.mutation.SetTokensOut(v)
+	}
+	if _, ok := _c.mutation.TokensTotal(); !ok {
+		v := costledger.DefaultTokensTotal
+		_c.mutation.SetTokensTotal(v)
+	}
+	if _, ok := _c.mutation.LlmCalls(); !ok {
+		v := costledger.DefaultLlmCalls
+		_c.mutation.SetLlmCalls(v)
 	}
 	if _, ok := _c.mutation.Diamonds(); !ok {
 		v := costledger.DefaultDiamonds
@@ -192,6 +334,26 @@ func (_c *CostLedgerCreate) defaults() {
 		v := costledger.DefaultEstimatedCost
 		_c.mutation.SetEstimatedCost(v)
 	}
+	if _, ok := _c.mutation.CostSource(); !ok {
+		v := costledger.DefaultCostSource
+		_c.mutation.SetCostSource(v)
+	}
+	if _, ok := _c.mutation.Source(); !ok {
+		v := costledger.DefaultSource
+		_c.mutation.SetSource(v)
+	}
+	if _, ok := _c.mutation.StartedAtMs(); !ok {
+		v := costledger.DefaultStartedAtMs
+		_c.mutation.SetStartedAtMs(v)
+	}
+	if _, ok := _c.mutation.EndedAtMs(); !ok {
+		v := costledger.DefaultEndedAtMs
+		_c.mutation.SetEndedAtMs(v)
+	}
+	if _, ok := _c.mutation.UpdatedAtMs(); !ok {
+		v := costledger.DefaultUpdatedAtMs
+		_c.mutation.SetUpdatedAtMs(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -199,17 +361,29 @@ func (_c *CostLedgerCreate) check() error {
 	if _, ok := _c.mutation.SessionID(); !ok {
 		return &ValidationError{Name: "session_id", err: errors.New(`ent: missing required field "CostLedger.session_id"`)}
 	}
+	if _, ok := _c.mutation.AccountID(); !ok {
+		return &ValidationError{Name: "account_id", err: errors.New(`ent: missing required field "CostLedger.account_id"`)}
+	}
 	if _, ok := _c.mutation.CreditsStart(); !ok {
 		return &ValidationError{Name: "credits_start", err: errors.New(`ent: missing required field "CostLedger.credits_start"`)}
 	}
 	if _, ok := _c.mutation.CreditsEnd(); !ok {
 		return &ValidationError{Name: "credits_end", err: errors.New(`ent: missing required field "CostLedger.credits_end"`)}
 	}
+	if _, ok := _c.mutation.CreditsSpent(); !ok {
+		return &ValidationError{Name: "credits_spent", err: errors.New(`ent: missing required field "CostLedger.credits_spent"`)}
+	}
 	if _, ok := _c.mutation.TokensIn(); !ok {
 		return &ValidationError{Name: "tokens_in", err: errors.New(`ent: missing required field "CostLedger.tokens_in"`)}
 	}
 	if _, ok := _c.mutation.TokensOut(); !ok {
 		return &ValidationError{Name: "tokens_out", err: errors.New(`ent: missing required field "CostLedger.tokens_out"`)}
+	}
+	if _, ok := _c.mutation.TokensTotal(); !ok {
+		return &ValidationError{Name: "tokens_total", err: errors.New(`ent: missing required field "CostLedger.tokens_total"`)}
+	}
+	if _, ok := _c.mutation.LlmCalls(); !ok {
+		return &ValidationError{Name: "llm_calls", err: errors.New(`ent: missing required field "CostLedger.llm_calls"`)}
 	}
 	if _, ok := _c.mutation.Diamonds(); !ok {
 		return &ValidationError{Name: "diamonds", err: errors.New(`ent: missing required field "CostLedger.diamonds"`)}
@@ -219,6 +393,21 @@ func (_c *CostLedgerCreate) check() error {
 	}
 	if _, ok := _c.mutation.EstimatedCost(); !ok {
 		return &ValidationError{Name: "estimated_cost", err: errors.New(`ent: missing required field "CostLedger.estimated_cost"`)}
+	}
+	if _, ok := _c.mutation.CostSource(); !ok {
+		return &ValidationError{Name: "cost_source", err: errors.New(`ent: missing required field "CostLedger.cost_source"`)}
+	}
+	if _, ok := _c.mutation.Source(); !ok {
+		return &ValidationError{Name: "source", err: errors.New(`ent: missing required field "CostLedger.source"`)}
+	}
+	if _, ok := _c.mutation.StartedAtMs(); !ok {
+		return &ValidationError{Name: "started_at_ms", err: errors.New(`ent: missing required field "CostLedger.started_at_ms"`)}
+	}
+	if _, ok := _c.mutation.EndedAtMs(); !ok {
+		return &ValidationError{Name: "ended_at_ms", err: errors.New(`ent: missing required field "CostLedger.ended_at_ms"`)}
+	}
+	if _, ok := _c.mutation.UpdatedAtMs(); !ok {
+		return &ValidationError{Name: "updated_at_ms", err: errors.New(`ent: missing required field "CostLedger.updated_at_ms"`)}
 	}
 	return nil
 }
@@ -259,6 +448,10 @@ func (_c *CostLedgerCreate) createSpec() (*CostLedger, *sqlgraph.CreateSpec) {
 		_spec.SetField(costledger.FieldSessionID, field.TypeString, value)
 		_node.SessionID = value
 	}
+	if value, ok := _c.mutation.AccountID(); ok {
+		_spec.SetField(costledger.FieldAccountID, field.TypeString, value)
+		_node.AccountID = value
+	}
 	if value, ok := _c.mutation.CreditsStart(); ok {
 		_spec.SetField(costledger.FieldCreditsStart, field.TypeInt64, value)
 		_node.CreditsStart = value
@@ -267,6 +460,10 @@ func (_c *CostLedgerCreate) createSpec() (*CostLedger, *sqlgraph.CreateSpec) {
 		_spec.SetField(costledger.FieldCreditsEnd, field.TypeInt64, value)
 		_node.CreditsEnd = value
 	}
+	if value, ok := _c.mutation.CreditsSpent(); ok {
+		_spec.SetField(costledger.FieldCreditsSpent, field.TypeInt64, value)
+		_node.CreditsSpent = value
+	}
 	if value, ok := _c.mutation.TokensIn(); ok {
 		_spec.SetField(costledger.FieldTokensIn, field.TypeInt64, value)
 		_node.TokensIn = value
@@ -274,6 +471,14 @@ func (_c *CostLedgerCreate) createSpec() (*CostLedger, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.TokensOut(); ok {
 		_spec.SetField(costledger.FieldTokensOut, field.TypeInt64, value)
 		_node.TokensOut = value
+	}
+	if value, ok := _c.mutation.TokensTotal(); ok {
+		_spec.SetField(costledger.FieldTokensTotal, field.TypeInt64, value)
+		_node.TokensTotal = value
+	}
+	if value, ok := _c.mutation.LlmCalls(); ok {
+		_spec.SetField(costledger.FieldLlmCalls, field.TypeInt64, value)
+		_node.LlmCalls = value
 	}
 	if value, ok := _c.mutation.Diamonds(); ok {
 		_spec.SetField(costledger.FieldDiamonds, field.TypeInt64, value)
@@ -286,6 +491,26 @@ func (_c *CostLedgerCreate) createSpec() (*CostLedger, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.EstimatedCost(); ok {
 		_spec.SetField(costledger.FieldEstimatedCost, field.TypeFloat64, value)
 		_node.EstimatedCost = value
+	}
+	if value, ok := _c.mutation.CostSource(); ok {
+		_spec.SetField(costledger.FieldCostSource, field.TypeString, value)
+		_node.CostSource = value
+	}
+	if value, ok := _c.mutation.Source(); ok {
+		_spec.SetField(costledger.FieldSource, field.TypeString, value)
+		_node.Source = value
+	}
+	if value, ok := _c.mutation.StartedAtMs(); ok {
+		_spec.SetField(costledger.FieldStartedAtMs, field.TypeInt64, value)
+		_node.StartedAtMs = value
+	}
+	if value, ok := _c.mutation.EndedAtMs(); ok {
+		_spec.SetField(costledger.FieldEndedAtMs, field.TypeInt64, value)
+		_node.EndedAtMs = value
+	}
+	if value, ok := _c.mutation.UpdatedAtMs(); ok {
+		_spec.SetField(costledger.FieldUpdatedAtMs, field.TypeInt64, value)
+		_node.UpdatedAtMs = value
 	}
 	return _node, _spec
 }

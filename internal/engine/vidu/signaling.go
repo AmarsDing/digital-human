@@ -120,6 +120,9 @@ type WSOptions struct {
 	WriteTimeout     time.Duration
 	QueueSize        int
 
+	// OnPong 在每次收到对端 pong 时回调（引擎层据此统计 ws_pong_ms）。
+	OnPong func(time.Time)
+
 	Dialer *websocket.Dialer
 }
 
@@ -256,6 +259,9 @@ func (s *Signaling) Connect(ctx context.Context) error {
 	// 单帧上限 1MB：超大帧视为对端异常，直接断连而不是耗尽内存。
 	conn.SetReadLimit(1 << 20)
 	conn.SetPongHandler(func(string) error {
+		if s.opt.OnPong != nil {
+			s.opt.OnPong(time.Now())
+		}
 		return conn.SetReadDeadline(time.Now().Add(s.opt.PingTimeout))
 	})
 	if err := conn.SetReadDeadline(time.Now().Add(s.opt.PingTimeout)); err != nil {

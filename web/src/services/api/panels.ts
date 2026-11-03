@@ -223,6 +223,14 @@ export interface SessionDetail {
   cost?: Ledger
   events: WireLiteEvent[]
   event_count: number
+  // M5 A20：详情页人设展示；deleted=true 表示档案已软删（空态）。
+  persona?: PersonaBrief
+}
+
+export interface PersonaBrief {
+  id: string
+  name?: string
+  deleted?: boolean
 }
 
 export interface WireLiteEvent {
@@ -447,25 +455,30 @@ export async function kouboAudio(name: string): Promise<Blob> {
 
 // ---------- 参考图 ----------
 
+// API 边界归一化（v2 §5.1）：服务端可能下发 images:null，前端一律按数组处理，避免模板渲染崩。
+export function normalizeRefsState(state: RefsState): RefsState {
+  return { ...state, images: Array.isArray(state?.images) ? state.images : [] }
+}
+
 export async function getRefs(): Promise<RefsState> {
   const r = await apiRequest<{ state: RefsState }>('/api/v1/prompt')
-  return r.state
+  return normalizeRefsState(r.state)
 }
 
 export async function switchRefs(images: RefsImage[]): Promise<RefsState> {
   const r = await apiRequest<{ state: RefsState }>('/api/v1/prompt', { method: 'POST', body: { op_type: 'switch', images } })
-  return r.state
+  return normalizeRefsState(r.state)
 }
 
 export async function removeRefs(): Promise<RefsState> {
   const r = await apiRequest<{ state: RefsState }>('/api/v1/prompt', { method: 'POST', body: { op_type: 'remove' } })
-  return r.state
+  return normalizeRefsState(r.state)
 }
 
 // 上报 Vidu type14（prompt 下发失败等）以恢复参考图状态；后端只记录并回传最新 state。
 export async function notePromptType14(error: string): Promise<RefsState> {
   const r = await apiRequest<{ state: RefsState }>('/api/v1/prompt/type14', { method: 'POST', body: { error } })
-  return r.state
+  return normalizeRefsState(r.state)
 }
 
 // ---------- 歌曲 ----------
@@ -536,6 +549,63 @@ export async function recordLedger(ledger: Ledger): Promise<Ledger | null> {
   return r.ledger
 }
 
+// ---------- 人设（F38/G04） ----------
+
+export interface Persona {
+  id: string
+  slug?: string
+  name: string
+  tagline?: string
+  voice_id?: string
+  avatar_note?: string
+  system_prompt?: string
+  is_active?: boolean
+  updated_at_ms?: number
+}
+
+export interface PersonaList {
+  active: string
+  items: Persona[]
+  prompt: string
+  prompt_chars: number
+  storage: 'memory' | 'ent'
+}
+
+export interface PersonaSaveBody {
+  id: string
+  name?: string
+  tagline?: string
+  voice?: string
+  avatar_note?: string
+  system_prompt: string
+}
+
+// 列表带当前存储标识（无 PG 时 memory，重启即丢）；prompt 为当前人设完整提示词。
+export async function listPersonas(signal?: AbortSignal): Promise<PersonaList> {
+  const r = await apiRequest<PersonaList>('/api/v1/personas', { signal })
+  return {
+    active: r.active ?? '',
+    items: r.items ?? [],
+    prompt: r.prompt ?? '',
+    prompt_chars: r.prompt_chars ?? 0,
+    storage: r.storage ?? 'memory'
+  }
+}
+
+// 切换立即生效：后端同步清当前场次 LLM 记忆，返回真实清除轮数。
+export async function selectPersona(id: string): Promise<{ active: string; name: string; chars: number; cleared_turns: number }> {
+  return apiRequest('/api/v1/personas/select', { method: 'POST', body: { id } })
+}
+
+export async function savePersona(body: PersonaSaveBody): Promise<Persona> {
+  const r = await apiRequest<{ persona: Persona }>('/api/v1/personas/save', { method: 'POST', body })
+  return r.persona
+}
+
+export async function deletePersona(id: string): Promise<void> {
+  await apiRequest('/api/v1/personas/delete', { method: 'POST', body: { id } })
+}
+
 // ---------- 弹幕 ----------
 
 export interface DanmakuPendingItem {
@@ -569,4 +639,297 @@ export async function confirmDanmaku(pendingId: string): Promise<{ ok: boolean; 
 
 export async function dismissDanmaku(pendingId: string): Promise<{ ok: boolean }> {
   return apiRequest('/api/v1/danmaku/dismiss', { method: 'POST', body: { pending_id: pendingId } })
+}
+
+// ---------- 录播（F34/N2，蓝本 bridge.py:408-434 /api/record） ----------
+
+export interface RecordStatus {
+  ok: boolean
+  enabled: boolean
+  /** none | recording | processing | ready | failed | unavailable */
+  state: string
+  url?: string
+  live_id?: string
+  note?: string
+}
+
+export async function getRecord(): Promise<RecordStatus> {
+  return apiRequest('/api/v1/record')
+}
+
+// setRecord 保存录播开关；只在建会话时生效（蓝本 note 语义）。
+export async function setRecord(enabled: boolean): Promise<RecordStatus> {
+  return apiRequest('/api/v1/record', { method: 'POST', body: { enabled } })
+}
+
+// fetchRecord 手动再拉一场出片；不传 liveId 用最近一场。未开通/dev → 503 recording_unavailable。
+export async function fetchRecord(liveId = ''): Promise<{ ok: boolean; live_id: string; state: string }> {
+  return apiRequest('/api/v1/record/fetch', { method: 'POST', body: { live_id: liveId } })
+}
+
+// ---------- 额度（F08/F36/G03/N3，蓝本 bridge.py:1508 /api/credits） ----------
+
+export interface CreditsStatus {
+  ok: boolean
+  /** 无 Vidu 凭据/未装配时为 false，前端显示明确空态。 */
+  configured: boolean
+  remain?: number | null
+  remain_credit?: number
+  total_credit?: number
+  [k: string]: unknown
+}
+
+export async function getCredits(): Promise<CreditsStatus> {
+  return apiRequest('/api/v1/credits')
+}
+
+// ---------- 对话调试（N1，蓝本 bridge.py:469 /api/chat） ----------
+
+// sendChat 管理员与数字人对话：走 LLM（独立 admin 记忆 + 人设），应答经 TTS 上屏播报；
+// 未开播 409 not_live、LLM 未配置 503 llm_not_configured（fail-closed）。
+// 流式 LLM + 逐句 TTS 可能远超 10s 默认超时，放宽到 120s。
+export async function sendChat(text: string): Promise<{ ok: boolean; reply: string }> {
+  return apiRequest('/api/v1/chat', { method: 'POST', body: { text }, timeoutMs: 120000 })
+}
+
+// ---------- 贵宾名单（F29/G24，蓝本 bridge.py:878-940 五路由） ----------
+
+export interface PatronEntry {
+  nick: string
+  uid?: string
+  alias?: string
+  note?: string
+  since?: string
+}
+
+export interface PatronsState {
+  live: boolean
+  session_id: string
+  count: number
+  welcomed: number
+  saved_cnt: number
+}
+
+export interface PatronsListResp {
+  ok: boolean
+  items: PatronEntry[]
+  state: PatronsState
+}
+
+export async function getPatrons(signal?: AbortSignal): Promise<PatronsListResp> {
+  return apiRequest('/api/v1/patrons', { signal })
+}
+
+export async function getPatronsIDs(): Promise<{ nicks: string[]; uids: string[] }> {
+  return apiRequest('/api/v1/patrons/ids')
+}
+
+export async function savePatrons(items: PatronEntry[]): Promise<{ ok: boolean; count: number }> {
+  return apiRequest('/api/v1/patrons/save', { method: 'POST', body: { items } })
+}
+
+export async function patronJoin(nick: string, uid = '', note = ''): Promise<{ ok: boolean; line?: string; skipped?: string }> {
+  return apiRequest('/api/v1/patron/join', { method: 'POST', body: { nick, uid, note } })
+}
+
+export async function patronWelcome(nick: string, note = ''): Promise<{ ok: boolean; line?: string; skipped?: string }> {
+  return apiRequest('/api/v1/patron/welcome', { method: 'POST', body: { nick, note } })
+}
+
+// ---------- 参考图本地文件（F33，蓝本 bridge.py:1348 /api/refs） ----------
+
+export interface RefFile {
+  name: string
+  size: number
+}
+
+// listRefFiles 扫描服务端 refs 目录（.jpg/.jpeg/.png/.webp）。
+export async function listRefFiles(): Promise<RefFile[]> {
+  const r = await apiRequest<{ ok: boolean; items: RefFile[] }>('/api/v1/refs')
+  return r.items ?? []
+}
+
+// uploadRefFile multipart 上传（png/jpeg ≤10MB ≤4096px；校验失败 400 稳定错误码）。
+export async function uploadRefFile(file: File): Promise<RefFile> {
+  const fd = new FormData()
+  fd.append('file', file, file.name)
+  const r = await apiRequest<{ ok: boolean; file: RefFile }>('/api/v1/refs/upload', {
+    method: 'POST',
+    body: fd,
+    timeoutMs: 30000
+  })
+  return r.file
+}
+
+// ---------- Vidu 多 key（F42/G18，蓝本 bridge.py:1458,1476 /api/vidu/keys） ----------
+
+export interface ViduKeyEntry {
+  tail8: string
+  is_active: boolean
+  added_at_ms: number
+}
+
+export interface ViduKeysState {
+  ok: boolean
+  active: string
+  keys: ViduKeyEntry[]
+}
+
+export async function getViduKeys(): Promise<ViduKeysState> {
+  return apiRequest('/api/v1/vidu/keys')
+}
+
+// viduKeysAction 蓝本单端点动作分发：add（key 明文 + activate）/ activate / delete（按尾 8 位）。
+// 删除当前生效 key → 409 cannot_delete_active_key；切换后既有资产失效仅 UI 提示（v3 H6）。
+export async function viduKeysAction(action: 'add' | 'activate' | 'delete', key: string, activate = false): Promise<ViduKeysState> {
+  return apiRequest('/api/v1/vidu/keys', { method: 'POST', body: { action, key, activate } })
+}
+
+// ---------- 数字人档案（G 批 M2，v2 §3.1） ----------
+
+export interface ViduSyncState {
+  state: string
+  stage?: string
+  error?: string
+  job_id?: string
+  updated_at_ms?: number
+}
+
+export interface AvatarListItem {
+  persona_id: string
+  slug: string
+  name: string
+  vidu_avatar_id?: string
+  vidu_image_uri?: string
+  expires_at_ms?: number
+  vidu_sync_state: ViduSyncState
+  is_active: boolean
+  // 列表项同样下发（与 detail 同键名），列表页置 active 预检依赖该字段。
+  avatar_asset_id?: string
+  updated_at_ms?: number
+  revision: number
+}
+
+export interface AvatarRefItem {
+  asset_id: string
+  ord: number
+  url: string
+  vidu_uri?: string
+  sha256?: string
+}
+
+export interface AvatarDetail extends AvatarListItem {
+  system_prompt: string
+  greeting: string
+  voice_id: string
+  action_library_id?: string
+  avatar_asset_id?: string
+  refs: AvatarRefItem[]
+}
+
+export async function listAvatars(
+  page = 1,
+  size = 20,
+  includeDeleted = false,
+  signal?: AbortSignal
+): Promise<{ avatars: AvatarListItem[]; total: number; storage: string }> {
+  return apiRequest(
+    `/api/v1/avatars?page=${page}&size=${size}${includeDeleted ? '&include_deleted=true' : ''}`,
+    { signal }
+  )
+}
+
+export async function getAvatar(id: string, signal?: AbortSignal): Promise<AvatarDetail> {
+  const r = await apiRequest<{ avatar: AvatarDetail }>(`/api/v1/avatars/${encodeURIComponent(id)}`, { signal })
+  return r.avatar
+}
+
+export interface AvatarUpsertInput {
+  name: string
+  slug?: string
+  system_prompt?: string
+  greeting?: string
+  voice_id?: string
+  action_library_id?: string
+  image_asset_id?: string
+}
+
+export async function createAvatar(input: AvatarUpsertInput): Promise<AvatarDetail> {
+  const r = await apiRequest<{ avatar: AvatarDetail }>('/api/v1/avatars', { method: 'POST', body: input })
+  return r.avatar
+}
+
+export async function updateAvatar(id: string, input: AvatarUpsertInput, revision: number): Promise<AvatarDetail> {
+  const r = await apiRequest<{ avatar: AvatarDetail }>(`/api/v1/avatars/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: { ...input, revision }
+  })
+  return r.avatar
+}
+
+export async function deleteAvatar(id: string): Promise<void> {
+  await apiRequest(`/api/v1/avatars/${encodeURIComponent(id)}/delete`, { method: 'POST' })
+}
+
+export async function duplicateAvatar(id: string): Promise<AvatarDetail> {
+  const r = await apiRequest<{ avatar: AvatarDetail }>(`/api/v1/avatars/${encodeURIComponent(id)}/duplicate`, {
+    method: 'POST'
+  })
+  return r.avatar
+}
+
+export async function activateAvatar(id: string): Promise<void> {
+  await apiRequest(`/api/v1/avatars/${encodeURIComponent(id)}/activate`, { method: 'POST' })
+}
+
+export async function syncAvatarToVidu(id: string): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/v1/avatars/${encodeURIComponent(id)}/sync-vidu`, { method: 'POST' })
+}
+
+export interface AvatarUploadResult {
+  asset_id: string
+  sha256: string
+  dedup: boolean
+}
+
+export async function uploadAvatarImage(file: File, signal?: AbortSignal): Promise<AvatarUploadResult> {
+  const form = new FormData()
+  form.append('file', file)
+  return apiRequest('/api/v1/avatars/upload', { method: 'POST', form, signal, timeoutMs: 60000 })
+}
+
+export async function uploadAvatarRef(personaId: string, file: File, signal?: AbortSignal): Promise<AvatarUploadResult> {
+  const form = new FormData()
+  form.append('file', file)
+  return apiRequest(`/api/v1/avatars/${encodeURIComponent(personaId)}/refs`, {
+    method: 'POST',
+    form,
+    signal,
+    timeoutMs: 60000
+  })
+}
+
+export async function removeAvatarRef(personaId: string, assetId: string): Promise<void> {
+  await apiRequest(`/api/v1/avatars/${encodeURIComponent(personaId)}/refs/remove`, {
+    method: 'POST',
+    body: { asset_id: assetId }
+  })
+}
+
+// 图片读取走 fetch→blob→objectURL（<img> 无法带 Authorization 头，v3 §5.1/§9.2）；
+// URL 由后端 detail.refs[].url 给出，未给出时按路由形状拼接。
+export function avatarImageUrl(personaId: string): string {
+  return `/api/v1/avatars/${encodeURIComponent(personaId)}/image`
+}
+
+export async function fetchAvatarImage(personaId: string, signal?: AbortSignal): Promise<Blob> {
+  return apiRequest<Blob>(avatarImageUrl(personaId), { responseType: 'blob', signal })
+}
+
+export function avatarRefImageUrl(personaId: string, assetId: string): string {
+  return `/api/v1/avatars/${encodeURIComponent(personaId)}/assets/${encodeURIComponent(assetId)}/image`
+}
+
+export async function fetchAvatarRefImage(personaId: string, assetId: string, signal?: AbortSignal): Promise<Blob> {
+  return apiRequest<Blob>(avatarRefImageUrl(personaId, assetId), { responseType: 'blob', signal })
 }

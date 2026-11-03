@@ -3,11 +3,23 @@
 // 蓝本事实：bridge.py `/api/prompt` 透传 engine.prompt_op("switch"/"remove")；
 // type14 是 Vidu 的 prompt 操作失败回执，engine 只记录 ack、不自动重试。
 // 这里用 Signaler 端口隔离信令，FakeSignaler 可注入失败以验证回显与“不重发”。
+//
+// F33（蓝本 bridge.py:1348 /api/refs）：refs 目录的本地文件列表与 multipart 上传；
+// 上传校验顺序对齐 avatar/images.go（≤10MB → 嗅探 png/jpeg → 宽高 ≤4096），webp 拒绝上传
+// （列表仍按蓝本收 .webp，便于展示手工放入的文件）。
 package refs
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	_ "image/jpeg" // DecodeConfig 需要注册格式
+	_ "image/png"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -86,6 +98,8 @@ type Service struct {
 	sig   Signaler
 	bus   *eventbus.Bus
 	now   func() time.Time
+	// dir F33 本地 refs 文件目录；空串表示文件功能未配置（ListFiles 返回空、SaveUpload 报错）。
+	dir string
 }
 
 func NewService(sig Signaler, bus *eventbus.Bus) *Service {
@@ -95,6 +109,19 @@ func NewService(sig Signaler, bus *eventbus.Bus) *Service {
 		src = "fake"
 	}
 	return &Service{sig: sig, bus: bus, now: time.Now, state: State{Images: []Image{}, Source: src}}
+}
+
+// SetDir 配置 F33 本地 refs 目录（装配层注入 storage/refs）。
+func (s *Service) SetDir(dir string) {
+	s.mu.Lock()
+	s.dir = dir
+	s.mu.Unlock()
+}
+
+func (s *Service) Dir() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dir
 }
 
 func (s *Service) State() State {
@@ -185,4 +212,119 @@ func (s *Service) publish(ctx context.Context, typ string, payload map[string]an
 	if s.bus != nil {
 		s.bus.PublishScoped(ctx, typ, payload)
 	}
+}
+
+// ---------- F33 本地 refs 文件（蓝本 bridge.py:1348 /api/refs） ----------
+
+const (
+	// MaxRefBytes / MaxRefPixels 对齐 avatar/images.go §5.3 上传约束（同顺序校验管线）。
+	MaxRefBytes  = 10 << 20
+	MaxRefPixels = 4096
+)
+
+var (
+	ErrRefTooLarge = errors.New("image_too_large")
+	ErrRefType     = errors.New("unsupported_image_type")
+	ErrRefPixels   = errors.New("image_pixels_exceeded")
+	ErrRefName     = errors.New("invalid_file_name")
+	ErrRefNoDir    = errors.New("refs_dir_not_configured")
+)
+
+// RefFile 目录列表项（对齐蓝本 {name, size}）。
+type RefFile struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// listExts 列表收蓝本四种扩展名（含 webp——手工放入的可展示）。
+var listExts = map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true}
+
+// uploadExts 上传只收 png/jpeg（嗅探结果 → 落盘扩展名；与 avatar 管线一致，webp 拒绝）。
+var uploadExts = map[string]string{"image/png": ".png", "image/jpeg": ".jpg"}
+
+// ListFiles 扫描 refs 目录（扁平、不递归），按名字排序返回 {name, size}；目录不存在返回空。
+func (s *Service) ListFiles() ([]RefFile, error) {
+	dir := s.Dir()
+	if dir == "" {
+		return []RefFile{}, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []RefFile{}, nil
+		}
+		return nil, err
+	}
+	out := []RefFile{}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if !listExts[strings.ToLower(filepath.Ext(e.Name()))] {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, RefFile{Name: e.Name(), Size: info.Size()})
+	}
+	return out, nil
+}
+
+// SaveUpload 保存上传图片：校验顺序与 avatar/images.go §5.3 一致
+// （≤10MB → http.DetectContentType 白名单 png/jpeg → DecodeConfig 宽高 ≤4096）→ 安全文件名落盘。
+// 同名文件已存在时加时间戳后缀，不覆盖用户文件。
+func (s *Service) SaveUpload(filename string, r io.Reader) (RefFile, error) {
+	dir := s.Dir()
+	if dir == "" {
+		return RefFile{}, ErrRefNoDir
+	}
+	buf, err := io.ReadAll(io.LimitReader(r, MaxRefBytes+1))
+	if err != nil {
+		return RefFile{}, err
+	}
+	if len(buf) > MaxRefBytes {
+		return RefFile{}, ErrRefTooLarge
+	}
+	ext, ok := uploadExts[http.DetectContentType(buf)]
+	if !ok {
+		return RefFile{}, ErrRefType // webp/svg/gif 等拒绝上传
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(buf))
+	if err != nil {
+		return RefFile{}, ErrRefType
+	}
+	if cfg.Width > MaxRefPixels || cfg.Height > MaxRefPixels {
+		return RefFile{}, ErrRefPixels
+	}
+	name := safeRefName(filename)
+	if name == "" {
+		name = "ref" + ext
+	}
+	// 统一扩展名为嗅探结果（防伪造扩展名），再去路径分隔符。
+	name = strings.TrimSuffix(name, filepath.Ext(name)) + ext
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return RefFile{}, err
+	}
+	dst := filepath.Join(dir, name)
+	if _, err := os.Stat(dst); err == nil {
+		// 同名已存在：加时间戳后缀，保留两份（不覆盖用户文件）。
+		name = strings.TrimSuffix(name, ext) + "-" + time.Now().Format("20060102150405") + ext
+		dst = filepath.Join(dir, name)
+	}
+	if err := os.WriteFile(dst, buf, 0o644); err != nil {
+		return RefFile{}, err
+	}
+	return RefFile{Name: name, Size: int64(len(buf))}, nil
+}
+
+// safeRefName 只保留文件名片段（去目录穿越），拒绝空名与隐藏文件。
+func safeRefName(name string) string {
+	name = filepath.Base(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, "\x00", "")
+	if name == "" || name == "." || name == ".." || strings.HasPrefix(name, ".") {
+		return ""
+	}
+	return name
 }

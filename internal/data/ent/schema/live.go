@@ -74,19 +74,29 @@ func (Recording) Fields() []ent.Field {
 	}
 }
 
-// CostLedger 复盘成本口径：只列 credits 与 tokens，其余标估算/不提供。
+// CostLedger 复盘成本口径：credits 与 tokens 为真实值，其余标估算/不提供。
+// C 批补齐 account/source/时间戳字段，使 Ent 行与 billing.Ledger 一一对应。
 type CostLedger struct{ ent.Schema }
 
 func (CostLedger) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("id").Immutable().Unique(),
 		field.String("session_id").Unique(),
+		field.String("account_id").Default("local"),
 		field.Int64("credits_start").Default(0),
 		field.Int64("credits_end").Default(0),
+		field.Int64("credits_spent").Default(0),
 		field.Int64("tokens_in").Default(0),
 		field.Int64("tokens_out").Default(0),
+		field.Int64("tokens_total").Default(0),
+		field.Int64("llm_calls").Default(0),
 		field.Int64("diamonds").Default(0),
 		field.Int64("gift_count").Default(0),
 		field.Float("estimated_cost").Default(0),
+		field.String("cost_source").Default("unset"),
+		field.String("source").Default("manual"),
+		field.Int64("started_at_ms").Default(0),
+		field.Int64("ended_at_ms").Default(0),
+		field.Int64("updated_at_ms").Default(0),
 	}
 }

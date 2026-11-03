@@ -82,6 +82,11 @@ func Sha256(v string) predicate.Asset {
 	return predicate.Asset(sql.FieldEQ(FieldSha256, v))
 }
 
+// ViduURI applies equality check predicate on the "vidu_uri" field. It's identical to ViduURIEQ.
+func ViduURI(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldEQ(FieldViduURI, v))
+}
+
 // Bytes applies equality check predicate on the "bytes" field. It's identical to BytesEQ.
 func Bytes(v int64) predicate.Asset {
 	return predicate.Asset(sql.FieldEQ(FieldBytes, v))
@@ -365,6 +370,81 @@ func Sha256EqualFold(v string) predicate.Asset {
 // Sha256ContainsFold applies the ContainsFold predicate on the "sha256" field.
 func Sha256ContainsFold(v string) predicate.Asset {
 	return predicate.Asset(sql.FieldContainsFold(FieldSha256, v))
+}
+
+// ViduURIEQ applies the EQ predicate on the "vidu_uri" field.
+func ViduURIEQ(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldEQ(FieldViduURI, v))
+}
+
+// ViduURINEQ applies the NEQ predicate on the "vidu_uri" field.
+func ViduURINEQ(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldNEQ(FieldViduURI, v))
+}
+
+// ViduURIIn applies the In predicate on the "vidu_uri" field.
+func ViduURIIn(vs ...string) predicate.Asset {
+	return predicate.Asset(sql.FieldIn(FieldViduURI, vs...))
+}
+
+// ViduURINotIn applies the NotIn predicate on the "vidu_uri" field.
+func ViduURINotIn(vs ...string) predicate.Asset {
+	return predicate.Asset(sql.FieldNotIn(FieldViduURI, vs...))
+}
+
+// ViduURIGT applies the GT predicate on the "vidu_uri" field.
+func ViduURIGT(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldGT(FieldViduURI, v))
+}
+
+// ViduURIGTE applies the GTE predicate on the "vidu_uri" field.
+func ViduURIGTE(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldGTE(FieldViduURI, v))
+}
+
+// ViduURILT applies the LT predicate on the "vidu_uri" field.
+func ViduURILT(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldLT(FieldViduURI, v))
+}
+
+// ViduURILTE applies the LTE predicate on the "vidu_uri" field.
+func ViduURILTE(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldLTE(FieldViduURI, v))
+}
+
+// ViduURIContains applies the Contains predicate on the "vidu_uri" field.
+func ViduURIContains(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldContains(FieldViduURI, v))
+}
+
+// ViduURIHasPrefix applies the HasPrefix predicate on the "vidu_uri" field.
+func ViduURIHasPrefix(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldHasPrefix(FieldViduURI, v))
+}
+
+// ViduURIHasSuffix applies the HasSuffix predicate on the "vidu_uri" field.
+func ViduURIHasSuffix(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldHasSuffix(FieldViduURI, v))
+}
+
+// ViduURIIsNil applies the IsNil predicate on the "vidu_uri" field.
+func ViduURIIsNil() predicate.Asset {
+	return predicate.Asset(sql.FieldIsNull(FieldViduURI))
+}
+
+// ViduURINotNil applies the NotNil predicate on the "vidu_uri" field.
+func ViduURINotNil() predicate.Asset {
+	return predicate.Asset(sql.FieldNotNull(FieldViduURI))
+}
+
+// ViduURIEqualFold applies the EqualFold predicate on the "vidu_uri" field.
+func ViduURIEqualFold(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldEqualFold(FieldViduURI, v))
+}
+
+// ViduURIContainsFold applies the ContainsFold predicate on the "vidu_uri" field.
+func ViduURIContainsFold(v string) predicate.Asset {
+	return predicate.Asset(sql.FieldContainsFold(FieldViduURI, v))
 }
 
 // BytesEQ applies the EQ predicate on the "bytes" field.

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,6 +28,9 @@ const (
 	PathCredits         = "/ent/v2/credits"
 	PathUploads         = "/tools/v2/files/uploads"
 	PathUploadFinish    = "/tools/v2/files/uploads/%s/finish"
+	// avatars 组（G 批 M3，蓝本 client.py:130-152；无真实凭据，字段形状待真机验证）。
+	PathAvatars = "/live/v1/avatars"
+	PathAvatar  = "/live/v1/avatars/%s" // + {id}
 )
 
 // 内部错误码（§5.3.2）。这些会写进 LiveSession.error_code 与 UI 文案。
@@ -55,6 +59,10 @@ const (
 	DefaultUploadStartTimeout  = 60 * time.Second
 	DefaultUploadPUTTimeout    = 300 * time.Second
 	DefaultUploadFinishTimeout = 60 * time.Second
+	// avatars 组超时（蓝本 client.py:130-152：list 8s / create 300s / delete 30s）。
+	DefaultAvatarListTimeout   = 8 * time.Second
+	DefaultAvatarCreateTimeout = 300 * time.Second
+	DefaultAvatarDeleteTimeout = 30 * time.Second
 	DefaultRetryDelay          = time.Second
 )
 
@@ -99,11 +107,18 @@ type Options struct {
 	UploadStartTimeout  time.Duration
 	UploadPUTTimeout    time.Duration
 	UploadFinishTimeout time.Duration
+	// avatars 组（M3）。
+	AvatarListTimeout   time.Duration
+	AvatarCreateTimeout time.Duration
+	AvatarDeleteTimeout time.Duration
 	RetryDelay          time.Duration
 }
 
 type Client struct {
 	opt Options
+	// apiKey 支持运行期热切换（F42 多 key 激活）；读写经 keyMu 保护。
+	keyMu  sync.RWMutex
+	apiKey string
 }
 
 func NewClient(opt Options) *Client {
@@ -140,10 +155,33 @@ func NewClient(opt Options) *Client {
 	if opt.UploadFinishTimeout <= 0 {
 		opt.UploadFinishTimeout = DefaultUploadFinishTimeout
 	}
+	if opt.AvatarListTimeout <= 0 {
+		opt.AvatarListTimeout = DefaultAvatarListTimeout
+	}
+	if opt.AvatarCreateTimeout <= 0 {
+		opt.AvatarCreateTimeout = DefaultAvatarCreateTimeout
+	}
+	if opt.AvatarDeleteTimeout <= 0 {
+		opt.AvatarDeleteTimeout = DefaultAvatarDeleteTimeout
+	}
 	if opt.RetryDelay <= 0 {
 		opt.RetryDelay = DefaultRetryDelay
 	}
-	return &Client{opt: opt}
+	return &Client{opt: opt, apiKey: opt.APIKey}
+}
+
+// SetAPIKey 热切换 Vidu Key（F42 多 key 激活）；并发安全，后续请求立即用新 key。
+func (c *Client) SetAPIKey(key string) {
+	c.keyMu.Lock()
+	c.apiKey = key
+	c.keyMu.Unlock()
+}
+
+// APIKey 返回当前生效 key；仅供内部/装配层使用，绝不写日志或响应体。
+func (c *Client) APIKey() string {
+	c.keyMu.RLock()
+	defer c.keyMu.RUnlock()
+	return c.apiKey
 }
 
 func (c *Client) url(path string) string {
@@ -152,13 +190,15 @@ func (c *Client) url(path string) string {
 
 func (c *Client) authHeader() map[string]string {
 	return map[string]string{
-		"Authorization": "Token " + c.opt.APIKey,
+		"Authorization": "Token " + c.APIKey(),
 		"Content-Type":  "application/json",
 	}
 }
 
 // CreateSession POST 创建组件版会话；120s 超时、绝不重试。
-// 带 action 建场遇 403 时按动作库降级策略：去掉 action 重建一次。
+// 带 action 建场遇 403 只分类上报（APIError.ActionForbidden=true）；
+// 去 action 重建一次的降级职责在引擎层（internal/engine/controller.go，G3-2），
+// 由引擎记录降级事件，客户端不做静默重试。
 func (c *Client) CreateSession(ctx context.Context, body map[string]any) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.opt.CreateTimeout)
 	defer cancel()
@@ -167,26 +207,7 @@ func (c *Client) CreateSession(ctx context.Context, body map[string]any) (map[st
 		return nil, err
 	}
 	var out map[string]any
-	err = c.doJSON(ctx, http.MethodPost, c.url(c.opt.CreatePath), c.authHeader(), raw, &out, false, true, body)
-	if err != nil {
-		var apiErr *APIError
-		if errors.As(err, &apiErr) && apiErr.ActionForbidden && hasAction(body) {
-			degraded := make(map[string]any, len(body))
-			for k, v := range body {
-				if k != "action" {
-					degraded[k] = v
-				}
-			}
-			raw2, merr := json.Marshal(degraded)
-			if merr != nil {
-				return nil, err
-			}
-			var out2 map[string]any
-			if err2 := c.doJSON(ctx, http.MethodPost, c.url(c.opt.CreatePath), c.authHeader(), raw2, &out2, false, true, degraded); err2 != nil {
-				return nil, err2
-			}
-			return out2, nil
-		}
+	if err := c.doJSON(ctx, http.MethodPost, c.url(c.opt.CreatePath), c.authHeader(), raw, &out, false, true, body); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -298,6 +319,46 @@ func (c *Client) Upload(ctx context.Context, content []byte, contentType string)
 			Message: "upload finish 未返回 uri; orphan upload id=" + sess.ID}
 	}
 	return fin.URI, nil
+}
+
+// ---------- avatars 组（G 批 M3；蓝本 client.py:130-152，无真实凭据 fail-closed，待真机验证） ----------
+
+// ListAvatars GET 头像资产列表（8s，GET 失败重试 1 次）。
+func (c *Client) ListAvatars(ctx context.Context, page, size int) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.opt.AvatarListTimeout)
+	defer cancel()
+	q := url.Values{}
+	q.Set("pager.page", strconv.Itoa(page))
+	q.Set("pager.pagesz", strconv.Itoa(size))
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, c.url(PathAvatars)+"?"+q.Encode(), c.authHeader(), nil, &out, true, false, nil); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateAvatar POST 创建头像资产（300s，POST 创建永不重试）。
+// body 由调用方按蓝本字段组装（name/image_uri 等，字段形状待真机验证）。
+func (c *Client) CreateAvatar(ctx context.Context, body map[string]any) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.opt.AvatarCreateTimeout)
+	defer cancel()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, c.url(PathAvatars), c.authHeader(), raw, &out, false, false, nil); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteAvatar DELETE 删除头像资产（30s，幂等，失败重试 1 次）。
+// 用于 sync-vidu 补偿路径的孤儿资产 best-effort 清理（v3 §2.2 ③）。
+func (c *Client) DeleteAvatar(ctx context.Context, avatarID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.opt.AvatarDeleteTimeout)
+	defer cancel()
+	return c.doJSON(ctx, http.MethodDelete, c.url(fmt.Sprintf(PathAvatar, url.PathEscape(avatarID))), c.authHeader(), nil, nil, true, false, nil)
 }
 
 func (c *Client) doJSON(

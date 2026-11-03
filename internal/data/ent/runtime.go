@@ -3,12 +3,19 @@
 package ent
 
 import (
+	"github.com/teamwork/digital-human/internal/data/ent/applyjournal"
 	"github.com/teamwork/digital-human/internal/data/ent/asset"
 	"github.com/teamwork/digital-human/internal/data/ent/auditlog"
 	"github.com/teamwork/digital-human/internal/data/ent/costledger"
 	"github.com/teamwork/digital-human/internal/data/ent/danmakuevent"
+	"github.com/teamwork/digital-human/internal/data/ent/effectoutbox"
+	"github.com/teamwork/digital-human/internal/data/ent/idemkey"
+	"github.com/teamwork/digital-human/internal/data/ent/interactiondecision"
+	"github.com/teamwork/digital-human/internal/data/ent/livedraft"
 	"github.com/teamwork/digital-human/internal/data/ent/livesession"
+	"github.com/teamwork/digital-human/internal/data/ent/patron"
 	"github.com/teamwork/digital-human/internal/data/ent/persona"
+	"github.com/teamwork/digital-human/internal/data/ent/personaref"
 	"github.com/teamwork/digital-human/internal/data/ent/recording"
 	"github.com/teamwork/digital-human/internal/data/ent/schema"
 	"github.com/teamwork/digital-human/internal/data/ent/sessionevent"
@@ -20,26 +27,52 @@ import (
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	applyjournalFields := schema.ApplyJournal{}.Fields()
+	_ = applyjournalFields
+	// applyjournalDescBaseRevision is the schema descriptor for base_revision field.
+	applyjournalDescBaseRevision := applyjournalFields[2].Descriptor()
+	// applyjournal.DefaultBaseRevision holds the default value on creation for the base_revision field.
+	applyjournal.DefaultBaseRevision = applyjournalDescBaseRevision.Default.(int64)
+	// applyjournalDescStatus is the schema descriptor for status field.
+	applyjournalDescStatus := applyjournalFields[7].Descriptor()
+	// applyjournal.DefaultStatus holds the default value on creation for the status field.
+	applyjournal.DefaultStatus = applyjournalDescStatus.Default.(string)
+	// applyjournalDescCreatedAtMs is the schema descriptor for created_at_ms field.
+	applyjournalDescCreatedAtMs := applyjournalFields[9].Descriptor()
+	// applyjournal.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
+	applyjournal.DefaultCreatedAtMs = applyjournalDescCreatedAtMs.Default.(int64)
+	// applyjournalDescUpdatedAtMs is the schema descriptor for updated_at_ms field.
+	applyjournalDescUpdatedAtMs := applyjournalFields[10].Descriptor()
+	// applyjournal.DefaultUpdatedAtMs holds the default value on creation for the updated_at_ms field.
+	applyjournal.DefaultUpdatedAtMs = applyjournalDescUpdatedAtMs.Default.(int64)
+	// applyjournalDescCommittedAtMs is the schema descriptor for committed_at_ms field.
+	applyjournalDescCommittedAtMs := applyjournalFields[11].Descriptor()
+	// applyjournal.DefaultCommittedAtMs holds the default value on creation for the committed_at_ms field.
+	applyjournal.DefaultCommittedAtMs = applyjournalDescCommittedAtMs.Default.(int64)
+	// applyjournalDescRolledBackAtMs is the schema descriptor for rolled_back_at_ms field.
+	applyjournalDescRolledBackAtMs := applyjournalFields[12].Descriptor()
+	// applyjournal.DefaultRolledBackAtMs holds the default value on creation for the rolled_back_at_ms field.
+	applyjournal.DefaultRolledBackAtMs = applyjournalDescRolledBackAtMs.Default.(int64)
 	assetFields := schema.Asset{}.Fields()
 	_ = assetFields
 	// assetDescBytes is the schema descriptor for bytes field.
-	assetDescBytes := assetFields[5].Descriptor()
+	assetDescBytes := assetFields[6].Descriptor()
 	// asset.DefaultBytes holds the default value on creation for the bytes field.
 	asset.DefaultBytes = assetDescBytes.Default.(int64)
 	// assetDescDurationMs is the schema descriptor for duration_ms field.
-	assetDescDurationMs := assetFields[6].Descriptor()
+	assetDescDurationMs := assetFields[7].Descriptor()
 	// asset.DefaultDurationMs holds the default value on creation for the duration_ms field.
 	asset.DefaultDurationMs = assetDescDurationMs.Default.(int64)
 	// assetDescUploadedAtMs is the schema descriptor for uploaded_at_ms field.
-	assetDescUploadedAtMs := assetFields[7].Descriptor()
+	assetDescUploadedAtMs := assetFields[8].Descriptor()
 	// asset.DefaultUploadedAtMs holds the default value on creation for the uploaded_at_ms field.
 	asset.DefaultUploadedAtMs = assetDescUploadedAtMs.Default.(int64)
 	// assetDescExpiresAtMs is the schema descriptor for expires_at_ms field.
-	assetDescExpiresAtMs := assetFields[8].Descriptor()
+	assetDescExpiresAtMs := assetFields[9].Descriptor()
 	// asset.DefaultExpiresAtMs holds the default value on creation for the expires_at_ms field.
 	asset.DefaultExpiresAtMs = assetDescExpiresAtMs.Default.(int64)
 	// assetDescRefCount is the schema descriptor for ref_count field.
-	assetDescRefCount := assetFields[9].Descriptor()
+	assetDescRefCount := assetFields[10].Descriptor()
 	// asset.DefaultRefCount holds the default value on creation for the ref_count field.
 	asset.DefaultRefCount = assetDescRefCount.Default.(int64)
 	auditlogFields := schema.AuditLog{}.Fields()
@@ -54,34 +87,70 @@ func init() {
 	auditlog.DefaultTsMs = auditlogDescTsMs.Default.(int64)
 	costledgerFields := schema.CostLedger{}.Fields()
 	_ = costledgerFields
+	// costledgerDescAccountID is the schema descriptor for account_id field.
+	costledgerDescAccountID := costledgerFields[2].Descriptor()
+	// costledger.DefaultAccountID holds the default value on creation for the account_id field.
+	costledger.DefaultAccountID = costledgerDescAccountID.Default.(string)
 	// costledgerDescCreditsStart is the schema descriptor for credits_start field.
-	costledgerDescCreditsStart := costledgerFields[2].Descriptor()
+	costledgerDescCreditsStart := costledgerFields[3].Descriptor()
 	// costledger.DefaultCreditsStart holds the default value on creation for the credits_start field.
 	costledger.DefaultCreditsStart = costledgerDescCreditsStart.Default.(int64)
 	// costledgerDescCreditsEnd is the schema descriptor for credits_end field.
-	costledgerDescCreditsEnd := costledgerFields[3].Descriptor()
+	costledgerDescCreditsEnd := costledgerFields[4].Descriptor()
 	// costledger.DefaultCreditsEnd holds the default value on creation for the credits_end field.
 	costledger.DefaultCreditsEnd = costledgerDescCreditsEnd.Default.(int64)
+	// costledgerDescCreditsSpent is the schema descriptor for credits_spent field.
+	costledgerDescCreditsSpent := costledgerFields[5].Descriptor()
+	// costledger.DefaultCreditsSpent holds the default value on creation for the credits_spent field.
+	costledger.DefaultCreditsSpent = costledgerDescCreditsSpent.Default.(int64)
 	// costledgerDescTokensIn is the schema descriptor for tokens_in field.
-	costledgerDescTokensIn := costledgerFields[4].Descriptor()
+	costledgerDescTokensIn := costledgerFields[6].Descriptor()
 	// costledger.DefaultTokensIn holds the default value on creation for the tokens_in field.
 	costledger.DefaultTokensIn = costledgerDescTokensIn.Default.(int64)
 	// costledgerDescTokensOut is the schema descriptor for tokens_out field.
-	costledgerDescTokensOut := costledgerFields[5].Descriptor()
+	costledgerDescTokensOut := costledgerFields[7].Descriptor()
 	// costledger.DefaultTokensOut holds the default value on creation for the tokens_out field.
 	costledger.DefaultTokensOut = costledgerDescTokensOut.Default.(int64)
+	// costledgerDescTokensTotal is the schema descriptor for tokens_total field.
+	costledgerDescTokensTotal := costledgerFields[8].Descriptor()
+	// costledger.DefaultTokensTotal holds the default value on creation for the tokens_total field.
+	costledger.DefaultTokensTotal = costledgerDescTokensTotal.Default.(int64)
+	// costledgerDescLlmCalls is the schema descriptor for llm_calls field.
+	costledgerDescLlmCalls := costledgerFields[9].Descriptor()
+	// costledger.DefaultLlmCalls holds the default value on creation for the llm_calls field.
+	costledger.DefaultLlmCalls = costledgerDescLlmCalls.Default.(int64)
 	// costledgerDescDiamonds is the schema descriptor for diamonds field.
-	costledgerDescDiamonds := costledgerFields[6].Descriptor()
+	costledgerDescDiamonds := costledgerFields[10].Descriptor()
 	// costledger.DefaultDiamonds holds the default value on creation for the diamonds field.
 	costledger.DefaultDiamonds = costledgerDescDiamonds.Default.(int64)
 	// costledgerDescGiftCount is the schema descriptor for gift_count field.
-	costledgerDescGiftCount := costledgerFields[7].Descriptor()
+	costledgerDescGiftCount := costledgerFields[11].Descriptor()
 	// costledger.DefaultGiftCount holds the default value on creation for the gift_count field.
 	costledger.DefaultGiftCount = costledgerDescGiftCount.Default.(int64)
 	// costledgerDescEstimatedCost is the schema descriptor for estimated_cost field.
-	costledgerDescEstimatedCost := costledgerFields[8].Descriptor()
+	costledgerDescEstimatedCost := costledgerFields[12].Descriptor()
 	// costledger.DefaultEstimatedCost holds the default value on creation for the estimated_cost field.
 	costledger.DefaultEstimatedCost = costledgerDescEstimatedCost.Default.(float64)
+	// costledgerDescCostSource is the schema descriptor for cost_source field.
+	costledgerDescCostSource := costledgerFields[13].Descriptor()
+	// costledger.DefaultCostSource holds the default value on creation for the cost_source field.
+	costledger.DefaultCostSource = costledgerDescCostSource.Default.(string)
+	// costledgerDescSource is the schema descriptor for source field.
+	costledgerDescSource := costledgerFields[14].Descriptor()
+	// costledger.DefaultSource holds the default value on creation for the source field.
+	costledger.DefaultSource = costledgerDescSource.Default.(string)
+	// costledgerDescStartedAtMs is the schema descriptor for started_at_ms field.
+	costledgerDescStartedAtMs := costledgerFields[15].Descriptor()
+	// costledger.DefaultStartedAtMs holds the default value on creation for the started_at_ms field.
+	costledger.DefaultStartedAtMs = costledgerDescStartedAtMs.Default.(int64)
+	// costledgerDescEndedAtMs is the schema descriptor for ended_at_ms field.
+	costledgerDescEndedAtMs := costledgerFields[16].Descriptor()
+	// costledger.DefaultEndedAtMs holds the default value on creation for the ended_at_ms field.
+	costledger.DefaultEndedAtMs = costledgerDescEndedAtMs.Default.(int64)
+	// costledgerDescUpdatedAtMs is the schema descriptor for updated_at_ms field.
+	costledgerDescUpdatedAtMs := costledgerFields[17].Descriptor()
+	// costledger.DefaultUpdatedAtMs holds the default value on creation for the updated_at_ms field.
+	costledger.DefaultUpdatedAtMs = costledgerDescUpdatedAtMs.Default.(int64)
 	danmakueventFields := schema.DanmakuEvent{}.Fields()
 	_ = danmakueventFields
 	// danmakueventDescDiamond is the schema descriptor for diamond field.
@@ -96,6 +165,102 @@ func init() {
 	danmakueventDescCreatedAtMs := danmakueventFields[9].Descriptor()
 	// danmakuevent.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
 	danmakuevent.DefaultCreatedAtMs = danmakueventDescCreatedAtMs.Default.(int64)
+	effectoutboxFields := schema.EffectOutbox{}.Fields()
+	_ = effectoutboxFields
+	// effectoutboxDescEffectSeq is the schema descriptor for effect_seq field.
+	effectoutboxDescEffectSeq := effectoutboxFields[5].Descriptor()
+	// effectoutbox.DefaultEffectSeq holds the default value on creation for the effect_seq field.
+	effectoutbox.DefaultEffectSeq = effectoutboxDescEffectSeq.Default.(int)
+	// effectoutboxDescStatus is the schema descriptor for status field.
+	effectoutboxDescStatus := effectoutboxFields[8].Descriptor()
+	// effectoutbox.DefaultStatus holds the default value on creation for the status field.
+	effectoutbox.DefaultStatus = effectoutboxDescStatus.Default.(string)
+	// effectoutboxDescAttempt is the schema descriptor for attempt field.
+	effectoutboxDescAttempt := effectoutboxFields[9].Descriptor()
+	// effectoutbox.DefaultAttempt holds the default value on creation for the attempt field.
+	effectoutbox.DefaultAttempt = effectoutboxDescAttempt.Default.(int)
+	// effectoutboxDescMaxAttempts is the schema descriptor for max_attempts field.
+	effectoutboxDescMaxAttempts := effectoutboxFields[10].Descriptor()
+	// effectoutbox.DefaultMaxAttempts holds the default value on creation for the max_attempts field.
+	effectoutbox.DefaultMaxAttempts = effectoutboxDescMaxAttempts.Default.(int)
+	// effectoutboxDescLeaseUntilMs is the schema descriptor for lease_until_ms field.
+	effectoutboxDescLeaseUntilMs := effectoutboxFields[12].Descriptor()
+	// effectoutbox.DefaultLeaseUntilMs holds the default value on creation for the lease_until_ms field.
+	effectoutbox.DefaultLeaseUntilMs = effectoutboxDescLeaseUntilMs.Default.(int64)
+	// effectoutboxDescNextRetryAtMs is the schema descriptor for next_retry_at_ms field.
+	effectoutboxDescNextRetryAtMs := effectoutboxFields[13].Descriptor()
+	// effectoutbox.DefaultNextRetryAtMs holds the default value on creation for the next_retry_at_ms field.
+	effectoutbox.DefaultNextRetryAtMs = effectoutboxDescNextRetryAtMs.Default.(int64)
+	// effectoutboxDescReconcileStatus is the schema descriptor for reconcile_status field.
+	effectoutboxDescReconcileStatus := effectoutboxFields[17].Descriptor()
+	// effectoutbox.DefaultReconcileStatus holds the default value on creation for the reconcile_status field.
+	effectoutbox.DefaultReconcileStatus = effectoutboxDescReconcileStatus.Default.(string)
+	// effectoutboxDescCreatedAtMs is the schema descriptor for created_at_ms field.
+	effectoutboxDescCreatedAtMs := effectoutboxFields[18].Descriptor()
+	// effectoutbox.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
+	effectoutbox.DefaultCreatedAtMs = effectoutboxDescCreatedAtMs.Default.(int64)
+	// effectoutboxDescDispatchedAtMs is the schema descriptor for dispatched_at_ms field.
+	effectoutboxDescDispatchedAtMs := effectoutboxFields[19].Descriptor()
+	// effectoutbox.DefaultDispatchedAtMs holds the default value on creation for the dispatched_at_ms field.
+	effectoutbox.DefaultDispatchedAtMs = effectoutboxDescDispatchedAtMs.Default.(int64)
+	// effectoutboxDescFinishedAtMs is the schema descriptor for finished_at_ms field.
+	effectoutboxDescFinishedAtMs := effectoutboxFields[20].Descriptor()
+	// effectoutbox.DefaultFinishedAtMs holds the default value on creation for the finished_at_ms field.
+	effectoutbox.DefaultFinishedAtMs = effectoutboxDescFinishedAtMs.Default.(int64)
+	// effectoutboxDescReconciledAtMs is the schema descriptor for reconciled_at_ms field.
+	effectoutboxDescReconciledAtMs := effectoutboxFields[21].Descriptor()
+	// effectoutbox.DefaultReconciledAtMs holds the default value on creation for the reconciled_at_ms field.
+	effectoutbox.DefaultReconciledAtMs = effectoutboxDescReconciledAtMs.Default.(int64)
+	idemkeyFields := schema.IdemKey{}.Fields()
+	_ = idemkeyFields
+	// idemkeyDescExpiresAtMs is the schema descriptor for expires_at_ms field.
+	idemkeyDescExpiresAtMs := idemkeyFields[2].Descriptor()
+	// idemkey.DefaultExpiresAtMs holds the default value on creation for the expires_at_ms field.
+	idemkey.DefaultExpiresAtMs = idemkeyDescExpiresAtMs.Default.(int64)
+	// idemkeyDescCreatedAtMs is the schema descriptor for created_at_ms field.
+	idemkeyDescCreatedAtMs := idemkeyFields[3].Descriptor()
+	// idemkey.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
+	idemkey.DefaultCreatedAtMs = idemkeyDescCreatedAtMs.Default.(int64)
+	interactiondecisionFields := schema.InteractionDecision{}.Fields()
+	_ = interactiondecisionFields
+	// interactiondecisionDescCreatedAtMs is the schema descriptor for created_at_ms field.
+	interactiondecisionDescCreatedAtMs := interactiondecisionFields[11].Descriptor()
+	// interactiondecision.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
+	interactiondecision.DefaultCreatedAtMs = interactiondecisionDescCreatedAtMs.Default.(int64)
+	livedraftFields := schema.LiveDraft{}.Fields()
+	_ = livedraftFields
+	// livedraftDescBaseTemplateRevision is the schema descriptor for base_template_revision field.
+	livedraftDescBaseTemplateRevision := livedraftFields[2].Descriptor()
+	// livedraft.DefaultBaseTemplateRevision holds the default value on creation for the base_template_revision field.
+	livedraft.DefaultBaseTemplateRevision = livedraftDescBaseTemplateRevision.Default.(int64)
+	// livedraftDescRevision is the schema descriptor for revision field.
+	livedraftDescRevision := livedraftFields[3].Descriptor()
+	// livedraft.DefaultRevision holds the default value on creation for the revision field.
+	livedraft.DefaultRevision = livedraftDescRevision.Default.(int64)
+	// livedraftDescSchemaVersion is the schema descriptor for schema_version field.
+	livedraftDescSchemaVersion := livedraftFields[4].Descriptor()
+	// livedraft.DefaultSchemaVersion holds the default value on creation for the schema_version field.
+	livedraft.DefaultSchemaVersion = livedraftDescSchemaVersion.Default.(int64)
+	// livedraftDescLeaseUntilMs is the schema descriptor for lease_until_ms field.
+	livedraftDescLeaseUntilMs := livedraftFields[6].Descriptor()
+	// livedraft.DefaultLeaseUntilMs holds the default value on creation for the lease_until_ms field.
+	livedraft.DefaultLeaseUntilMs = livedraftDescLeaseUntilMs.Default.(int64)
+	// livedraftDescFencingToken is the schema descriptor for fencing_token field.
+	livedraftDescFencingToken := livedraftFields[7].Descriptor()
+	// livedraft.DefaultFencingToken holds the default value on creation for the fencing_token field.
+	livedraft.DefaultFencingToken = livedraftDescFencingToken.Default.(int64)
+	// livedraftDescStatus is the schema descriptor for status field.
+	livedraftDescStatus := livedraftFields[8].Descriptor()
+	// livedraft.DefaultStatus holds the default value on creation for the status field.
+	livedraft.DefaultStatus = livedraftDescStatus.Default.(string)
+	// livedraftDescCreatedAtMs is the schema descriptor for created_at_ms field.
+	livedraftDescCreatedAtMs := livedraftFields[12].Descriptor()
+	// livedraft.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
+	livedraft.DefaultCreatedAtMs = livedraftDescCreatedAtMs.Default.(int64)
+	// livedraftDescUpdatedAtMs is the schema descriptor for updated_at_ms field.
+	livedraftDescUpdatedAtMs := livedraftFields[13].Descriptor()
+	// livedraft.DefaultUpdatedAtMs holds the default value on creation for the updated_at_ms field.
+	livedraft.DefaultUpdatedAtMs = livedraftDescUpdatedAtMs.Default.(int64)
 	livesessionFields := schema.LiveSession{}.Fields()
 	_ = livesessionFields
 	// livesessionDescPhase is the schema descriptor for phase field.
@@ -126,16 +291,36 @@ func init() {
 	livesessionDescUpdatedAtMs := livesessionFields[14].Descriptor()
 	// livesession.DefaultUpdatedAtMs holds the default value on creation for the updated_at_ms field.
 	livesession.DefaultUpdatedAtMs = livesessionDescUpdatedAtMs.Default.(int64)
+	patronFields := schema.Patron{}.Fields()
+	_ = patronFields
+	// patronDescCreatedAtMs is the schema descriptor for created_at_ms field.
+	patronDescCreatedAtMs := patronFields[6].Descriptor()
+	// patron.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
+	patron.DefaultCreatedAtMs = patronDescCreatedAtMs.Default.(int64)
 	personaFields := schema.Persona{}.Fields()
 	_ = personaFields
 	// personaDescIsActive is the schema descriptor for is_active field.
 	personaDescIsActive := personaFields[7].Descriptor()
 	// persona.DefaultIsActive holds the default value on creation for the is_active field.
 	persona.DefaultIsActive = personaDescIsActive.Default.(bool)
+	// personaDescRevision is the schema descriptor for revision field.
+	personaDescRevision := personaFields[13].Descriptor()
+	// persona.DefaultRevision holds the default value on creation for the revision field.
+	persona.DefaultRevision = personaDescRevision.Default.(int64)
+	// personaDescDeletedAtMs is the schema descriptor for deleted_at_ms field.
+	personaDescDeletedAtMs := personaFields[14].Descriptor()
+	// persona.DefaultDeletedAtMs holds the default value on creation for the deleted_at_ms field.
+	persona.DefaultDeletedAtMs = personaDescDeletedAtMs.Default.(int64)
 	// personaDescUpdatedAtMs is the schema descriptor for updated_at_ms field.
-	personaDescUpdatedAtMs := personaFields[8].Descriptor()
+	personaDescUpdatedAtMs := personaFields[16].Descriptor()
 	// persona.DefaultUpdatedAtMs holds the default value on creation for the updated_at_ms field.
 	persona.DefaultUpdatedAtMs = personaDescUpdatedAtMs.Default.(int64)
+	personarefFields := schema.PersonaRef{}.Fields()
+	_ = personarefFields
+	// personarefDescOrd is the schema descriptor for ord field.
+	personarefDescOrd := personarefFields[3].Descriptor()
+	// personaref.DefaultOrd holds the default value on creation for the ord field.
+	personaref.DefaultOrd = personarefDescOrd.Default.(int)
 	recordingFields := schema.Recording{}.Fields()
 	_ = recordingFields
 	// recordingDescState is the schema descriptor for state field.

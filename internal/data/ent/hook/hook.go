@@ -9,6 +9,18 @@ import (
 	"github.com/teamwork/digital-human/internal/data/ent"
 )
 
+// The ApplyJournalFunc type is an adapter to allow the use of ordinary
+// function as ApplyJournal mutator.
+type ApplyJournalFunc func(context.Context, *ent.ApplyJournalMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ApplyJournalFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ApplyJournalMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ApplyJournalMutation", m)
+}
+
 // The AssetFunc type is an adapter to allow the use of ordinary
 // function as Asset mutator.
 type AssetFunc func(context.Context, *ent.AssetMutation) (ent.Value, error)
@@ -57,6 +69,54 @@ func (f DanmakuEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DanmakuEventMutation", m)
 }
 
+// The EffectOutboxFunc type is an adapter to allow the use of ordinary
+// function as EffectOutbox mutator.
+type EffectOutboxFunc func(context.Context, *ent.EffectOutboxMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f EffectOutboxFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.EffectOutboxMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.EffectOutboxMutation", m)
+}
+
+// The IdemKeyFunc type is an adapter to allow the use of ordinary
+// function as IdemKey mutator.
+type IdemKeyFunc func(context.Context, *ent.IdemKeyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f IdemKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.IdemKeyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IdemKeyMutation", m)
+}
+
+// The InteractionDecisionFunc type is an adapter to allow the use of ordinary
+// function as InteractionDecision mutator.
+type InteractionDecisionFunc func(context.Context, *ent.InteractionDecisionMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f InteractionDecisionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.InteractionDecisionMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.InteractionDecisionMutation", m)
+}
+
+// The LiveDraftFunc type is an adapter to allow the use of ordinary
+// function as LiveDraft mutator.
+type LiveDraftFunc func(context.Context, *ent.LiveDraftMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f LiveDraftFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.LiveDraftMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.LiveDraftMutation", m)
+}
+
 // The LiveSessionFunc type is an adapter to allow the use of ordinary
 // function as LiveSession mutator.
 type LiveSessionFunc func(context.Context, *ent.LiveSessionMutation) (ent.Value, error)
@@ -69,6 +129,18 @@ func (f LiveSessionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.LiveSessionMutation", m)
 }
 
+// The PatronFunc type is an adapter to allow the use of ordinary
+// function as Patron mutator.
+type PatronFunc func(context.Context, *ent.PatronMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f PatronFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.PatronMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PatronMutation", m)
+}
+
 // The PersonaFunc type is an adapter to allow the use of ordinary
 // function as Persona mutator.
 type PersonaFunc func(context.Context, *ent.PersonaMutation) (ent.Value, error)
@@ -79,6 +151,18 @@ func (f PersonaFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PersonaMutation", m)
+}
+
+// The PersonaRefFunc type is an adapter to allow the use of ordinary
+// function as PersonaRef mutator.
+type PersonaRefFunc func(context.Context, *ent.PersonaRefMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f PersonaRefFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.PersonaRefMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.PersonaRefMutation", m)
 }
 
 // The RecordingFunc type is an adapter to allow the use of ordinary

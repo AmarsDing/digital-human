@@ -2,7 +2,6 @@ package vidu
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -36,45 +35,9 @@ func TestCreateSessionTimeoutMapsToCreateTimeout(t *testing.T) {
 	}
 }
 
-func TestCreateSession403ActionDegradesOnce(t *testing.T) {
-	var withAction, withoutAction int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		if _, ok := body["action"]; ok {
-			atomic.AddInt32(&withAction, 1)
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"code":"ACTION_FORBIDDEN","message":"action not allowed"}`))
-			return
-		}
-		atomic.AddInt32(&withoutAction, 1)
-		_, _ = w.Write([]byte(`{"live_id":"live-1"}`))
-	}))
-	defer srv.Close()
-
-	c := newTestClient(t, srv.URL, nil)
-	// 动作库降级：带 action 建场遇 403，客户端去 action 重建一次并成功。
-	out, err := c.CreateSession(context.Background(), map[string]any{"action": "wave", "avatar_id": "a"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out["live_id"] != "live-1" {
-		t.Fatalf("out=%v", out)
-	}
-	if withAction != 1 || withoutAction != 1 {
-		t.Fatalf("withAction=%d withoutAction=%d (降级必须恰好一次)", withAction, withoutAction)
-	}
-	// 原本就不带 action 的请求不受影响。
-	if _, err = c.CreateSession(context.Background(), map[string]any{"avatar_id": "a"}); err != nil {
-		t.Fatal(err)
-	}
-	if withAction != 1 || withoutAction != 2 {
-		t.Fatalf("withAction=%d withoutAction=%d", withAction, withoutAction)
-	}
-}
-
-// 降级后仍失败（403 与 action 无关）时，错误必须如实上抛，不得无限重建。
-func TestCreateSession403DegradeStillFails(t *testing.T) {
+// 带 action 建场遇 403：客户端只分类上报 ActionForbidden，不做静默重试
+// （降级重建职责在引擎层 controller.go，G3-2）。
+func TestCreateSession403ReportsActionForbidden(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
@@ -84,13 +47,18 @@ func TestCreateSession403DegradeStillFails(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, srv.URL, nil)
-	_, err := c.CreateSession(context.Background(), map[string]any{"action": "wave"})
+	_, err := c.CreateSession(context.Background(), map[string]any{"action": "wave", "avatar_id": "a"})
 	var apiErr *APIError
-	if !errors.As(err, &apiErr) || apiErr.Code != CodeForbidden {
-		t.Fatalf("err=%v want %s (降级一次后仍以 403 上抛)", err, CodeForbidden)
+	if !errors.As(err, &apiErr) || apiErr.Code != CodeActionForbidden || !apiErr.ActionForbidden {
+		t.Fatalf("err=%v want %s+ActionForbidden", err, CodeActionForbidden)
 	}
-	if calls != 2 {
-		t.Fatalf("calls=%d want 2 (首次 + 降级一次)", calls)
+	if calls != 1 {
+		t.Fatalf("calls=%d want 1 (客户端不得静默重试)", calls)
+	}
+	// 不带 action 的 403 归普通 CodeForbidden。
+	_, err = c.CreateSession(context.Background(), map[string]any{"avatar_id": "a"})
+	if !errors.As(err, &apiErr) || apiErr.Code != CodeForbidden || apiErr.ActionForbidden {
+		t.Fatalf("err=%v want %s", err, CodeForbidden)
 	}
 }
 
@@ -311,10 +279,116 @@ func TestClientDefaultsMatchBlueprint(t *testing.T) {
 		{"upload_start", c.opt.UploadStartTimeout, 60 * time.Second},
 		{"upload_put", c.opt.UploadPUTTimeout, 300 * time.Second},
 		{"upload_finish", c.opt.UploadFinishTimeout, 60 * time.Second},
+		{"avatar_list", c.opt.AvatarListTimeout, 8 * time.Second},
+		{"avatar_create", c.opt.AvatarCreateTimeout, 300 * time.Second},
+		{"avatar_delete", c.opt.AvatarDeleteTimeout, 30 * time.Second},
 	}
 	for _, tc := range cases {
 		if tc.got != tc.want {
 			t.Fatalf("%s timeout=%v want %v", tc.name, tc.got, tc.want)
 		}
+	}
+}
+
+// ---------- avatars 组契约测（M3；路径/方法/重试语义固定，字段形状待真机验证） ----------
+
+func TestAvatarsEndpointsPathsAndMethods(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
+		_, _ = w.Write([]byte(`{"avatars":[],"id":"va-1"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv.URL, nil)
+	if _, err := c.ListAvatars(context.Background(), 2, 20); err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.CreateAvatar(context.Background(), map[string]any{"name": "小雅", "image_uri": "ssupload:x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["id"] != "va-1" {
+		t.Fatalf("create out=%v", out)
+	}
+	if err := c.DeleteAvatar(context.Background(), "va-1"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"GET /live/v1/avatars?pager.page=2&pager.pagesz=20",
+		"POST /live/v1/avatars?",
+		"DELETE /live/v1/avatars/va-1?",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("calls=%v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("call[%d]=%q want %q (all=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestCreateAvatarNeverRetries(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"message":"bad gateway"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv.URL, nil)
+	_, err := c.CreateAvatar(context.Background(), map[string]any{"name": "x"})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != CodeUpstreamError {
+		t.Fatalf("err=%v want %s", err, CodeUpstreamError)
+	}
+	if calls != 1 {
+		t.Fatalf("POST calls=%d want 1 (create_avatar 不重试)", calls)
+	}
+}
+
+func TestListAvatarsRetriesOnceOn5xx(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"avatars":[]}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv.URL, nil)
+	if _, err := c.ListAvatars(context.Background(), 1, 20); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("GET calls=%d want 2 (one retry)", calls)
+	}
+}
+
+// DeleteAvatar 幂等，5xx 重试 1 次；404 归入 CodeLiveNotFound（孤儿清理据此判定"已不在"）。
+func TestDeleteAvatarRetryAndNotFound(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":"NOT_FOUND","message":"gone"}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv.URL, nil)
+	err := c.DeleteAvatar(context.Background(), "va-9")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != CodeLiveNotFound {
+		t.Fatalf("err=%v want %s", err, CodeLiveNotFound)
+	}
+	if calls != 2 {
+		t.Fatalf("DELETE calls=%d want 2 (one retry)", calls)
 	}
 }

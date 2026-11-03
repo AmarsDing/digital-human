@@ -19,6 +19,8 @@ const (
 	FieldPath = "path"
 	// FieldSha256 holds the string denoting the sha256 field in the database.
 	FieldSha256 = "sha256"
+	// FieldViduURI holds the string denoting the vidu_uri field in the database.
+	FieldViduURI = "vidu_uri"
 	// FieldBytes holds the string denoting the bytes field in the database.
 	FieldBytes = "bytes"
 	// FieldDurationMs holds the string denoting the duration_ms field in the database.
@@ -40,6 +42,7 @@ var Columns = []string{
 	FieldName,
 	FieldPath,
 	FieldSha256,
+	FieldViduURI,
 	FieldBytes,
 	FieldDurationMs,
 	FieldUploadedAtMs,
@@ -96,6 +99,11 @@ func ByPath(opts ...sql.OrderTermOption) OrderOption {
 // BySha256 orders the results by the sha256 field.
 func BySha256(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSha256, opts...).ToFunc()
+}
+
+// ByViduURI orders the results by the vidu_uri field.
+func ByViduURI(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldViduURI, opts...).ToFunc()
 }
 
 // ByBytes orders the results by the bytes field.

@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -30,6 +31,22 @@ type Persona struct {
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	// IsActive holds the value of the "is_active" field.
 	IsActive bool `json:"is_active,omitempty"`
+	// AvatarAssetID holds the value of the "avatar_asset_id" field.
+	AvatarAssetID string `json:"avatar_asset_id,omitempty"`
+	// ViduAvatarID holds the value of the "vidu_avatar_id" field.
+	ViduAvatarID string `json:"vidu_avatar_id,omitempty"`
+	// ViduImageURI holds the value of the "vidu_image_uri" field.
+	ViduImageURI string `json:"vidu_image_uri,omitempty"`
+	// ActionLibraryID holds the value of the "action_library_id" field.
+	ActionLibraryID string `json:"action_library_id,omitempty"`
+	// Greeting holds the value of the "greeting" field.
+	Greeting string `json:"greeting,omitempty"`
+	// Revision holds the value of the "revision" field.
+	Revision int64 `json:"revision,omitempty"`
+	// DeletedAtMs holds the value of the "deleted_at_ms" field.
+	DeletedAtMs int64 `json:"deleted_at_ms,omitempty"`
+	// ViduSyncState holds the value of the "vidu_sync_state" field.
+	ViduSyncState map[string]interface{} `json:"vidu_sync_state,omitempty"`
 	// UpdatedAtMs holds the value of the "updated_at_ms" field.
 	UpdatedAtMs  int64 `json:"updated_at_ms,omitempty"`
 	selectValues sql.SelectValues
@@ -40,11 +57,13 @@ func (*Persona) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case persona.FieldViduSyncState:
+			values[i] = new([]byte)
 		case persona.FieldIsActive:
 			values[i] = new(sql.NullBool)
-		case persona.FieldUpdatedAtMs:
+		case persona.FieldRevision, persona.FieldDeletedAtMs, persona.FieldUpdatedAtMs:
 			values[i] = new(sql.NullInt64)
-		case persona.FieldID, persona.FieldSlug, persona.FieldName, persona.FieldTagline, persona.FieldVoiceID, persona.FieldAvatarNote, persona.FieldSystemPrompt:
+		case persona.FieldID, persona.FieldSlug, persona.FieldName, persona.FieldTagline, persona.FieldVoiceID, persona.FieldAvatarNote, persona.FieldSystemPrompt, persona.FieldAvatarAssetID, persona.FieldViduAvatarID, persona.FieldViduImageURI, persona.FieldActionLibraryID, persona.FieldGreeting:
 			values[i] = new(sql.NullString)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -109,6 +128,56 @@ func (_m *Persona) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.IsActive = value.Bool
 			}
+		case persona.FieldAvatarAssetID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field avatar_asset_id", values[i])
+			} else if value.Valid {
+				_m.AvatarAssetID = value.String
+			}
+		case persona.FieldViduAvatarID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field vidu_avatar_id", values[i])
+			} else if value.Valid {
+				_m.ViduAvatarID = value.String
+			}
+		case persona.FieldViduImageURI:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field vidu_image_uri", values[i])
+			} else if value.Valid {
+				_m.ViduImageURI = value.String
+			}
+		case persona.FieldActionLibraryID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field action_library_id", values[i])
+			} else if value.Valid {
+				_m.ActionLibraryID = value.String
+			}
+		case persona.FieldGreeting:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field greeting", values[i])
+			} else if value.Valid {
+				_m.Greeting = value.String
+			}
+		case persona.FieldRevision:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field revision", values[i])
+			} else if value.Valid {
+				_m.Revision = value.Int64
+			}
+		case persona.FieldDeletedAtMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field deleted_at_ms", values[i])
+			} else if value.Valid {
+				_m.DeletedAtMs = value.Int64
+			}
+		case persona.FieldViduSyncState:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field vidu_sync_state", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.ViduSyncState); err != nil {
+					return fmt.Errorf("unmarshal field vidu_sync_state: %w", err)
+				}
+			}
 		case persona.FieldUpdatedAtMs:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field updated_at_ms", values[i])
@@ -171,6 +240,30 @@ func (_m *Persona) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("is_active=")
 	builder.WriteString(fmt.Sprintf("%v", _m.IsActive))
+	builder.WriteString(", ")
+	builder.WriteString("avatar_asset_id=")
+	builder.WriteString(_m.AvatarAssetID)
+	builder.WriteString(", ")
+	builder.WriteString("vidu_avatar_id=")
+	builder.WriteString(_m.ViduAvatarID)
+	builder.WriteString(", ")
+	builder.WriteString("vidu_image_uri=")
+	builder.WriteString(_m.ViduImageURI)
+	builder.WriteString(", ")
+	builder.WriteString("action_library_id=")
+	builder.WriteString(_m.ActionLibraryID)
+	builder.WriteString(", ")
+	builder.WriteString("greeting=")
+	builder.WriteString(_m.Greeting)
+	builder.WriteString(", ")
+	builder.WriteString("revision=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Revision))
+	builder.WriteString(", ")
+	builder.WriteString("deleted_at_ms=")
+	builder.WriteString(fmt.Sprintf("%v", _m.DeletedAtMs))
+	builder.WriteString(", ")
+	builder.WriteString("vidu_sync_state=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ViduSyncState))
 	builder.WriteString(", ")
 	builder.WriteString("updated_at_ms=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UpdatedAtMs))

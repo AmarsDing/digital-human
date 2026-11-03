@@ -12,12 +12,19 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"github.com/teamwork/digital-human/internal/data/ent/applyjournal"
 	"github.com/teamwork/digital-human/internal/data/ent/asset"
 	"github.com/teamwork/digital-human/internal/data/ent/auditlog"
 	"github.com/teamwork/digital-human/internal/data/ent/costledger"
 	"github.com/teamwork/digital-human/internal/data/ent/danmakuevent"
+	"github.com/teamwork/digital-human/internal/data/ent/effectoutbox"
+	"github.com/teamwork/digital-human/internal/data/ent/idemkey"
+	"github.com/teamwork/digital-human/internal/data/ent/interactiondecision"
+	"github.com/teamwork/digital-human/internal/data/ent/livedraft"
 	"github.com/teamwork/digital-human/internal/data/ent/livesession"
+	"github.com/teamwork/digital-human/internal/data/ent/patron"
 	"github.com/teamwork/digital-human/internal/data/ent/persona"
+	"github.com/teamwork/digital-human/internal/data/ent/personaref"
 	"github.com/teamwork/digital-human/internal/data/ent/recording"
 	"github.com/teamwork/digital-human/internal/data/ent/sessionevent"
 	"github.com/teamwork/digital-human/internal/data/ent/setting"
@@ -82,16 +89,23 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			asset.Table:        asset.ValidColumn,
-			auditlog.Table:     auditlog.ValidColumn,
-			costledger.Table:   costledger.ValidColumn,
-			danmakuevent.Table: danmakuevent.ValidColumn,
-			livesession.Table:  livesession.ValidColumn,
-			persona.Table:      persona.ValidColumn,
-			recording.Table:    recording.ValidColumn,
-			sessionevent.Table: sessionevent.ValidColumn,
-			setting.Table:      setting.ValidColumn,
-			vidukey.Table:      vidukey.ValidColumn,
+			applyjournal.Table:        applyjournal.ValidColumn,
+			asset.Table:               asset.ValidColumn,
+			auditlog.Table:            auditlog.ValidColumn,
+			costledger.Table:          costledger.ValidColumn,
+			danmakuevent.Table:        danmakuevent.ValidColumn,
+			effectoutbox.Table:        effectoutbox.ValidColumn,
+			idemkey.Table:             idemkey.ValidColumn,
+			interactiondecision.Table: interactiondecision.ValidColumn,
+			livedraft.Table:           livedraft.ValidColumn,
+			livesession.Table:         livesession.ValidColumn,
+			patron.Table:              patron.ValidColumn,
+			persona.Table:             persona.ValidColumn,
+			personaref.Table:          personaref.ValidColumn,
+			recording.Table:           recording.ValidColumn,
+			sessionevent.Table:        sessionevent.ValidColumn,
+			setting.Table:             setting.ValidColumn,
+			vidukey.Table:             vidukey.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

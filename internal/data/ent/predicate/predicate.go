@@ -6,6 +6,9 @@ import (
 	"entgo.io/ent/dialect/sql"
 )
 
+// ApplyJournal is the predicate function for applyjournal builders.
+type ApplyJournal func(*sql.Selector)
+
 // Asset is the predicate function for asset builders.
 type Asset func(*sql.Selector)
 
@@ -18,11 +21,29 @@ type CostLedger func(*sql.Selector)
 // DanmakuEvent is the predicate function for danmakuevent builders.
 type DanmakuEvent func(*sql.Selector)
 
+// EffectOutbox is the predicate function for effectoutbox builders.
+type EffectOutbox func(*sql.Selector)
+
+// IdemKey is the predicate function for idemkey builders.
+type IdemKey func(*sql.Selector)
+
+// InteractionDecision is the predicate function for interactiondecision builders.
+type InteractionDecision func(*sql.Selector)
+
+// LiveDraft is the predicate function for livedraft builders.
+type LiveDraft func(*sql.Selector)
+
 // LiveSession is the predicate function for livesession builders.
 type LiveSession func(*sql.Selector)
 
+// Patron is the predicate function for patron builders.
+type Patron func(*sql.Selector)
+
 // Persona is the predicate function for persona builders.
 type Persona func(*sql.Selector)
+
+// PersonaRef is the predicate function for personaref builders.
+type PersonaRef func(*sql.Selector)
 
 // Recording is the predicate function for recording builders.
 type Recording func(*sql.Selector)

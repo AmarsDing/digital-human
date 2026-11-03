@@ -83,6 +83,26 @@ func (_u *AssetUpdate) SetNillableSha256(v *string) *AssetUpdate {
 	return _u
 }
 
+// SetViduURI sets the "vidu_uri" field.
+func (_u *AssetUpdate) SetViduURI(v string) *AssetUpdate {
+	_u.mutation.SetViduURI(v)
+	return _u
+}
+
+// SetNillableViduURI sets the "vidu_uri" field if the given value is not nil.
+func (_u *AssetUpdate) SetNillableViduURI(v *string) *AssetUpdate {
+	if v != nil {
+		_u.SetViduURI(*v)
+	}
+	return _u
+}
+
+// ClearViduURI clears the value of the "vidu_uri" field.
+func (_u *AssetUpdate) ClearViduURI() *AssetUpdate {
+	_u.mutation.ClearViduURI()
+	return _u
+}
+
 // SetBytes sets the "bytes" field.
 func (_u *AssetUpdate) SetBytes(v int64) *AssetUpdate {
 	_u.mutation.ResetBytes()
@@ -241,6 +261,12 @@ func (_u *AssetUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Sha256(); ok {
 		_spec.SetField(asset.FieldSha256, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.ViduURI(); ok {
+		_spec.SetField(asset.FieldViduURI, field.TypeString, value)
+	}
+	if _u.mutation.ViduURICleared() {
+		_spec.ClearField(asset.FieldViduURI, field.TypeString)
+	}
 	if value, ok := _u.mutation.Bytes(); ok {
 		_spec.SetField(asset.FieldBytes, field.TypeInt64, value)
 	}
@@ -344,6 +370,26 @@ func (_u *AssetUpdateOne) SetNillableSha256(v *string) *AssetUpdateOne {
 	if v != nil {
 		_u.SetSha256(*v)
 	}
+	return _u
+}
+
+// SetViduURI sets the "vidu_uri" field.
+func (_u *AssetUpdateOne) SetViduURI(v string) *AssetUpdateOne {
+	_u.mutation.SetViduURI(v)
+	return _u
+}
+
+// SetNillableViduURI sets the "vidu_uri" field if the given value is not nil.
+func (_u *AssetUpdateOne) SetNillableViduURI(v *string) *AssetUpdateOne {
+	if v != nil {
+		_u.SetViduURI(*v)
+	}
+	return _u
+}
+
+// ClearViduURI clears the value of the "vidu_uri" field.
+func (_u *AssetUpdateOne) ClearViduURI() *AssetUpdateOne {
+	_u.mutation.ClearViduURI()
 	return _u
 }
 
@@ -534,6 +580,12 @@ func (_u *AssetUpdateOne) sqlSave(ctx context.Context) (_node *Asset, err error)
 	}
 	if value, ok := _u.mutation.Sha256(); ok {
 		_spec.SetField(asset.FieldSha256, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.ViduURI(); ok {
+		_spec.SetField(asset.FieldViduURI, field.TypeString, value)
+	}
+	if _u.mutation.ViduURICleared() {
+		_spec.ClearField(asset.FieldViduURI, field.TypeString)
 	}
 	if value, ok := _u.mutation.Bytes(); ok {
 		_spec.SetField(asset.FieldBytes, field.TypeInt64, value)

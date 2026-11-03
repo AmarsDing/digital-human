@@ -43,6 +43,20 @@ func (_c *AssetCreate) SetSha256(v string) *AssetCreate {
 	return _c
 }
 
+// SetViduURI sets the "vidu_uri" field.
+func (_c *AssetCreate) SetViduURI(v string) *AssetCreate {
+	_c.mutation.SetViduURI(v)
+	return _c
+}
+
+// SetNillableViduURI sets the "vidu_uri" field if the given value is not nil.
+func (_c *AssetCreate) SetNillableViduURI(v *string) *AssetCreate {
+	if v != nil {
+		_c.SetViduURI(*v)
+	}
+	return _c
+}
+
 // SetBytes sets the "bytes" field.
 func (_c *AssetCreate) SetBytes(v int64) *AssetCreate {
 	_c.mutation.SetBytes(v)
@@ -255,6 +269,10 @@ func (_c *AssetCreate) createSpec() (*Asset, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Sha256(); ok {
 		_spec.SetField(asset.FieldSha256, field.TypeString, value)
 		_node.Sha256 = value
+	}
+	if value, ok := _c.mutation.ViduURI(); ok {
+		_spec.SetField(asset.FieldViduURI, field.TypeString, value)
+		_node.ViduURI = value
 	}
 	if value, ok := _c.mutation.Bytes(); ok {
 		_spec.SetField(asset.FieldBytes, field.TypeInt64, value)

@@ -46,3 +46,16 @@ func (AuditLog) Fields() []ent.Field {
 func (AuditLog) Indexes() []ent.Index {
 	return []ent.Index{index.Fields("ts_ms")}
 }
+
+// IdemKey 开播/收播幂等键：key 即主键，唯一约束保证并发下同 key 只写入一次
+// （首写胜出，等价 Redis SET NX）；expires_at_ms 到期后由读取方删除并允许重建。
+type IdemKey struct{ ent.Schema }
+
+func (IdemKey) Fields() []ent.Field {
+	return []ent.Field{
+		field.String("id").Immutable().Unique(), // 幂等 key（含 start:/stop: 前缀）
+		field.JSON("result", map[string]any{}).Optional(),
+		field.Int64("expires_at_ms").Default(0),
+		field.Int64("created_at_ms").Default(0),
+	}
+}

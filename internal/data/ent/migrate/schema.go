@@ -8,6 +8,40 @@ import (
 )
 
 var (
+	// ApplyJournalsColumns holds the columns for the "apply_journals" table.
+	ApplyJournalsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Unique: true},
+		{Name: "draft_id", Type: field.TypeString},
+		{Name: "base_revision", Type: field.TypeInt64, Default: 0},
+		{Name: "snapshot_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "steps_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "step_status_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "old_values_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "status", Type: field.TypeString, Default: "preparing"},
+		{Name: "last_error", Type: field.TypeString, Nullable: true},
+		{Name: "created_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "updated_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "committed_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "rolled_back_at_ms", Type: field.TypeInt64, Default: 0},
+	}
+	// ApplyJournalsTable holds the schema information for the "apply_journals" table.
+	ApplyJournalsTable = &schema.Table{
+		Name:       "apply_journals",
+		Columns:    ApplyJournalsColumns,
+		PrimaryKey: []*schema.Column{ApplyJournalsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "applyjournal_draft_id",
+				Unique:  false,
+				Columns: []*schema.Column{ApplyJournalsColumns[1]},
+			},
+			{
+				Name:    "applyjournal_status",
+				Unique:  false,
+				Columns: []*schema.Column{ApplyJournalsColumns[7]},
+			},
+		},
+	}
 	// AssetsColumns holds the columns for the "assets" table.
 	AssetsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeString, Unique: true},
@@ -15,6 +49,7 @@ var (
 		{Name: "name", Type: field.TypeString},
 		{Name: "path", Type: field.TypeString},
 		{Name: "sha256", Type: field.TypeString, Unique: true},
+		{Name: "vidu_uri", Type: field.TypeString, Nullable: true},
 		{Name: "bytes", Type: field.TypeInt64, Default: 0},
 		{Name: "duration_ms", Type: field.TypeInt64, Default: 0},
 		{Name: "uploaded_at_ms", Type: field.TypeInt64, Default: 0},
@@ -55,13 +90,22 @@ var (
 	CostLedgersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeString, Unique: true},
 		{Name: "session_id", Type: field.TypeString, Unique: true},
+		{Name: "account_id", Type: field.TypeString, Default: "local"},
 		{Name: "credits_start", Type: field.TypeInt64, Default: 0},
 		{Name: "credits_end", Type: field.TypeInt64, Default: 0},
+		{Name: "credits_spent", Type: field.TypeInt64, Default: 0},
 		{Name: "tokens_in", Type: field.TypeInt64, Default: 0},
 		{Name: "tokens_out", Type: field.TypeInt64, Default: 0},
+		{Name: "tokens_total", Type: field.TypeInt64, Default: 0},
+		{Name: "llm_calls", Type: field.TypeInt64, Default: 0},
 		{Name: "diamonds", Type: field.TypeInt64, Default: 0},
 		{Name: "gift_count", Type: field.TypeInt64, Default: 0},
 		{Name: "estimated_cost", Type: field.TypeFloat64, Default: 0},
+		{Name: "cost_source", Type: field.TypeString, Default: "unset"},
+		{Name: "source", Type: field.TypeString, Default: "manual"},
+		{Name: "started_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "ended_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "updated_at_ms", Type: field.TypeInt64, Default: 0},
 	}
 	// CostLedgersTable holds the schema information for the "cost_ledgers" table.
 	CostLedgersTable = &schema.Table{
@@ -92,6 +136,136 @@ var (
 				Name:    "danmakuevent_session_id_created_at_ms",
 				Unique:  false,
 				Columns: []*schema.Column{DanmakuEventsColumns[1], DanmakuEventsColumns[9]},
+			},
+		},
+	}
+	// EffectOutboxesColumns holds the columns for the "effect_outboxes" table.
+	EffectOutboxesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Unique: true},
+		{Name: "decision_id", Type: field.TypeString},
+		{Name: "session_id", Type: field.TypeString},
+		{Name: "effect_type", Type: field.TypeString},
+		{Name: "target_id", Type: field.TypeString, Nullable: true},
+		{Name: "effect_seq", Type: field.TypeInt, Default: 0},
+		{Name: "effect_idempotency_key", Type: field.TypeString, Unique: true},
+		{Name: "payload_safe_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "status", Type: field.TypeString, Default: "pending"},
+		{Name: "attempt", Type: field.TypeInt, Default: 0},
+		{Name: "max_attempts", Type: field.TypeInt, Default: 3},
+		{Name: "lease_owner", Type: field.TypeString, Nullable: true},
+		{Name: "lease_until_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "next_retry_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "dispatch_id", Type: field.TypeString, Nullable: true},
+		{Name: "downstream_receipt_id", Type: field.TypeString, Nullable: true},
+		{Name: "last_error", Type: field.TypeString, Nullable: true},
+		{Name: "reconcile_status", Type: field.TypeString, Default: "none"},
+		{Name: "created_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "dispatched_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "finished_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "reconciled_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "terminal_reason", Type: field.TypeString, Nullable: true},
+	}
+	// EffectOutboxesTable holds the schema information for the "effect_outboxes" table.
+	EffectOutboxesTable = &schema.Table{
+		Name:       "effect_outboxes",
+		Columns:    EffectOutboxesColumns,
+		PrimaryKey: []*schema.Column{EffectOutboxesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "effectoutbox_decision_id",
+				Unique:  false,
+				Columns: []*schema.Column{EffectOutboxesColumns[1]},
+			},
+			{
+				Name:    "effectoutbox_status_lease_until_ms",
+				Unique:  false,
+				Columns: []*schema.Column{EffectOutboxesColumns[8], EffectOutboxesColumns[12]},
+			},
+			{
+				Name:    "effectoutbox_session_id_created_at_ms",
+				Unique:  false,
+				Columns: []*schema.Column{EffectOutboxesColumns[2], EffectOutboxesColumns[18]},
+			},
+		},
+	}
+	// IdemKeysColumns holds the columns for the "idem_keys" table.
+	IdemKeysColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Unique: true},
+		{Name: "result", Type: field.TypeJSON, Nullable: true},
+		{Name: "expires_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "created_at_ms", Type: field.TypeInt64, Default: 0},
+	}
+	// IdemKeysTable holds the schema information for the "idem_keys" table.
+	IdemKeysTable = &schema.Table{
+		Name:       "idem_keys",
+		Columns:    IdemKeysColumns,
+		PrimaryKey: []*schema.Column{IdemKeysColumns[0]},
+	}
+	// InteractionDecisionsColumns holds the columns for the "interaction_decisions" table.
+	InteractionDecisionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Unique: true},
+		{Name: "session_id", Type: field.TypeString},
+		{Name: "source_event_row_id", Type: field.TypeString, Nullable: true},
+		{Name: "internal_event_id", Type: field.TypeString, Nullable: true},
+		{Name: "rule_version", Type: field.TypeString, Nullable: true},
+		{Name: "policy_revision", Type: field.TypeString, Nullable: true},
+		{Name: "intent", Type: field.TypeString, Nullable: true},
+		{Name: "target_id", Type: field.TypeString, Nullable: true},
+		{Name: "decision", Type: field.TypeString},
+		{Name: "reason_code", Type: field.TypeString, Nullable: true},
+		{Name: "payload_safe_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "created_at_ms", Type: field.TypeInt64, Default: 0},
+	}
+	// InteractionDecisionsTable holds the schema information for the "interaction_decisions" table.
+	InteractionDecisionsTable = &schema.Table{
+		Name:       "interaction_decisions",
+		Columns:    InteractionDecisionsColumns,
+		PrimaryKey: []*schema.Column{InteractionDecisionsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "interactiondecision_source_event_row_id",
+				Unique:  true,
+				Columns: []*schema.Column{InteractionDecisionsColumns[2]},
+			},
+			{
+				Name:    "interactiondecision_session_id_created_at_ms",
+				Unique:  false,
+				Columns: []*schema.Column{InteractionDecisionsColumns[1], InteractionDecisionsColumns[11]},
+			},
+		},
+	}
+	// LiveDraftsColumns holds the columns for the "live_drafts" table.
+	LiveDraftsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Unique: true},
+		{Name: "template_id", Type: field.TypeString, Nullable: true},
+		{Name: "base_template_revision", Type: field.TypeInt64, Default: 0},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+		{Name: "schema_version", Type: field.TypeInt64, Default: 1},
+		{Name: "owner_id", Type: field.TypeString, Nullable: true},
+		{Name: "lease_until_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "fencing_token", Type: field.TypeInt64, Default: 0},
+		{Name: "status", Type: field.TypeString, Default: "editing"},
+		{Name: "snapshot_json", Type: field.TypeJSON, Nullable: true},
+		{Name: "snapshot_hash", Type: field.TypeString, Nullable: true},
+		{Name: "preflight_id", Type: field.TypeString, Nullable: true},
+		{Name: "created_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "updated_at_ms", Type: field.TypeInt64, Default: 0},
+	}
+	// LiveDraftsTable holds the schema information for the "live_drafts" table.
+	LiveDraftsTable = &schema.Table{
+		Name:       "live_drafts",
+		Columns:    LiveDraftsColumns,
+		PrimaryKey: []*schema.Column{LiveDraftsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "livedraft_template_id",
+				Unique:  false,
+				Columns: []*schema.Column{LiveDraftsColumns[1]},
+			},
+			{
+				Name:    "livedraft_status",
+				Unique:  false,
+				Columns: []*schema.Column{LiveDraftsColumns[8]},
 			},
 		},
 	}
@@ -131,6 +305,34 @@ var (
 			},
 		},
 	}
+	// PatronsColumns holds the columns for the "patrons" table.
+	PatronsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Unique: true},
+		{Name: "nick", Type: field.TypeString, Unique: true},
+		{Name: "uid", Type: field.TypeString, Nullable: true},
+		{Name: "alias", Type: field.TypeString, Nullable: true},
+		{Name: "note", Type: field.TypeString, Nullable: true},
+		{Name: "since", Type: field.TypeString, Nullable: true},
+		{Name: "created_at_ms", Type: field.TypeInt64, Default: 0},
+	}
+	// PatronsTable holds the schema information for the "patrons" table.
+	PatronsTable = &schema.Table{
+		Name:       "patrons",
+		Columns:    PatronsColumns,
+		PrimaryKey: []*schema.Column{PatronsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "patron_nick",
+				Unique:  true,
+				Columns: []*schema.Column{PatronsColumns[1]},
+			},
+			{
+				Name:    "patron_uid",
+				Unique:  false,
+				Columns: []*schema.Column{PatronsColumns[2]},
+			},
+		},
+	}
 	// PersonasColumns holds the columns for the "personas" table.
 	PersonasColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeString, Unique: true},
@@ -141,6 +343,14 @@ var (
 		{Name: "avatar_note", Type: field.TypeString, Nullable: true},
 		{Name: "system_prompt", Type: field.TypeString, Nullable: true},
 		{Name: "is_active", Type: field.TypeBool, Default: false},
+		{Name: "avatar_asset_id", Type: field.TypeString, Nullable: true},
+		{Name: "vidu_avatar_id", Type: field.TypeString, Nullable: true},
+		{Name: "vidu_image_uri", Type: field.TypeString, Nullable: true},
+		{Name: "action_library_id", Type: field.TypeString, Nullable: true},
+		{Name: "greeting", Type: field.TypeString, Nullable: true},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+		{Name: "deleted_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "vidu_sync_state", Type: field.TypeJSON, Nullable: true},
 		{Name: "updated_at_ms", Type: field.TypeInt64, Default: 0},
 	}
 	// PersonasTable holds the schema information for the "personas" table.
@@ -148,6 +358,43 @@ var (
 		Name:       "personas",
 		Columns:    PersonasColumns,
 		PrimaryKey: []*schema.Column{PersonasColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "persona_is_active",
+				Unique:  false,
+				Columns: []*schema.Column{PersonasColumns[7]},
+			},
+			{
+				Name:    "persona_deleted_at_ms",
+				Unique:  false,
+				Columns: []*schema.Column{PersonasColumns[14]},
+			},
+		},
+	}
+	// PersonaRefsColumns holds the columns for the "persona_refs" table.
+	PersonaRefsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Unique: true},
+		{Name: "persona_id", Type: field.TypeString},
+		{Name: "asset_id", Type: field.TypeString},
+		{Name: "ord", Type: field.TypeInt, Default: 0},
+	}
+	// PersonaRefsTable holds the schema information for the "persona_refs" table.
+	PersonaRefsTable = &schema.Table{
+		Name:       "persona_refs",
+		Columns:    PersonaRefsColumns,
+		PrimaryKey: []*schema.Column{PersonaRefsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "personaref_persona_id_asset_id",
+				Unique:  true,
+				Columns: []*schema.Column{PersonaRefsColumns[1], PersonaRefsColumns[2]},
+			},
+			{
+				Name:    "personaref_persona_id_ord",
+				Unique:  false,
+				Columns: []*schema.Column{PersonaRefsColumns[1], PersonaRefsColumns[3]},
+			},
+		},
 	}
 	// RecordingsColumns holds the columns for the "recordings" table.
 	RecordingsColumns = []*schema.Column{
@@ -232,12 +479,19 @@ var (
 	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
+		ApplyJournalsTable,
 		AssetsTable,
 		AuditLogsTable,
 		CostLedgersTable,
 		DanmakuEventsTable,
+		EffectOutboxesTable,
+		IdemKeysTable,
+		InteractionDecisionsTable,
+		LiveDraftsTable,
 		LiveSessionsTable,
+		PatronsTable,
 		PersonasTable,
+		PersonaRefsTable,
 		RecordingsTable,
 		SessionEventsTable,
 		SettingsTable,

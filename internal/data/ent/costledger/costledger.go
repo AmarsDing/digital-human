@@ -13,20 +13,38 @@ const (
 	FieldID = "id"
 	// FieldSessionID holds the string denoting the session_id field in the database.
 	FieldSessionID = "session_id"
+	// FieldAccountID holds the string denoting the account_id field in the database.
+	FieldAccountID = "account_id"
 	// FieldCreditsStart holds the string denoting the credits_start field in the database.
 	FieldCreditsStart = "credits_start"
 	// FieldCreditsEnd holds the string denoting the credits_end field in the database.
 	FieldCreditsEnd = "credits_end"
+	// FieldCreditsSpent holds the string denoting the credits_spent field in the database.
+	FieldCreditsSpent = "credits_spent"
 	// FieldTokensIn holds the string denoting the tokens_in field in the database.
 	FieldTokensIn = "tokens_in"
 	// FieldTokensOut holds the string denoting the tokens_out field in the database.
 	FieldTokensOut = "tokens_out"
+	// FieldTokensTotal holds the string denoting the tokens_total field in the database.
+	FieldTokensTotal = "tokens_total"
+	// FieldLlmCalls holds the string denoting the llm_calls field in the database.
+	FieldLlmCalls = "llm_calls"
 	// FieldDiamonds holds the string denoting the diamonds field in the database.
 	FieldDiamonds = "diamonds"
 	// FieldGiftCount holds the string denoting the gift_count field in the database.
 	FieldGiftCount = "gift_count"
 	// FieldEstimatedCost holds the string denoting the estimated_cost field in the database.
 	FieldEstimatedCost = "estimated_cost"
+	// FieldCostSource holds the string denoting the cost_source field in the database.
+	FieldCostSource = "cost_source"
+	// FieldSource holds the string denoting the source field in the database.
+	FieldSource = "source"
+	// FieldStartedAtMs holds the string denoting the started_at_ms field in the database.
+	FieldStartedAtMs = "started_at_ms"
+	// FieldEndedAtMs holds the string denoting the ended_at_ms field in the database.
+	FieldEndedAtMs = "ended_at_ms"
+	// FieldUpdatedAtMs holds the string denoting the updated_at_ms field in the database.
+	FieldUpdatedAtMs = "updated_at_ms"
 	// Table holds the table name of the costledger in the database.
 	Table = "cost_ledgers"
 )
@@ -35,13 +53,22 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldSessionID,
+	FieldAccountID,
 	FieldCreditsStart,
 	FieldCreditsEnd,
+	FieldCreditsSpent,
 	FieldTokensIn,
 	FieldTokensOut,
+	FieldTokensTotal,
+	FieldLlmCalls,
 	FieldDiamonds,
 	FieldGiftCount,
 	FieldEstimatedCost,
+	FieldCostSource,
+	FieldSource,
+	FieldStartedAtMs,
+	FieldEndedAtMs,
+	FieldUpdatedAtMs,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -55,20 +82,38 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// DefaultAccountID holds the default value on creation for the "account_id" field.
+	DefaultAccountID string
 	// DefaultCreditsStart holds the default value on creation for the "credits_start" field.
 	DefaultCreditsStart int64
 	// DefaultCreditsEnd holds the default value on creation for the "credits_end" field.
 	DefaultCreditsEnd int64
+	// DefaultCreditsSpent holds the default value on creation for the "credits_spent" field.
+	DefaultCreditsSpent int64
 	// DefaultTokensIn holds the default value on creation for the "tokens_in" field.
 	DefaultTokensIn int64
 	// DefaultTokensOut holds the default value on creation for the "tokens_out" field.
 	DefaultTokensOut int64
+	// DefaultTokensTotal holds the default value on creation for the "tokens_total" field.
+	DefaultTokensTotal int64
+	// DefaultLlmCalls holds the default value on creation for the "llm_calls" field.
+	DefaultLlmCalls int64
 	// DefaultDiamonds holds the default value on creation for the "diamonds" field.
 	DefaultDiamonds int64
 	// DefaultGiftCount holds the default value on creation for the "gift_count" field.
 	DefaultGiftCount int64
 	// DefaultEstimatedCost holds the default value on creation for the "estimated_cost" field.
 	DefaultEstimatedCost float64
+	// DefaultCostSource holds the default value on creation for the "cost_source" field.
+	DefaultCostSource string
+	// DefaultSource holds the default value on creation for the "source" field.
+	DefaultSource string
+	// DefaultStartedAtMs holds the default value on creation for the "started_at_ms" field.
+	DefaultStartedAtMs int64
+	// DefaultEndedAtMs holds the default value on creation for the "ended_at_ms" field.
+	DefaultEndedAtMs int64
+	// DefaultUpdatedAtMs holds the default value on creation for the "updated_at_ms" field.
+	DefaultUpdatedAtMs int64
 )
 
 // OrderOption defines the ordering options for the CostLedger queries.
@@ -84,6 +129,11 @@ func BySessionID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSessionID, opts...).ToFunc()
 }
 
+// ByAccountID orders the results by the account_id field.
+func ByAccountID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountID, opts...).ToFunc()
+}
+
 // ByCreditsStart orders the results by the credits_start field.
 func ByCreditsStart(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCreditsStart, opts...).ToFunc()
@@ -94,6 +144,11 @@ func ByCreditsEnd(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCreditsEnd, opts...).ToFunc()
 }
 
+// ByCreditsSpent orders the results by the credits_spent field.
+func ByCreditsSpent(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCreditsSpent, opts...).ToFunc()
+}
+
 // ByTokensIn orders the results by the tokens_in field.
 func ByTokensIn(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTokensIn, opts...).ToFunc()
@@ -102,6 +157,16 @@ func ByTokensIn(opts ...sql.OrderTermOption) OrderOption {
 // ByTokensOut orders the results by the tokens_out field.
 func ByTokensOut(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTokensOut, opts...).ToFunc()
+}
+
+// ByTokensTotal orders the results by the tokens_total field.
+func ByTokensTotal(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTokensTotal, opts...).ToFunc()
+}
+
+// ByLlmCalls orders the results by the llm_calls field.
+func ByLlmCalls(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLlmCalls, opts...).ToFunc()
 }
 
 // ByDiamonds orders the results by the diamonds field.
@@ -117,4 +182,29 @@ func ByGiftCount(opts ...sql.OrderTermOption) OrderOption {
 // ByEstimatedCost orders the results by the estimated_cost field.
 func ByEstimatedCost(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldEstimatedCost, opts...).ToFunc()
+}
+
+// ByCostSource orders the results by the cost_source field.
+func ByCostSource(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCostSource, opts...).ToFunc()
+}
+
+// BySource orders the results by the source field.
+func BySource(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSource, opts...).ToFunc()
+}
+
+// ByStartedAtMs orders the results by the started_at_ms field.
+func ByStartedAtMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStartedAtMs, opts...).ToFunc()
+}
+
+// ByEndedAtMs orders the results by the ended_at_ms field.
+func ByEndedAtMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldEndedAtMs, opts...).ToFunc()
+}
+
+// ByUpdatedAtMs orders the results by the updated_at_ms field.
+func ByUpdatedAtMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpdatedAtMs, opts...).ToFunc()
 }

@@ -14,12 +14,13 @@ const routes = JSON.parse(
 
 const panels = readFileSync(resolve(process.cwd(), 'src/services/api/panels.ts'), 'utf8')
 
-describe('面板路由覆盖（对齐后端 panels.go 54 条）', () => {
-  it('清单固定 54 条，覆盖弹幕面板所需 RPC 之外的 HTTP 面板路由', () => {
-    expect(routes).toHaveLength(54)
+describe('面板路由覆盖（对齐后端 panels.go 85 条）', () => {
+  it('清单固定 85 条，覆盖弹幕面板所需 RPC 之外的 HTTP 面板路由', () => {
+    // 80（F 批切片 5/7/8）+ 5（F 批礼物/贵宾：patrons×3、patron/join、patron/welcome）。
+    expect(routes).toHaveLength(85)
   })
 
-  it('panels.ts 覆盖全部 54 条路由（含 prompt/type14 与 cost/ledger 写入）', () => {
+  it('panels.ts 覆盖全部 85 条路由（含 prompt/type14 与 cost/ledger 写入与 avatars 档案）', () => {
     const missing: string[] = []
     for (const r of routes) {
       // 动态参数路由（如 /api/v1/actions/libraries/{id}）在源码里是模板字符串，按前缀匹配即可。
@@ -36,6 +37,20 @@ describe('面板路由覆盖（对齐后端 panels.go 54 条）', () => {
       '/api/v1/danmaku/mode',
       '/api/v1/danmaku/confirm',
       '/api/v1/danmaku/dismiss'
+    ]) {
+      expect(panels).toContain(path)
+    }
+  })
+
+  it('F 批切片 5/7/8 路由均已接入', () => {
+    for (const path of [
+      '/api/v1/chat',
+      '/api/v1/vidu/keys',
+      '/api/v1/refs',
+      '/api/v1/refs/upload',
+      '/api/v1/record',
+      '/api/v1/record/fetch',
+      '/api/v1/credits'
     ]) {
       expect(panels).toContain(path)
     }

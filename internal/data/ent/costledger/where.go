@@ -67,6 +67,11 @@ func SessionID(v string) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldEQ(FieldSessionID, v))
 }
 
+// AccountID applies equality check predicate on the "account_id" field. It's identical to AccountIDEQ.
+func AccountID(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldAccountID, v))
+}
+
 // CreditsStart applies equality check predicate on the "credits_start" field. It's identical to CreditsStartEQ.
 func CreditsStart(v int64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldEQ(FieldCreditsStart, v))
@@ -77,6 +82,11 @@ func CreditsEnd(v int64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldEQ(FieldCreditsEnd, v))
 }
 
+// CreditsSpent applies equality check predicate on the "credits_spent" field. It's identical to CreditsSpentEQ.
+func CreditsSpent(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldCreditsSpent, v))
+}
+
 // TokensIn applies equality check predicate on the "tokens_in" field. It's identical to TokensInEQ.
 func TokensIn(v int64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldEQ(FieldTokensIn, v))
@@ -85,6 +95,16 @@ func TokensIn(v int64) predicate.CostLedger {
 // TokensOut applies equality check predicate on the "tokens_out" field. It's identical to TokensOutEQ.
 func TokensOut(v int64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldEQ(FieldTokensOut, v))
+}
+
+// TokensTotal applies equality check predicate on the "tokens_total" field. It's identical to TokensTotalEQ.
+func TokensTotal(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldTokensTotal, v))
+}
+
+// LlmCalls applies equality check predicate on the "llm_calls" field. It's identical to LlmCallsEQ.
+func LlmCalls(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldLlmCalls, v))
 }
 
 // Diamonds applies equality check predicate on the "diamonds" field. It's identical to DiamondsEQ.
@@ -100,6 +120,31 @@ func GiftCount(v int64) predicate.CostLedger {
 // EstimatedCost applies equality check predicate on the "estimated_cost" field. It's identical to EstimatedCostEQ.
 func EstimatedCost(v float64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldEQ(FieldEstimatedCost, v))
+}
+
+// CostSource applies equality check predicate on the "cost_source" field. It's identical to CostSourceEQ.
+func CostSource(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldCostSource, v))
+}
+
+// Source applies equality check predicate on the "source" field. It's identical to SourceEQ.
+func Source(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldSource, v))
+}
+
+// StartedAtMs applies equality check predicate on the "started_at_ms" field. It's identical to StartedAtMsEQ.
+func StartedAtMs(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldStartedAtMs, v))
+}
+
+// EndedAtMs applies equality check predicate on the "ended_at_ms" field. It's identical to EndedAtMsEQ.
+func EndedAtMs(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldEndedAtMs, v))
+}
+
+// UpdatedAtMs applies equality check predicate on the "updated_at_ms" field. It's identical to UpdatedAtMsEQ.
+func UpdatedAtMs(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldUpdatedAtMs, v))
 }
 
 // SessionIDEQ applies the EQ predicate on the "session_id" field.
@@ -165,6 +210,71 @@ func SessionIDEqualFold(v string) predicate.CostLedger {
 // SessionIDContainsFold applies the ContainsFold predicate on the "session_id" field.
 func SessionIDContainsFold(v string) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldContainsFold(FieldSessionID, v))
+}
+
+// AccountIDEQ applies the EQ predicate on the "account_id" field.
+func AccountIDEQ(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldAccountID, v))
+}
+
+// AccountIDNEQ applies the NEQ predicate on the "account_id" field.
+func AccountIDNEQ(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldAccountID, v))
+}
+
+// AccountIDIn applies the In predicate on the "account_id" field.
+func AccountIDIn(vs ...string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldAccountID, vs...))
+}
+
+// AccountIDNotIn applies the NotIn predicate on the "account_id" field.
+func AccountIDNotIn(vs ...string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldAccountID, vs...))
+}
+
+// AccountIDGT applies the GT predicate on the "account_id" field.
+func AccountIDGT(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldAccountID, v))
+}
+
+// AccountIDGTE applies the GTE predicate on the "account_id" field.
+func AccountIDGTE(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldAccountID, v))
+}
+
+// AccountIDLT applies the LT predicate on the "account_id" field.
+func AccountIDLT(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldAccountID, v))
+}
+
+// AccountIDLTE applies the LTE predicate on the "account_id" field.
+func AccountIDLTE(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldAccountID, v))
+}
+
+// AccountIDContains applies the Contains predicate on the "account_id" field.
+func AccountIDContains(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldContains(FieldAccountID, v))
+}
+
+// AccountIDHasPrefix applies the HasPrefix predicate on the "account_id" field.
+func AccountIDHasPrefix(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldHasPrefix(FieldAccountID, v))
+}
+
+// AccountIDHasSuffix applies the HasSuffix predicate on the "account_id" field.
+func AccountIDHasSuffix(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldHasSuffix(FieldAccountID, v))
+}
+
+// AccountIDEqualFold applies the EqualFold predicate on the "account_id" field.
+func AccountIDEqualFold(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEqualFold(FieldAccountID, v))
+}
+
+// AccountIDContainsFold applies the ContainsFold predicate on the "account_id" field.
+func AccountIDContainsFold(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldContainsFold(FieldAccountID, v))
 }
 
 // CreditsStartEQ applies the EQ predicate on the "credits_start" field.
@@ -247,6 +357,46 @@ func CreditsEndLTE(v int64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldLTE(FieldCreditsEnd, v))
 }
 
+// CreditsSpentEQ applies the EQ predicate on the "credits_spent" field.
+func CreditsSpentEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldCreditsSpent, v))
+}
+
+// CreditsSpentNEQ applies the NEQ predicate on the "credits_spent" field.
+func CreditsSpentNEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldCreditsSpent, v))
+}
+
+// CreditsSpentIn applies the In predicate on the "credits_spent" field.
+func CreditsSpentIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldCreditsSpent, vs...))
+}
+
+// CreditsSpentNotIn applies the NotIn predicate on the "credits_spent" field.
+func CreditsSpentNotIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldCreditsSpent, vs...))
+}
+
+// CreditsSpentGT applies the GT predicate on the "credits_spent" field.
+func CreditsSpentGT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldCreditsSpent, v))
+}
+
+// CreditsSpentGTE applies the GTE predicate on the "credits_spent" field.
+func CreditsSpentGTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldCreditsSpent, v))
+}
+
+// CreditsSpentLT applies the LT predicate on the "credits_spent" field.
+func CreditsSpentLT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldCreditsSpent, v))
+}
+
+// CreditsSpentLTE applies the LTE predicate on the "credits_spent" field.
+func CreditsSpentLTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldCreditsSpent, v))
+}
+
 // TokensInEQ applies the EQ predicate on the "tokens_in" field.
 func TokensInEQ(v int64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldEQ(FieldTokensIn, v))
@@ -325,6 +475,86 @@ func TokensOutLT(v int64) predicate.CostLedger {
 // TokensOutLTE applies the LTE predicate on the "tokens_out" field.
 func TokensOutLTE(v int64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldLTE(FieldTokensOut, v))
+}
+
+// TokensTotalEQ applies the EQ predicate on the "tokens_total" field.
+func TokensTotalEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldTokensTotal, v))
+}
+
+// TokensTotalNEQ applies the NEQ predicate on the "tokens_total" field.
+func TokensTotalNEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldTokensTotal, v))
+}
+
+// TokensTotalIn applies the In predicate on the "tokens_total" field.
+func TokensTotalIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldTokensTotal, vs...))
+}
+
+// TokensTotalNotIn applies the NotIn predicate on the "tokens_total" field.
+func TokensTotalNotIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldTokensTotal, vs...))
+}
+
+// TokensTotalGT applies the GT predicate on the "tokens_total" field.
+func TokensTotalGT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldTokensTotal, v))
+}
+
+// TokensTotalGTE applies the GTE predicate on the "tokens_total" field.
+func TokensTotalGTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldTokensTotal, v))
+}
+
+// TokensTotalLT applies the LT predicate on the "tokens_total" field.
+func TokensTotalLT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldTokensTotal, v))
+}
+
+// TokensTotalLTE applies the LTE predicate on the "tokens_total" field.
+func TokensTotalLTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldTokensTotal, v))
+}
+
+// LlmCallsEQ applies the EQ predicate on the "llm_calls" field.
+func LlmCallsEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldLlmCalls, v))
+}
+
+// LlmCallsNEQ applies the NEQ predicate on the "llm_calls" field.
+func LlmCallsNEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldLlmCalls, v))
+}
+
+// LlmCallsIn applies the In predicate on the "llm_calls" field.
+func LlmCallsIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldLlmCalls, vs...))
+}
+
+// LlmCallsNotIn applies the NotIn predicate on the "llm_calls" field.
+func LlmCallsNotIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldLlmCalls, vs...))
+}
+
+// LlmCallsGT applies the GT predicate on the "llm_calls" field.
+func LlmCallsGT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldLlmCalls, v))
+}
+
+// LlmCallsGTE applies the GTE predicate on the "llm_calls" field.
+func LlmCallsGTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldLlmCalls, v))
+}
+
+// LlmCallsLT applies the LT predicate on the "llm_calls" field.
+func LlmCallsLT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldLlmCalls, v))
+}
+
+// LlmCallsLTE applies the LTE predicate on the "llm_calls" field.
+func LlmCallsLTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldLlmCalls, v))
 }
 
 // DiamondsEQ applies the EQ predicate on the "diamonds" field.
@@ -445,6 +675,256 @@ func EstimatedCostLT(v float64) predicate.CostLedger {
 // EstimatedCostLTE applies the LTE predicate on the "estimated_cost" field.
 func EstimatedCostLTE(v float64) predicate.CostLedger {
 	return predicate.CostLedger(sql.FieldLTE(FieldEstimatedCost, v))
+}
+
+// CostSourceEQ applies the EQ predicate on the "cost_source" field.
+func CostSourceEQ(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldCostSource, v))
+}
+
+// CostSourceNEQ applies the NEQ predicate on the "cost_source" field.
+func CostSourceNEQ(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldCostSource, v))
+}
+
+// CostSourceIn applies the In predicate on the "cost_source" field.
+func CostSourceIn(vs ...string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldCostSource, vs...))
+}
+
+// CostSourceNotIn applies the NotIn predicate on the "cost_source" field.
+func CostSourceNotIn(vs ...string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldCostSource, vs...))
+}
+
+// CostSourceGT applies the GT predicate on the "cost_source" field.
+func CostSourceGT(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldCostSource, v))
+}
+
+// CostSourceGTE applies the GTE predicate on the "cost_source" field.
+func CostSourceGTE(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldCostSource, v))
+}
+
+// CostSourceLT applies the LT predicate on the "cost_source" field.
+func CostSourceLT(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldCostSource, v))
+}
+
+// CostSourceLTE applies the LTE predicate on the "cost_source" field.
+func CostSourceLTE(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldCostSource, v))
+}
+
+// CostSourceContains applies the Contains predicate on the "cost_source" field.
+func CostSourceContains(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldContains(FieldCostSource, v))
+}
+
+// CostSourceHasPrefix applies the HasPrefix predicate on the "cost_source" field.
+func CostSourceHasPrefix(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldHasPrefix(FieldCostSource, v))
+}
+
+// CostSourceHasSuffix applies the HasSuffix predicate on the "cost_source" field.
+func CostSourceHasSuffix(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldHasSuffix(FieldCostSource, v))
+}
+
+// CostSourceEqualFold applies the EqualFold predicate on the "cost_source" field.
+func CostSourceEqualFold(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEqualFold(FieldCostSource, v))
+}
+
+// CostSourceContainsFold applies the ContainsFold predicate on the "cost_source" field.
+func CostSourceContainsFold(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldContainsFold(FieldCostSource, v))
+}
+
+// SourceEQ applies the EQ predicate on the "source" field.
+func SourceEQ(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldSource, v))
+}
+
+// SourceNEQ applies the NEQ predicate on the "source" field.
+func SourceNEQ(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldSource, v))
+}
+
+// SourceIn applies the In predicate on the "source" field.
+func SourceIn(vs ...string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldSource, vs...))
+}
+
+// SourceNotIn applies the NotIn predicate on the "source" field.
+func SourceNotIn(vs ...string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldSource, vs...))
+}
+
+// SourceGT applies the GT predicate on the "source" field.
+func SourceGT(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldSource, v))
+}
+
+// SourceGTE applies the GTE predicate on the "source" field.
+func SourceGTE(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldSource, v))
+}
+
+// SourceLT applies the LT predicate on the "source" field.
+func SourceLT(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldSource, v))
+}
+
+// SourceLTE applies the LTE predicate on the "source" field.
+func SourceLTE(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldSource, v))
+}
+
+// SourceContains applies the Contains predicate on the "source" field.
+func SourceContains(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldContains(FieldSource, v))
+}
+
+// SourceHasPrefix applies the HasPrefix predicate on the "source" field.
+func SourceHasPrefix(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldHasPrefix(FieldSource, v))
+}
+
+// SourceHasSuffix applies the HasSuffix predicate on the "source" field.
+func SourceHasSuffix(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldHasSuffix(FieldSource, v))
+}
+
+// SourceEqualFold applies the EqualFold predicate on the "source" field.
+func SourceEqualFold(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEqualFold(FieldSource, v))
+}
+
+// SourceContainsFold applies the ContainsFold predicate on the "source" field.
+func SourceContainsFold(v string) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldContainsFold(FieldSource, v))
+}
+
+// StartedAtMsEQ applies the EQ predicate on the "started_at_ms" field.
+func StartedAtMsEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldStartedAtMs, v))
+}
+
+// StartedAtMsNEQ applies the NEQ predicate on the "started_at_ms" field.
+func StartedAtMsNEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldStartedAtMs, v))
+}
+
+// StartedAtMsIn applies the In predicate on the "started_at_ms" field.
+func StartedAtMsIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldStartedAtMs, vs...))
+}
+
+// StartedAtMsNotIn applies the NotIn predicate on the "started_at_ms" field.
+func StartedAtMsNotIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldStartedAtMs, vs...))
+}
+
+// StartedAtMsGT applies the GT predicate on the "started_at_ms" field.
+func StartedAtMsGT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldStartedAtMs, v))
+}
+
+// StartedAtMsGTE applies the GTE predicate on the "started_at_ms" field.
+func StartedAtMsGTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldStartedAtMs, v))
+}
+
+// StartedAtMsLT applies the LT predicate on the "started_at_ms" field.
+func StartedAtMsLT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldStartedAtMs, v))
+}
+
+// StartedAtMsLTE applies the LTE predicate on the "started_at_ms" field.
+func StartedAtMsLTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldStartedAtMs, v))
+}
+
+// EndedAtMsEQ applies the EQ predicate on the "ended_at_ms" field.
+func EndedAtMsEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldEndedAtMs, v))
+}
+
+// EndedAtMsNEQ applies the NEQ predicate on the "ended_at_ms" field.
+func EndedAtMsNEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldEndedAtMs, v))
+}
+
+// EndedAtMsIn applies the In predicate on the "ended_at_ms" field.
+func EndedAtMsIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldEndedAtMs, vs...))
+}
+
+// EndedAtMsNotIn applies the NotIn predicate on the "ended_at_ms" field.
+func EndedAtMsNotIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldEndedAtMs, vs...))
+}
+
+// EndedAtMsGT applies the GT predicate on the "ended_at_ms" field.
+func EndedAtMsGT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldEndedAtMs, v))
+}
+
+// EndedAtMsGTE applies the GTE predicate on the "ended_at_ms" field.
+func EndedAtMsGTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldEndedAtMs, v))
+}
+
+// EndedAtMsLT applies the LT predicate on the "ended_at_ms" field.
+func EndedAtMsLT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldEndedAtMs, v))
+}
+
+// EndedAtMsLTE applies the LTE predicate on the "ended_at_ms" field.
+func EndedAtMsLTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldEndedAtMs, v))
+}
+
+// UpdatedAtMsEQ applies the EQ predicate on the "updated_at_ms" field.
+func UpdatedAtMsEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldEQ(FieldUpdatedAtMs, v))
+}
+
+// UpdatedAtMsNEQ applies the NEQ predicate on the "updated_at_ms" field.
+func UpdatedAtMsNEQ(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNEQ(FieldUpdatedAtMs, v))
+}
+
+// UpdatedAtMsIn applies the In predicate on the "updated_at_ms" field.
+func UpdatedAtMsIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldIn(FieldUpdatedAtMs, vs...))
+}
+
+// UpdatedAtMsNotIn applies the NotIn predicate on the "updated_at_ms" field.
+func UpdatedAtMsNotIn(vs ...int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldNotIn(FieldUpdatedAtMs, vs...))
+}
+
+// UpdatedAtMsGT applies the GT predicate on the "updated_at_ms" field.
+func UpdatedAtMsGT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGT(FieldUpdatedAtMs, v))
+}
+
+// UpdatedAtMsGTE applies the GTE predicate on the "updated_at_ms" field.
+func UpdatedAtMsGTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldGTE(FieldUpdatedAtMs, v))
+}
+
+// UpdatedAtMsLT applies the LT predicate on the "updated_at_ms" field.
+func UpdatedAtMsLT(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLT(FieldUpdatedAtMs, v))
+}
+
+// UpdatedAtMsLTE applies the LTE predicate on the "updated_at_ms" field.
+func UpdatedAtMsLTE(v int64) predicate.CostLedger {
+	return predicate.CostLedger(sql.FieldLTE(FieldUpdatedAtMs, v))
 }
 
 // And groups predicates with the AND operator between them.

@@ -25,6 +25,22 @@ const (
 	FieldSystemPrompt = "system_prompt"
 	// FieldIsActive holds the string denoting the is_active field in the database.
 	FieldIsActive = "is_active"
+	// FieldAvatarAssetID holds the string denoting the avatar_asset_id field in the database.
+	FieldAvatarAssetID = "avatar_asset_id"
+	// FieldViduAvatarID holds the string denoting the vidu_avatar_id field in the database.
+	FieldViduAvatarID = "vidu_avatar_id"
+	// FieldViduImageURI holds the string denoting the vidu_image_uri field in the database.
+	FieldViduImageURI = "vidu_image_uri"
+	// FieldActionLibraryID holds the string denoting the action_library_id field in the database.
+	FieldActionLibraryID = "action_library_id"
+	// FieldGreeting holds the string denoting the greeting field in the database.
+	FieldGreeting = "greeting"
+	// FieldRevision holds the string denoting the revision field in the database.
+	FieldRevision = "revision"
+	// FieldDeletedAtMs holds the string denoting the deleted_at_ms field in the database.
+	FieldDeletedAtMs = "deleted_at_ms"
+	// FieldViduSyncState holds the string denoting the vidu_sync_state field in the database.
+	FieldViduSyncState = "vidu_sync_state"
 	// FieldUpdatedAtMs holds the string denoting the updated_at_ms field in the database.
 	FieldUpdatedAtMs = "updated_at_ms"
 	// Table holds the table name of the persona in the database.
@@ -41,6 +57,14 @@ var Columns = []string{
 	FieldAvatarNote,
 	FieldSystemPrompt,
 	FieldIsActive,
+	FieldAvatarAssetID,
+	FieldViduAvatarID,
+	FieldViduImageURI,
+	FieldActionLibraryID,
+	FieldGreeting,
+	FieldRevision,
+	FieldDeletedAtMs,
+	FieldViduSyncState,
 	FieldUpdatedAtMs,
 }
 
@@ -57,6 +81,10 @@ func ValidColumn(column string) bool {
 var (
 	// DefaultIsActive holds the default value on creation for the "is_active" field.
 	DefaultIsActive bool
+	// DefaultRevision holds the default value on creation for the "revision" field.
+	DefaultRevision int64
+	// DefaultDeletedAtMs holds the default value on creation for the "deleted_at_ms" field.
+	DefaultDeletedAtMs int64
 	// DefaultUpdatedAtMs holds the default value on creation for the "updated_at_ms" field.
 	DefaultUpdatedAtMs int64
 )
@@ -102,6 +130,41 @@ func BySystemPrompt(opts ...sql.OrderTermOption) OrderOption {
 // ByIsActive orders the results by the is_active field.
 func ByIsActive(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIsActive, opts...).ToFunc()
+}
+
+// ByAvatarAssetID orders the results by the avatar_asset_id field.
+func ByAvatarAssetID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAvatarAssetID, opts...).ToFunc()
+}
+
+// ByViduAvatarID orders the results by the vidu_avatar_id field.
+func ByViduAvatarID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldViduAvatarID, opts...).ToFunc()
+}
+
+// ByViduImageURI orders the results by the vidu_image_uri field.
+func ByViduImageURI(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldViduImageURI, opts...).ToFunc()
+}
+
+// ByActionLibraryID orders the results by the action_library_id field.
+func ByActionLibraryID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldActionLibraryID, opts...).ToFunc()
+}
+
+// ByGreeting orders the results by the greeting field.
+func ByGreeting(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGreeting, opts...).ToFunc()
+}
+
+// ByRevision orders the results by the revision field.
+func ByRevision(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRevision, opts...).ToFunc()
+}
+
+// ByDeletedAtMs orders the results by the deleted_at_ms field.
+func ByDeletedAtMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDeletedAtMs, opts...).ToFunc()
 }
 
 // ByUpdatedAtMs orders the results by the updated_at_ms field.

@@ -97,6 +97,41 @@ func IsActive(v bool) predicate.Persona {
 	return predicate.Persona(sql.FieldEQ(FieldIsActive, v))
 }
 
+// AvatarAssetID applies equality check predicate on the "avatar_asset_id" field. It's identical to AvatarAssetIDEQ.
+func AvatarAssetID(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldAvatarAssetID, v))
+}
+
+// ViduAvatarID applies equality check predicate on the "vidu_avatar_id" field. It's identical to ViduAvatarIDEQ.
+func ViduAvatarID(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldViduAvatarID, v))
+}
+
+// ViduImageURI applies equality check predicate on the "vidu_image_uri" field. It's identical to ViduImageURIEQ.
+func ViduImageURI(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldViduImageURI, v))
+}
+
+// ActionLibraryID applies equality check predicate on the "action_library_id" field. It's identical to ActionLibraryIDEQ.
+func ActionLibraryID(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldActionLibraryID, v))
+}
+
+// Greeting applies equality check predicate on the "greeting" field. It's identical to GreetingEQ.
+func Greeting(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldGreeting, v))
+}
+
+// Revision applies equality check predicate on the "revision" field. It's identical to RevisionEQ.
+func Revision(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldRevision, v))
+}
+
+// DeletedAtMs applies equality check predicate on the "deleted_at_ms" field. It's identical to DeletedAtMsEQ.
+func DeletedAtMs(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldDeletedAtMs, v))
+}
+
 // UpdatedAtMs applies equality check predicate on the "updated_at_ms" field. It's identical to UpdatedAtMsEQ.
 func UpdatedAtMs(v int64) predicate.Persona {
 	return predicate.Persona(sql.FieldEQ(FieldUpdatedAtMs, v))
@@ -540,6 +575,471 @@ func IsActiveEQ(v bool) predicate.Persona {
 // IsActiveNEQ applies the NEQ predicate on the "is_active" field.
 func IsActiveNEQ(v bool) predicate.Persona {
 	return predicate.Persona(sql.FieldNEQ(FieldIsActive, v))
+}
+
+// AvatarAssetIDEQ applies the EQ predicate on the "avatar_asset_id" field.
+func AvatarAssetIDEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDNEQ applies the NEQ predicate on the "avatar_asset_id" field.
+func AvatarAssetIDNEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldNEQ(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDIn applies the In predicate on the "avatar_asset_id" field.
+func AvatarAssetIDIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldIn(FieldAvatarAssetID, vs...))
+}
+
+// AvatarAssetIDNotIn applies the NotIn predicate on the "avatar_asset_id" field.
+func AvatarAssetIDNotIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldNotIn(FieldAvatarAssetID, vs...))
+}
+
+// AvatarAssetIDGT applies the GT predicate on the "avatar_asset_id" field.
+func AvatarAssetIDGT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGT(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDGTE applies the GTE predicate on the "avatar_asset_id" field.
+func AvatarAssetIDGTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGTE(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDLT applies the LT predicate on the "avatar_asset_id" field.
+func AvatarAssetIDLT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLT(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDLTE applies the LTE predicate on the "avatar_asset_id" field.
+func AvatarAssetIDLTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLTE(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDContains applies the Contains predicate on the "avatar_asset_id" field.
+func AvatarAssetIDContains(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContains(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDHasPrefix applies the HasPrefix predicate on the "avatar_asset_id" field.
+func AvatarAssetIDHasPrefix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasPrefix(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDHasSuffix applies the HasSuffix predicate on the "avatar_asset_id" field.
+func AvatarAssetIDHasSuffix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasSuffix(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDIsNil applies the IsNil predicate on the "avatar_asset_id" field.
+func AvatarAssetIDIsNil() predicate.Persona {
+	return predicate.Persona(sql.FieldIsNull(FieldAvatarAssetID))
+}
+
+// AvatarAssetIDNotNil applies the NotNil predicate on the "avatar_asset_id" field.
+func AvatarAssetIDNotNil() predicate.Persona {
+	return predicate.Persona(sql.FieldNotNull(FieldAvatarAssetID))
+}
+
+// AvatarAssetIDEqualFold applies the EqualFold predicate on the "avatar_asset_id" field.
+func AvatarAssetIDEqualFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEqualFold(FieldAvatarAssetID, v))
+}
+
+// AvatarAssetIDContainsFold applies the ContainsFold predicate on the "avatar_asset_id" field.
+func AvatarAssetIDContainsFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContainsFold(FieldAvatarAssetID, v))
+}
+
+// ViduAvatarIDEQ applies the EQ predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDNEQ applies the NEQ predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDNEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldNEQ(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDIn applies the In predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldIn(FieldViduAvatarID, vs...))
+}
+
+// ViduAvatarIDNotIn applies the NotIn predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDNotIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldNotIn(FieldViduAvatarID, vs...))
+}
+
+// ViduAvatarIDGT applies the GT predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDGT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGT(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDGTE applies the GTE predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDGTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGTE(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDLT applies the LT predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDLT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLT(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDLTE applies the LTE predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDLTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLTE(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDContains applies the Contains predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDContains(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContains(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDHasPrefix applies the HasPrefix predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDHasPrefix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasPrefix(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDHasSuffix applies the HasSuffix predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDHasSuffix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasSuffix(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDIsNil applies the IsNil predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDIsNil() predicate.Persona {
+	return predicate.Persona(sql.FieldIsNull(FieldViduAvatarID))
+}
+
+// ViduAvatarIDNotNil applies the NotNil predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDNotNil() predicate.Persona {
+	return predicate.Persona(sql.FieldNotNull(FieldViduAvatarID))
+}
+
+// ViduAvatarIDEqualFold applies the EqualFold predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDEqualFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEqualFold(FieldViduAvatarID, v))
+}
+
+// ViduAvatarIDContainsFold applies the ContainsFold predicate on the "vidu_avatar_id" field.
+func ViduAvatarIDContainsFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContainsFold(FieldViduAvatarID, v))
+}
+
+// ViduImageURIEQ applies the EQ predicate on the "vidu_image_uri" field.
+func ViduImageURIEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldViduImageURI, v))
+}
+
+// ViduImageURINEQ applies the NEQ predicate on the "vidu_image_uri" field.
+func ViduImageURINEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldNEQ(FieldViduImageURI, v))
+}
+
+// ViduImageURIIn applies the In predicate on the "vidu_image_uri" field.
+func ViduImageURIIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldIn(FieldViduImageURI, vs...))
+}
+
+// ViduImageURINotIn applies the NotIn predicate on the "vidu_image_uri" field.
+func ViduImageURINotIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldNotIn(FieldViduImageURI, vs...))
+}
+
+// ViduImageURIGT applies the GT predicate on the "vidu_image_uri" field.
+func ViduImageURIGT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGT(FieldViduImageURI, v))
+}
+
+// ViduImageURIGTE applies the GTE predicate on the "vidu_image_uri" field.
+func ViduImageURIGTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGTE(FieldViduImageURI, v))
+}
+
+// ViduImageURILT applies the LT predicate on the "vidu_image_uri" field.
+func ViduImageURILT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLT(FieldViduImageURI, v))
+}
+
+// ViduImageURILTE applies the LTE predicate on the "vidu_image_uri" field.
+func ViduImageURILTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLTE(FieldViduImageURI, v))
+}
+
+// ViduImageURIContains applies the Contains predicate on the "vidu_image_uri" field.
+func ViduImageURIContains(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContains(FieldViduImageURI, v))
+}
+
+// ViduImageURIHasPrefix applies the HasPrefix predicate on the "vidu_image_uri" field.
+func ViduImageURIHasPrefix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasPrefix(FieldViduImageURI, v))
+}
+
+// ViduImageURIHasSuffix applies the HasSuffix predicate on the "vidu_image_uri" field.
+func ViduImageURIHasSuffix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasSuffix(FieldViduImageURI, v))
+}
+
+// ViduImageURIIsNil applies the IsNil predicate on the "vidu_image_uri" field.
+func ViduImageURIIsNil() predicate.Persona {
+	return predicate.Persona(sql.FieldIsNull(FieldViduImageURI))
+}
+
+// ViduImageURINotNil applies the NotNil predicate on the "vidu_image_uri" field.
+func ViduImageURINotNil() predicate.Persona {
+	return predicate.Persona(sql.FieldNotNull(FieldViduImageURI))
+}
+
+// ViduImageURIEqualFold applies the EqualFold predicate on the "vidu_image_uri" field.
+func ViduImageURIEqualFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEqualFold(FieldViduImageURI, v))
+}
+
+// ViduImageURIContainsFold applies the ContainsFold predicate on the "vidu_image_uri" field.
+func ViduImageURIContainsFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContainsFold(FieldViduImageURI, v))
+}
+
+// ActionLibraryIDEQ applies the EQ predicate on the "action_library_id" field.
+func ActionLibraryIDEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDNEQ applies the NEQ predicate on the "action_library_id" field.
+func ActionLibraryIDNEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldNEQ(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDIn applies the In predicate on the "action_library_id" field.
+func ActionLibraryIDIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldIn(FieldActionLibraryID, vs...))
+}
+
+// ActionLibraryIDNotIn applies the NotIn predicate on the "action_library_id" field.
+func ActionLibraryIDNotIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldNotIn(FieldActionLibraryID, vs...))
+}
+
+// ActionLibraryIDGT applies the GT predicate on the "action_library_id" field.
+func ActionLibraryIDGT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGT(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDGTE applies the GTE predicate on the "action_library_id" field.
+func ActionLibraryIDGTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGTE(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDLT applies the LT predicate on the "action_library_id" field.
+func ActionLibraryIDLT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLT(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDLTE applies the LTE predicate on the "action_library_id" field.
+func ActionLibraryIDLTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLTE(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDContains applies the Contains predicate on the "action_library_id" field.
+func ActionLibraryIDContains(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContains(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDHasPrefix applies the HasPrefix predicate on the "action_library_id" field.
+func ActionLibraryIDHasPrefix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasPrefix(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDHasSuffix applies the HasSuffix predicate on the "action_library_id" field.
+func ActionLibraryIDHasSuffix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasSuffix(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDIsNil applies the IsNil predicate on the "action_library_id" field.
+func ActionLibraryIDIsNil() predicate.Persona {
+	return predicate.Persona(sql.FieldIsNull(FieldActionLibraryID))
+}
+
+// ActionLibraryIDNotNil applies the NotNil predicate on the "action_library_id" field.
+func ActionLibraryIDNotNil() predicate.Persona {
+	return predicate.Persona(sql.FieldNotNull(FieldActionLibraryID))
+}
+
+// ActionLibraryIDEqualFold applies the EqualFold predicate on the "action_library_id" field.
+func ActionLibraryIDEqualFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEqualFold(FieldActionLibraryID, v))
+}
+
+// ActionLibraryIDContainsFold applies the ContainsFold predicate on the "action_library_id" field.
+func ActionLibraryIDContainsFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContainsFold(FieldActionLibraryID, v))
+}
+
+// GreetingEQ applies the EQ predicate on the "greeting" field.
+func GreetingEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldGreeting, v))
+}
+
+// GreetingNEQ applies the NEQ predicate on the "greeting" field.
+func GreetingNEQ(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldNEQ(FieldGreeting, v))
+}
+
+// GreetingIn applies the In predicate on the "greeting" field.
+func GreetingIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldIn(FieldGreeting, vs...))
+}
+
+// GreetingNotIn applies the NotIn predicate on the "greeting" field.
+func GreetingNotIn(vs ...string) predicate.Persona {
+	return predicate.Persona(sql.FieldNotIn(FieldGreeting, vs...))
+}
+
+// GreetingGT applies the GT predicate on the "greeting" field.
+func GreetingGT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGT(FieldGreeting, v))
+}
+
+// GreetingGTE applies the GTE predicate on the "greeting" field.
+func GreetingGTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldGTE(FieldGreeting, v))
+}
+
+// GreetingLT applies the LT predicate on the "greeting" field.
+func GreetingLT(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLT(FieldGreeting, v))
+}
+
+// GreetingLTE applies the LTE predicate on the "greeting" field.
+func GreetingLTE(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldLTE(FieldGreeting, v))
+}
+
+// GreetingContains applies the Contains predicate on the "greeting" field.
+func GreetingContains(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContains(FieldGreeting, v))
+}
+
+// GreetingHasPrefix applies the HasPrefix predicate on the "greeting" field.
+func GreetingHasPrefix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasPrefix(FieldGreeting, v))
+}
+
+// GreetingHasSuffix applies the HasSuffix predicate on the "greeting" field.
+func GreetingHasSuffix(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldHasSuffix(FieldGreeting, v))
+}
+
+// GreetingIsNil applies the IsNil predicate on the "greeting" field.
+func GreetingIsNil() predicate.Persona {
+	return predicate.Persona(sql.FieldIsNull(FieldGreeting))
+}
+
+// GreetingNotNil applies the NotNil predicate on the "greeting" field.
+func GreetingNotNil() predicate.Persona {
+	return predicate.Persona(sql.FieldNotNull(FieldGreeting))
+}
+
+// GreetingEqualFold applies the EqualFold predicate on the "greeting" field.
+func GreetingEqualFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldEqualFold(FieldGreeting, v))
+}
+
+// GreetingContainsFold applies the ContainsFold predicate on the "greeting" field.
+func GreetingContainsFold(v string) predicate.Persona {
+	return predicate.Persona(sql.FieldContainsFold(FieldGreeting, v))
+}
+
+// RevisionEQ applies the EQ predicate on the "revision" field.
+func RevisionEQ(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldRevision, v))
+}
+
+// RevisionNEQ applies the NEQ predicate on the "revision" field.
+func RevisionNEQ(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldNEQ(FieldRevision, v))
+}
+
+// RevisionIn applies the In predicate on the "revision" field.
+func RevisionIn(vs ...int64) predicate.Persona {
+	return predicate.Persona(sql.FieldIn(FieldRevision, vs...))
+}
+
+// RevisionNotIn applies the NotIn predicate on the "revision" field.
+func RevisionNotIn(vs ...int64) predicate.Persona {
+	return predicate.Persona(sql.FieldNotIn(FieldRevision, vs...))
+}
+
+// RevisionGT applies the GT predicate on the "revision" field.
+func RevisionGT(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldGT(FieldRevision, v))
+}
+
+// RevisionGTE applies the GTE predicate on the "revision" field.
+func RevisionGTE(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldGTE(FieldRevision, v))
+}
+
+// RevisionLT applies the LT predicate on the "revision" field.
+func RevisionLT(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldLT(FieldRevision, v))
+}
+
+// RevisionLTE applies the LTE predicate on the "revision" field.
+func RevisionLTE(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldLTE(FieldRevision, v))
+}
+
+// DeletedAtMsEQ applies the EQ predicate on the "deleted_at_ms" field.
+func DeletedAtMsEQ(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldEQ(FieldDeletedAtMs, v))
+}
+
+// DeletedAtMsNEQ applies the NEQ predicate on the "deleted_at_ms" field.
+func DeletedAtMsNEQ(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldNEQ(FieldDeletedAtMs, v))
+}
+
+// DeletedAtMsIn applies the In predicate on the "deleted_at_ms" field.
+func DeletedAtMsIn(vs ...int64) predicate.Persona {
+	return predicate.Persona(sql.FieldIn(FieldDeletedAtMs, vs...))
+}
+
+// DeletedAtMsNotIn applies the NotIn predicate on the "deleted_at_ms" field.
+func DeletedAtMsNotIn(vs ...int64) predicate.Persona {
+	return predicate.Persona(sql.FieldNotIn(FieldDeletedAtMs, vs...))
+}
+
+// DeletedAtMsGT applies the GT predicate on the "deleted_at_ms" field.
+func DeletedAtMsGT(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldGT(FieldDeletedAtMs, v))
+}
+
+// DeletedAtMsGTE applies the GTE predicate on the "deleted_at_ms" field.
+func DeletedAtMsGTE(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldGTE(FieldDeletedAtMs, v))
+}
+
+// DeletedAtMsLT applies the LT predicate on the "deleted_at_ms" field.
+func DeletedAtMsLT(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldLT(FieldDeletedAtMs, v))
+}
+
+// DeletedAtMsLTE applies the LTE predicate on the "deleted_at_ms" field.
+func DeletedAtMsLTE(v int64) predicate.Persona {
+	return predicate.Persona(sql.FieldLTE(FieldDeletedAtMs, v))
+}
+
+// ViduSyncStateIsNil applies the IsNil predicate on the "vidu_sync_state" field.
+func ViduSyncStateIsNil() predicate.Persona {
+	return predicate.Persona(sql.FieldIsNull(FieldViduSyncState))
+}
+
+// ViduSyncStateNotNil applies the NotNil predicate on the "vidu_sync_state" field.
+func ViduSyncStateNotNil() predicate.Persona {
+	return predicate.Persona(sql.FieldNotNull(FieldViduSyncState))
 }
 
 // UpdatedAtMsEQ applies the EQ predicate on the "updated_at_ms" field.

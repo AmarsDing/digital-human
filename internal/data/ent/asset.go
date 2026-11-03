@@ -24,6 +24,8 @@ type Asset struct {
 	Path string `json:"path,omitempty"`
 	// Sha256 holds the value of the "sha256" field.
 	Sha256 string `json:"sha256,omitempty"`
+	// ViduURI holds the value of the "vidu_uri" field.
+	ViduURI string `json:"vidu_uri,omitempty"`
 	// Bytes holds the value of the "bytes" field.
 	Bytes int64 `json:"bytes,omitempty"`
 	// DurationMs holds the value of the "duration_ms" field.
@@ -44,7 +46,7 @@ func (*Asset) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case asset.FieldBytes, asset.FieldDurationMs, asset.FieldUploadedAtMs, asset.FieldExpiresAtMs, asset.FieldRefCount:
 			values[i] = new(sql.NullInt64)
-		case asset.FieldID, asset.FieldKind, asset.FieldName, asset.FieldPath, asset.FieldSha256:
+		case asset.FieldID, asset.FieldKind, asset.FieldName, asset.FieldPath, asset.FieldSha256, asset.FieldViduURI:
 			values[i] = new(sql.NullString)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -90,6 +92,12 @@ func (_m *Asset) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field sha256", values[i])
 			} else if value.Valid {
 				_m.Sha256 = value.String
+			}
+		case asset.FieldViduURI:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field vidu_uri", values[i])
+			} else if value.Valid {
+				_m.ViduURI = value.String
 			}
 		case asset.FieldBytes:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -168,6 +176,9 @@ func (_m *Asset) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("sha256=")
 	builder.WriteString(_m.Sha256)
+	builder.WriteString(", ")
+	builder.WriteString("vidu_uri=")
+	builder.WriteString(_m.ViduURI)
 	builder.WriteString(", ")
 	builder.WriteString("bytes=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Bytes))

@@ -149,6 +149,160 @@ func (_u *PersonaUpdate) SetNillableIsActive(v *bool) *PersonaUpdate {
 	return _u
 }
 
+// SetAvatarAssetID sets the "avatar_asset_id" field.
+func (_u *PersonaUpdate) SetAvatarAssetID(v string) *PersonaUpdate {
+	_u.mutation.SetAvatarAssetID(v)
+	return _u
+}
+
+// SetNillableAvatarAssetID sets the "avatar_asset_id" field if the given value is not nil.
+func (_u *PersonaUpdate) SetNillableAvatarAssetID(v *string) *PersonaUpdate {
+	if v != nil {
+		_u.SetAvatarAssetID(*v)
+	}
+	return _u
+}
+
+// ClearAvatarAssetID clears the value of the "avatar_asset_id" field.
+func (_u *PersonaUpdate) ClearAvatarAssetID() *PersonaUpdate {
+	_u.mutation.ClearAvatarAssetID()
+	return _u
+}
+
+// SetViduAvatarID sets the "vidu_avatar_id" field.
+func (_u *PersonaUpdate) SetViduAvatarID(v string) *PersonaUpdate {
+	_u.mutation.SetViduAvatarID(v)
+	return _u
+}
+
+// SetNillableViduAvatarID sets the "vidu_avatar_id" field if the given value is not nil.
+func (_u *PersonaUpdate) SetNillableViduAvatarID(v *string) *PersonaUpdate {
+	if v != nil {
+		_u.SetViduAvatarID(*v)
+	}
+	return _u
+}
+
+// ClearViduAvatarID clears the value of the "vidu_avatar_id" field.
+func (_u *PersonaUpdate) ClearViduAvatarID() *PersonaUpdate {
+	_u.mutation.ClearViduAvatarID()
+	return _u
+}
+
+// SetViduImageURI sets the "vidu_image_uri" field.
+func (_u *PersonaUpdate) SetViduImageURI(v string) *PersonaUpdate {
+	_u.mutation.SetViduImageURI(v)
+	return _u
+}
+
+// SetNillableViduImageURI sets the "vidu_image_uri" field if the given value is not nil.
+func (_u *PersonaUpdate) SetNillableViduImageURI(v *string) *PersonaUpdate {
+	if v != nil {
+		_u.SetViduImageURI(*v)
+	}
+	return _u
+}
+
+// ClearViduImageURI clears the value of the "vidu_image_uri" field.
+func (_u *PersonaUpdate) ClearViduImageURI() *PersonaUpdate {
+	_u.mutation.ClearViduImageURI()
+	return _u
+}
+
+// SetActionLibraryID sets the "action_library_id" field.
+func (_u *PersonaUpdate) SetActionLibraryID(v string) *PersonaUpdate {
+	_u.mutation.SetActionLibraryID(v)
+	return _u
+}
+
+// SetNillableActionLibraryID sets the "action_library_id" field if the given value is not nil.
+func (_u *PersonaUpdate) SetNillableActionLibraryID(v *string) *PersonaUpdate {
+	if v != nil {
+		_u.SetActionLibraryID(*v)
+	}
+	return _u
+}
+
+// ClearActionLibraryID clears the value of the "action_library_id" field.
+func (_u *PersonaUpdate) ClearActionLibraryID() *PersonaUpdate {
+	_u.mutation.ClearActionLibraryID()
+	return _u
+}
+
+// SetGreeting sets the "greeting" field.
+func (_u *PersonaUpdate) SetGreeting(v string) *PersonaUpdate {
+	_u.mutation.SetGreeting(v)
+	return _u
+}
+
+// SetNillableGreeting sets the "greeting" field if the given value is not nil.
+func (_u *PersonaUpdate) SetNillableGreeting(v *string) *PersonaUpdate {
+	if v != nil {
+		_u.SetGreeting(*v)
+	}
+	return _u
+}
+
+// ClearGreeting clears the value of the "greeting" field.
+func (_u *PersonaUpdate) ClearGreeting() *PersonaUpdate {
+	_u.mutation.ClearGreeting()
+	return _u
+}
+
+// SetRevision sets the "revision" field.
+func (_u *PersonaUpdate) SetRevision(v int64) *PersonaUpdate {
+	_u.mutation.ResetRevision()
+	_u.mutation.SetRevision(v)
+	return _u
+}
+
+// SetNillableRevision sets the "revision" field if the given value is not nil.
+func (_u *PersonaUpdate) SetNillableRevision(v *int64) *PersonaUpdate {
+	if v != nil {
+		_u.SetRevision(*v)
+	}
+	return _u
+}
+
+// AddRevision adds value to the "revision" field.
+func (_u *PersonaUpdate) AddRevision(v int64) *PersonaUpdate {
+	_u.mutation.AddRevision(v)
+	return _u
+}
+
+// SetDeletedAtMs sets the "deleted_at_ms" field.
+func (_u *PersonaUpdate) SetDeletedAtMs(v int64) *PersonaUpdate {
+	_u.mutation.ResetDeletedAtMs()
+	_u.mutation.SetDeletedAtMs(v)
+	return _u
+}
+
+// SetNillableDeletedAtMs sets the "deleted_at_ms" field if the given value is not nil.
+func (_u *PersonaUpdate) SetNillableDeletedAtMs(v *int64) *PersonaUpdate {
+	if v != nil {
+		_u.SetDeletedAtMs(*v)
+	}
+	return _u
+}
+
+// AddDeletedAtMs adds value to the "deleted_at_ms" field.
+func (_u *PersonaUpdate) AddDeletedAtMs(v int64) *PersonaUpdate {
+	_u.mutation.AddDeletedAtMs(v)
+	return _u
+}
+
+// SetViduSyncState sets the "vidu_sync_state" field.
+func (_u *PersonaUpdate) SetViduSyncState(v map[string]interface{}) *PersonaUpdate {
+	_u.mutation.SetViduSyncState(v)
+	return _u
+}
+
+// ClearViduSyncState clears the value of the "vidu_sync_state" field.
+func (_u *PersonaUpdate) ClearViduSyncState() *PersonaUpdate {
+	_u.mutation.ClearViduSyncState()
+	return _u
+}
+
 // SetUpdatedAtMs sets the "updated_at_ms" field.
 func (_u *PersonaUpdate) SetUpdatedAtMs(v int64) *PersonaUpdate {
 	_u.mutation.ResetUpdatedAtMs()
@@ -243,6 +397,54 @@ func (_u *PersonaUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.IsActive(); ok {
 		_spec.SetField(persona.FieldIsActive, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AvatarAssetID(); ok {
+		_spec.SetField(persona.FieldAvatarAssetID, field.TypeString, value)
+	}
+	if _u.mutation.AvatarAssetIDCleared() {
+		_spec.ClearField(persona.FieldAvatarAssetID, field.TypeString)
+	}
+	if value, ok := _u.mutation.ViduAvatarID(); ok {
+		_spec.SetField(persona.FieldViduAvatarID, field.TypeString, value)
+	}
+	if _u.mutation.ViduAvatarIDCleared() {
+		_spec.ClearField(persona.FieldViduAvatarID, field.TypeString)
+	}
+	if value, ok := _u.mutation.ViduImageURI(); ok {
+		_spec.SetField(persona.FieldViduImageURI, field.TypeString, value)
+	}
+	if _u.mutation.ViduImageURICleared() {
+		_spec.ClearField(persona.FieldViduImageURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.ActionLibraryID(); ok {
+		_spec.SetField(persona.FieldActionLibraryID, field.TypeString, value)
+	}
+	if _u.mutation.ActionLibraryIDCleared() {
+		_spec.ClearField(persona.FieldActionLibraryID, field.TypeString)
+	}
+	if value, ok := _u.mutation.Greeting(); ok {
+		_spec.SetField(persona.FieldGreeting, field.TypeString, value)
+	}
+	if _u.mutation.GreetingCleared() {
+		_spec.ClearField(persona.FieldGreeting, field.TypeString)
+	}
+	if value, ok := _u.mutation.Revision(); ok {
+		_spec.SetField(persona.FieldRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedRevision(); ok {
+		_spec.AddField(persona.FieldRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.DeletedAtMs(); ok {
+		_spec.SetField(persona.FieldDeletedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedDeletedAtMs(); ok {
+		_spec.AddField(persona.FieldDeletedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.ViduSyncState(); ok {
+		_spec.SetField(persona.FieldViduSyncState, field.TypeJSON, value)
+	}
+	if _u.mutation.ViduSyncStateCleared() {
+		_spec.ClearField(persona.FieldViduSyncState, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.UpdatedAtMs(); ok {
 		_spec.SetField(persona.FieldUpdatedAtMs, field.TypeInt64, value)
@@ -392,6 +594,160 @@ func (_u *PersonaUpdateOne) SetNillableIsActive(v *bool) *PersonaUpdateOne {
 	return _u
 }
 
+// SetAvatarAssetID sets the "avatar_asset_id" field.
+func (_u *PersonaUpdateOne) SetAvatarAssetID(v string) *PersonaUpdateOne {
+	_u.mutation.SetAvatarAssetID(v)
+	return _u
+}
+
+// SetNillableAvatarAssetID sets the "avatar_asset_id" field if the given value is not nil.
+func (_u *PersonaUpdateOne) SetNillableAvatarAssetID(v *string) *PersonaUpdateOne {
+	if v != nil {
+		_u.SetAvatarAssetID(*v)
+	}
+	return _u
+}
+
+// ClearAvatarAssetID clears the value of the "avatar_asset_id" field.
+func (_u *PersonaUpdateOne) ClearAvatarAssetID() *PersonaUpdateOne {
+	_u.mutation.ClearAvatarAssetID()
+	return _u
+}
+
+// SetViduAvatarID sets the "vidu_avatar_id" field.
+func (_u *PersonaUpdateOne) SetViduAvatarID(v string) *PersonaUpdateOne {
+	_u.mutation.SetViduAvatarID(v)
+	return _u
+}
+
+// SetNillableViduAvatarID sets the "vidu_avatar_id" field if the given value is not nil.
+func (_u *PersonaUpdateOne) SetNillableViduAvatarID(v *string) *PersonaUpdateOne {
+	if v != nil {
+		_u.SetViduAvatarID(*v)
+	}
+	return _u
+}
+
+// ClearViduAvatarID clears the value of the "vidu_avatar_id" field.
+func (_u *PersonaUpdateOne) ClearViduAvatarID() *PersonaUpdateOne {
+	_u.mutation.ClearViduAvatarID()
+	return _u
+}
+
+// SetViduImageURI sets the "vidu_image_uri" field.
+func (_u *PersonaUpdateOne) SetViduImageURI(v string) *PersonaUpdateOne {
+	_u.mutation.SetViduImageURI(v)
+	return _u
+}
+
+// SetNillableViduImageURI sets the "vidu_image_uri" field if the given value is not nil.
+func (_u *PersonaUpdateOne) SetNillableViduImageURI(v *string) *PersonaUpdateOne {
+	if v != nil {
+		_u.SetViduImageURI(*v)
+	}
+	return _u
+}
+
+// ClearViduImageURI clears the value of the "vidu_image_uri" field.
+func (_u *PersonaUpdateOne) ClearViduImageURI() *PersonaUpdateOne {
+	_u.mutation.ClearViduImageURI()
+	return _u
+}
+
+// SetActionLibraryID sets the "action_library_id" field.
+func (_u *PersonaUpdateOne) SetActionLibraryID(v string) *PersonaUpdateOne {
+	_u.mutation.SetActionLibraryID(v)
+	return _u
+}
+
+// SetNillableActionLibraryID sets the "action_library_id" field if the given value is not nil.
+func (_u *PersonaUpdateOne) SetNillableActionLibraryID(v *string) *PersonaUpdateOne {
+	if v != nil {
+		_u.SetActionLibraryID(*v)
+	}
+	return _u
+}
+
+// ClearActionLibraryID clears the value of the "action_library_id" field.
+func (_u *PersonaUpdateOne) ClearActionLibraryID() *PersonaUpdateOne {
+	_u.mutation.ClearActionLibraryID()
+	return _u
+}
+
+// SetGreeting sets the "greeting" field.
+func (_u *PersonaUpdateOne) SetGreeting(v string) *PersonaUpdateOne {
+	_u.mutation.SetGreeting(v)
+	return _u
+}
+
+// SetNillableGreeting sets the "greeting" field if the given value is not nil.
+func (_u *PersonaUpdateOne) SetNillableGreeting(v *string) *PersonaUpdateOne {
+	if v != nil {
+		_u.SetGreeting(*v)
+	}
+	return _u
+}
+
+// ClearGreeting clears the value of the "greeting" field.
+func (_u *PersonaUpdateOne) ClearGreeting() *PersonaUpdateOne {
+	_u.mutation.ClearGreeting()
+	return _u
+}
+
+// SetRevision sets the "revision" field.
+func (_u *PersonaUpdateOne) SetRevision(v int64) *PersonaUpdateOne {
+	_u.mutation.ResetRevision()
+	_u.mutation.SetRevision(v)
+	return _u
+}
+
+// SetNillableRevision sets the "revision" field if the given value is not nil.
+func (_u *PersonaUpdateOne) SetNillableRevision(v *int64) *PersonaUpdateOne {
+	if v != nil {
+		_u.SetRevision(*v)
+	}
+	return _u
+}
+
+// AddRevision adds value to the "revision" field.
+func (_u *PersonaUpdateOne) AddRevision(v int64) *PersonaUpdateOne {
+	_u.mutation.AddRevision(v)
+	return _u
+}
+
+// SetDeletedAtMs sets the "deleted_at_ms" field.
+func (_u *PersonaUpdateOne) SetDeletedAtMs(v int64) *PersonaUpdateOne {
+	_u.mutation.ResetDeletedAtMs()
+	_u.mutation.SetDeletedAtMs(v)
+	return _u
+}
+
+// SetNillableDeletedAtMs sets the "deleted_at_ms" field if the given value is not nil.
+func (_u *PersonaUpdateOne) SetNillableDeletedAtMs(v *int64) *PersonaUpdateOne {
+	if v != nil {
+		_u.SetDeletedAtMs(*v)
+	}
+	return _u
+}
+
+// AddDeletedAtMs adds value to the "deleted_at_ms" field.
+func (_u *PersonaUpdateOne) AddDeletedAtMs(v int64) *PersonaUpdateOne {
+	_u.mutation.AddDeletedAtMs(v)
+	return _u
+}
+
+// SetViduSyncState sets the "vidu_sync_state" field.
+func (_u *PersonaUpdateOne) SetViduSyncState(v map[string]interface{}) *PersonaUpdateOne {
+	_u.mutation.SetViduSyncState(v)
+	return _u
+}
+
+// ClearViduSyncState clears the value of the "vidu_sync_state" field.
+func (_u *PersonaUpdateOne) ClearViduSyncState() *PersonaUpdateOne {
+	_u.mutation.ClearViduSyncState()
+	return _u
+}
+
 // SetUpdatedAtMs sets the "updated_at_ms" field.
 func (_u *PersonaUpdateOne) SetUpdatedAtMs(v int64) *PersonaUpdateOne {
 	_u.mutation.ResetUpdatedAtMs()
@@ -516,6 +872,54 @@ func (_u *PersonaUpdateOne) sqlSave(ctx context.Context) (_node *Persona, err er
 	}
 	if value, ok := _u.mutation.IsActive(); ok {
 		_spec.SetField(persona.FieldIsActive, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AvatarAssetID(); ok {
+		_spec.SetField(persona.FieldAvatarAssetID, field.TypeString, value)
+	}
+	if _u.mutation.AvatarAssetIDCleared() {
+		_spec.ClearField(persona.FieldAvatarAssetID, field.TypeString)
+	}
+	if value, ok := _u.mutation.ViduAvatarID(); ok {
+		_spec.SetField(persona.FieldViduAvatarID, field.TypeString, value)
+	}
+	if _u.mutation.ViduAvatarIDCleared() {
+		_spec.ClearField(persona.FieldViduAvatarID, field.TypeString)
+	}
+	if value, ok := _u.mutation.ViduImageURI(); ok {
+		_spec.SetField(persona.FieldViduImageURI, field.TypeString, value)
+	}
+	if _u.mutation.ViduImageURICleared() {
+		_spec.ClearField(persona.FieldViduImageURI, field.TypeString)
+	}
+	if value, ok := _u.mutation.ActionLibraryID(); ok {
+		_spec.SetField(persona.FieldActionLibraryID, field.TypeString, value)
+	}
+	if _u.mutation.ActionLibraryIDCleared() {
+		_spec.ClearField(persona.FieldActionLibraryID, field.TypeString)
+	}
+	if value, ok := _u.mutation.Greeting(); ok {
+		_spec.SetField(persona.FieldGreeting, field.TypeString, value)
+	}
+	if _u.mutation.GreetingCleared() {
+		_spec.ClearField(persona.FieldGreeting, field.TypeString)
+	}
+	if value, ok := _u.mutation.Revision(); ok {
+		_spec.SetField(persona.FieldRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedRevision(); ok {
+		_spec.AddField(persona.FieldRevision, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.DeletedAtMs(); ok {
+		_spec.SetField(persona.FieldDeletedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedDeletedAtMs(); ok {
+		_spec.AddField(persona.FieldDeletedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.ViduSyncState(); ok {
+		_spec.SetField(persona.FieldViduSyncState, field.TypeJSON, value)
+	}
+	if _u.mutation.ViduSyncStateCleared() {
+		_spec.ClearField(persona.FieldViduSyncState, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.UpdatedAtMs(); ok {
 		_spec.SetField(persona.FieldUpdatedAtMs, field.TypeInt64, value)

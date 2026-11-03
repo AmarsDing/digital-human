@@ -101,6 +101,110 @@ func (_c *PersonaCreate) SetNillableIsActive(v *bool) *PersonaCreate {
 	return _c
 }
 
+// SetAvatarAssetID sets the "avatar_asset_id" field.
+func (_c *PersonaCreate) SetAvatarAssetID(v string) *PersonaCreate {
+	_c.mutation.SetAvatarAssetID(v)
+	return _c
+}
+
+// SetNillableAvatarAssetID sets the "avatar_asset_id" field if the given value is not nil.
+func (_c *PersonaCreate) SetNillableAvatarAssetID(v *string) *PersonaCreate {
+	if v != nil {
+		_c.SetAvatarAssetID(*v)
+	}
+	return _c
+}
+
+// SetViduAvatarID sets the "vidu_avatar_id" field.
+func (_c *PersonaCreate) SetViduAvatarID(v string) *PersonaCreate {
+	_c.mutation.SetViduAvatarID(v)
+	return _c
+}
+
+// SetNillableViduAvatarID sets the "vidu_avatar_id" field if the given value is not nil.
+func (_c *PersonaCreate) SetNillableViduAvatarID(v *string) *PersonaCreate {
+	if v != nil {
+		_c.SetViduAvatarID(*v)
+	}
+	return _c
+}
+
+// SetViduImageURI sets the "vidu_image_uri" field.
+func (_c *PersonaCreate) SetViduImageURI(v string) *PersonaCreate {
+	_c.mutation.SetViduImageURI(v)
+	return _c
+}
+
+// SetNillableViduImageURI sets the "vidu_image_uri" field if the given value is not nil.
+func (_c *PersonaCreate) SetNillableViduImageURI(v *string) *PersonaCreate {
+	if v != nil {
+		_c.SetViduImageURI(*v)
+	}
+	return _c
+}
+
+// SetActionLibraryID sets the "action_library_id" field.
+func (_c *PersonaCreate) SetActionLibraryID(v string) *PersonaCreate {
+	_c.mutation.SetActionLibraryID(v)
+	return _c
+}
+
+// SetNillableActionLibraryID sets the "action_library_id" field if the given value is not nil.
+func (_c *PersonaCreate) SetNillableActionLibraryID(v *string) *PersonaCreate {
+	if v != nil {
+		_c.SetActionLibraryID(*v)
+	}
+	return _c
+}
+
+// SetGreeting sets the "greeting" field.
+func (_c *PersonaCreate) SetGreeting(v string) *PersonaCreate {
+	_c.mutation.SetGreeting(v)
+	return _c
+}
+
+// SetNillableGreeting sets the "greeting" field if the given value is not nil.
+func (_c *PersonaCreate) SetNillableGreeting(v *string) *PersonaCreate {
+	if v != nil {
+		_c.SetGreeting(*v)
+	}
+	return _c
+}
+
+// SetRevision sets the "revision" field.
+func (_c *PersonaCreate) SetRevision(v int64) *PersonaCreate {
+	_c.mutation.SetRevision(v)
+	return _c
+}
+
+// SetNillableRevision sets the "revision" field if the given value is not nil.
+func (_c *PersonaCreate) SetNillableRevision(v *int64) *PersonaCreate {
+	if v != nil {
+		_c.SetRevision(*v)
+	}
+	return _c
+}
+
+// SetDeletedAtMs sets the "deleted_at_ms" field.
+func (_c *PersonaCreate) SetDeletedAtMs(v int64) *PersonaCreate {
+	_c.mutation.SetDeletedAtMs(v)
+	return _c
+}
+
+// SetNillableDeletedAtMs sets the "deleted_at_ms" field if the given value is not nil.
+func (_c *PersonaCreate) SetNillableDeletedAtMs(v *int64) *PersonaCreate {
+	if v != nil {
+		_c.SetDeletedAtMs(*v)
+	}
+	return _c
+}
+
+// SetViduSyncState sets the "vidu_sync_state" field.
+func (_c *PersonaCreate) SetViduSyncState(v map[string]interface{}) *PersonaCreate {
+	_c.mutation.SetViduSyncState(v)
+	return _c
+}
+
 // SetUpdatedAtMs sets the "updated_at_ms" field.
 func (_c *PersonaCreate) SetUpdatedAtMs(v int64) *PersonaCreate {
 	_c.mutation.SetUpdatedAtMs(v)
@@ -160,6 +264,14 @@ func (_c *PersonaCreate) defaults() {
 		v := persona.DefaultIsActive
 		_c.mutation.SetIsActive(v)
 	}
+	if _, ok := _c.mutation.Revision(); !ok {
+		v := persona.DefaultRevision
+		_c.mutation.SetRevision(v)
+	}
+	if _, ok := _c.mutation.DeletedAtMs(); !ok {
+		v := persona.DefaultDeletedAtMs
+		_c.mutation.SetDeletedAtMs(v)
+	}
 	if _, ok := _c.mutation.UpdatedAtMs(); !ok {
 		v := persona.DefaultUpdatedAtMs
 		_c.mutation.SetUpdatedAtMs(v)
@@ -176,6 +288,12 @@ func (_c *PersonaCreate) check() error {
 	}
 	if _, ok := _c.mutation.IsActive(); !ok {
 		return &ValidationError{Name: "is_active", err: errors.New(`ent: missing required field "Persona.is_active"`)}
+	}
+	if _, ok := _c.mutation.Revision(); !ok {
+		return &ValidationError{Name: "revision", err: errors.New(`ent: missing required field "Persona.revision"`)}
+	}
+	if _, ok := _c.mutation.DeletedAtMs(); !ok {
+		return &ValidationError{Name: "deleted_at_ms", err: errors.New(`ent: missing required field "Persona.deleted_at_ms"`)}
 	}
 	if _, ok := _c.mutation.UpdatedAtMs(); !ok {
 		return &ValidationError{Name: "updated_at_ms", err: errors.New(`ent: missing required field "Persona.updated_at_ms"`)}
@@ -242,6 +360,38 @@ func (_c *PersonaCreate) createSpec() (*Persona, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.IsActive(); ok {
 		_spec.SetField(persona.FieldIsActive, field.TypeBool, value)
 		_node.IsActive = value
+	}
+	if value, ok := _c.mutation.AvatarAssetID(); ok {
+		_spec.SetField(persona.FieldAvatarAssetID, field.TypeString, value)
+		_node.AvatarAssetID = value
+	}
+	if value, ok := _c.mutation.ViduAvatarID(); ok {
+		_spec.SetField(persona.FieldViduAvatarID, field.TypeString, value)
+		_node.ViduAvatarID = value
+	}
+	if value, ok := _c.mutation.ViduImageURI(); ok {
+		_spec.SetField(persona.FieldViduImageURI, field.TypeString, value)
+		_node.ViduImageURI = value
+	}
+	if value, ok := _c.mutation.ActionLibraryID(); ok {
+		_spec.SetField(persona.FieldActionLibraryID, field.TypeString, value)
+		_node.ActionLibraryID = value
+	}
+	if value, ok := _c.mutation.Greeting(); ok {
+		_spec.SetField(persona.FieldGreeting, field.TypeString, value)
+		_node.Greeting = value
+	}
+	if value, ok := _c.mutation.Revision(); ok {
+		_spec.SetField(persona.FieldRevision, field.TypeInt64, value)
+		_node.Revision = value
+	}
+	if value, ok := _c.mutation.DeletedAtMs(); ok {
+		_spec.SetField(persona.FieldDeletedAtMs, field.TypeInt64, value)
+		_node.DeletedAtMs = value
+	}
+	if value, ok := _c.mutation.ViduSyncState(); ok {
+		_spec.SetField(persona.FieldViduSyncState, field.TypeJSON, value)
+		_node.ViduSyncState = value
 	}
 	if value, ok := _c.mutation.UpdatedAtMs(); ok {
 		_spec.SetField(persona.FieldUpdatedAtMs, field.TypeInt64, value)

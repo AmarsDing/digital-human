@@ -14,12 +14,19 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
+	"github.com/teamwork/digital-human/internal/data/ent/applyjournal"
 	"github.com/teamwork/digital-human/internal/data/ent/asset"
 	"github.com/teamwork/digital-human/internal/data/ent/auditlog"
 	"github.com/teamwork/digital-human/internal/data/ent/costledger"
 	"github.com/teamwork/digital-human/internal/data/ent/danmakuevent"
+	"github.com/teamwork/digital-human/internal/data/ent/effectoutbox"
+	"github.com/teamwork/digital-human/internal/data/ent/idemkey"
+	"github.com/teamwork/digital-human/internal/data/ent/interactiondecision"
+	"github.com/teamwork/digital-human/internal/data/ent/livedraft"
 	"github.com/teamwork/digital-human/internal/data/ent/livesession"
+	"github.com/teamwork/digital-human/internal/data/ent/patron"
 	"github.com/teamwork/digital-human/internal/data/ent/persona"
+	"github.com/teamwork/digital-human/internal/data/ent/personaref"
 	"github.com/teamwork/digital-human/internal/data/ent/recording"
 	"github.com/teamwork/digital-human/internal/data/ent/sessionevent"
 	"github.com/teamwork/digital-human/internal/data/ent/setting"
@@ -31,6 +38,8 @@ type Client struct {
 	config
 	// Schema is the client for creating, migrating and dropping schema.
 	Schema *migrate.Schema
+	// ApplyJournal is the client for interacting with the ApplyJournal builders.
+	ApplyJournal *ApplyJournalClient
 	// Asset is the client for interacting with the Asset builders.
 	Asset *AssetClient
 	// AuditLog is the client for interacting with the AuditLog builders.
@@ -39,10 +48,22 @@ type Client struct {
 	CostLedger *CostLedgerClient
 	// DanmakuEvent is the client for interacting with the DanmakuEvent builders.
 	DanmakuEvent *DanmakuEventClient
+	// EffectOutbox is the client for interacting with the EffectOutbox builders.
+	EffectOutbox *EffectOutboxClient
+	// IdemKey is the client for interacting with the IdemKey builders.
+	IdemKey *IdemKeyClient
+	// InteractionDecision is the client for interacting with the InteractionDecision builders.
+	InteractionDecision *InteractionDecisionClient
+	// LiveDraft is the client for interacting with the LiveDraft builders.
+	LiveDraft *LiveDraftClient
 	// LiveSession is the client for interacting with the LiveSession builders.
 	LiveSession *LiveSessionClient
+	// Patron is the client for interacting with the Patron builders.
+	Patron *PatronClient
 	// Persona is the client for interacting with the Persona builders.
 	Persona *PersonaClient
+	// PersonaRef is the client for interacting with the PersonaRef builders.
+	PersonaRef *PersonaRefClient
 	// Recording is the client for interacting with the Recording builders.
 	Recording *RecordingClient
 	// SessionEvent is the client for interacting with the SessionEvent builders.
@@ -62,12 +83,19 @@ func NewClient(opts ...Option) *Client {
 
 func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
+	c.ApplyJournal = NewApplyJournalClient(c.config)
 	c.Asset = NewAssetClient(c.config)
 	c.AuditLog = NewAuditLogClient(c.config)
 	c.CostLedger = NewCostLedgerClient(c.config)
 	c.DanmakuEvent = NewDanmakuEventClient(c.config)
+	c.EffectOutbox = NewEffectOutboxClient(c.config)
+	c.IdemKey = NewIdemKeyClient(c.config)
+	c.InteractionDecision = NewInteractionDecisionClient(c.config)
+	c.LiveDraft = NewLiveDraftClient(c.config)
 	c.LiveSession = NewLiveSessionClient(c.config)
+	c.Patron = NewPatronClient(c.config)
 	c.Persona = NewPersonaClient(c.config)
+	c.PersonaRef = NewPersonaRefClient(c.config)
 	c.Recording = NewRecordingClient(c.config)
 	c.SessionEvent = NewSessionEventClient(c.config)
 	c.Setting = NewSettingClient(c.config)
@@ -162,18 +190,25 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:          ctx,
-		config:       cfg,
-		Asset:        NewAssetClient(cfg),
-		AuditLog:     NewAuditLogClient(cfg),
-		CostLedger:   NewCostLedgerClient(cfg),
-		DanmakuEvent: NewDanmakuEventClient(cfg),
-		LiveSession:  NewLiveSessionClient(cfg),
-		Persona:      NewPersonaClient(cfg),
-		Recording:    NewRecordingClient(cfg),
-		SessionEvent: NewSessionEventClient(cfg),
-		Setting:      NewSettingClient(cfg),
-		ViduKey:      NewViduKeyClient(cfg),
+		ctx:                 ctx,
+		config:              cfg,
+		ApplyJournal:        NewApplyJournalClient(cfg),
+		Asset:               NewAssetClient(cfg),
+		AuditLog:            NewAuditLogClient(cfg),
+		CostLedger:          NewCostLedgerClient(cfg),
+		DanmakuEvent:        NewDanmakuEventClient(cfg),
+		EffectOutbox:        NewEffectOutboxClient(cfg),
+		IdemKey:             NewIdemKeyClient(cfg),
+		InteractionDecision: NewInteractionDecisionClient(cfg),
+		LiveDraft:           NewLiveDraftClient(cfg),
+		LiveSession:         NewLiveSessionClient(cfg),
+		Patron:              NewPatronClient(cfg),
+		Persona:             NewPersonaClient(cfg),
+		PersonaRef:          NewPersonaRefClient(cfg),
+		Recording:           NewRecordingClient(cfg),
+		SessionEvent:        NewSessionEventClient(cfg),
+		Setting:             NewSettingClient(cfg),
+		ViduKey:             NewViduKeyClient(cfg),
 	}, nil
 }
 
@@ -191,25 +226,32 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:          ctx,
-		config:       cfg,
-		Asset:        NewAssetClient(cfg),
-		AuditLog:     NewAuditLogClient(cfg),
-		CostLedger:   NewCostLedgerClient(cfg),
-		DanmakuEvent: NewDanmakuEventClient(cfg),
-		LiveSession:  NewLiveSessionClient(cfg),
-		Persona:      NewPersonaClient(cfg),
-		Recording:    NewRecordingClient(cfg),
-		SessionEvent: NewSessionEventClient(cfg),
-		Setting:      NewSettingClient(cfg),
-		ViduKey:      NewViduKeyClient(cfg),
+		ctx:                 ctx,
+		config:              cfg,
+		ApplyJournal:        NewApplyJournalClient(cfg),
+		Asset:               NewAssetClient(cfg),
+		AuditLog:            NewAuditLogClient(cfg),
+		CostLedger:          NewCostLedgerClient(cfg),
+		DanmakuEvent:        NewDanmakuEventClient(cfg),
+		EffectOutbox:        NewEffectOutboxClient(cfg),
+		IdemKey:             NewIdemKeyClient(cfg),
+		InteractionDecision: NewInteractionDecisionClient(cfg),
+		LiveDraft:           NewLiveDraftClient(cfg),
+		LiveSession:         NewLiveSessionClient(cfg),
+		Patron:              NewPatronClient(cfg),
+		Persona:             NewPersonaClient(cfg),
+		PersonaRef:          NewPersonaRefClient(cfg),
+		Recording:           NewRecordingClient(cfg),
+		SessionEvent:        NewSessionEventClient(cfg),
+		Setting:             NewSettingClient(cfg),
+		ViduKey:             NewViduKeyClient(cfg),
 	}, nil
 }
 
 // Debug returns a new debug-client. It's used to get verbose logging on specific operations.
 //
 //	client.Debug().
-//		Asset.
+//		ApplyJournal.
 //		Query().
 //		Count(ctx)
 func (c *Client) Debug() *Client {
@@ -232,8 +274,10 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.Asset, c.AuditLog, c.CostLedger, c.DanmakuEvent, c.LiveSession, c.Persona,
-		c.Recording, c.SessionEvent, c.Setting, c.ViduKey,
+		c.ApplyJournal, c.Asset, c.AuditLog, c.CostLedger, c.DanmakuEvent,
+		c.EffectOutbox, c.IdemKey, c.InteractionDecision, c.LiveDraft, c.LiveSession,
+		c.Patron, c.Persona, c.PersonaRef, c.Recording, c.SessionEvent, c.Setting,
+		c.ViduKey,
 	} {
 		n.Use(hooks...)
 	}
@@ -243,8 +287,10 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.Asset, c.AuditLog, c.CostLedger, c.DanmakuEvent, c.LiveSession, c.Persona,
-		c.Recording, c.SessionEvent, c.Setting, c.ViduKey,
+		c.ApplyJournal, c.Asset, c.AuditLog, c.CostLedger, c.DanmakuEvent,
+		c.EffectOutbox, c.IdemKey, c.InteractionDecision, c.LiveDraft, c.LiveSession,
+		c.Patron, c.Persona, c.PersonaRef, c.Recording, c.SessionEvent, c.Setting,
+		c.ViduKey,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -253,6 +299,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 // Mutate implements the ent.Mutator interface.
 func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 	switch m := m.(type) {
+	case *ApplyJournalMutation:
+		return c.ApplyJournal.mutate(ctx, m)
 	case *AssetMutation:
 		return c.Asset.mutate(ctx, m)
 	case *AuditLogMutation:
@@ -261,10 +309,22 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.CostLedger.mutate(ctx, m)
 	case *DanmakuEventMutation:
 		return c.DanmakuEvent.mutate(ctx, m)
+	case *EffectOutboxMutation:
+		return c.EffectOutbox.mutate(ctx, m)
+	case *IdemKeyMutation:
+		return c.IdemKey.mutate(ctx, m)
+	case *InteractionDecisionMutation:
+		return c.InteractionDecision.mutate(ctx, m)
+	case *LiveDraftMutation:
+		return c.LiveDraft.mutate(ctx, m)
 	case *LiveSessionMutation:
 		return c.LiveSession.mutate(ctx, m)
+	case *PatronMutation:
+		return c.Patron.mutate(ctx, m)
 	case *PersonaMutation:
 		return c.Persona.mutate(ctx, m)
+	case *PersonaRefMutation:
+		return c.PersonaRef.mutate(ctx, m)
 	case *RecordingMutation:
 		return c.Recording.mutate(ctx, m)
 	case *SessionEventMutation:
@@ -275,6 +335,139 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ViduKey.mutate(ctx, m)
 	default:
 		return nil, fmt.Errorf("ent: unknown mutation type %T", m)
+	}
+}
+
+// ApplyJournalClient is a client for the ApplyJournal schema.
+type ApplyJournalClient struct {
+	config
+}
+
+// NewApplyJournalClient returns a client for the ApplyJournal from the given config.
+func NewApplyJournalClient(c config) *ApplyJournalClient {
+	return &ApplyJournalClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `applyjournal.Hooks(f(g(h())))`.
+func (c *ApplyJournalClient) Use(hooks ...Hook) {
+	c.hooks.ApplyJournal = append(c.hooks.ApplyJournal, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `applyjournal.Intercept(f(g(h())))`.
+func (c *ApplyJournalClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ApplyJournal = append(c.inters.ApplyJournal, interceptors...)
+}
+
+// Create returns a builder for creating a ApplyJournal entity.
+func (c *ApplyJournalClient) Create() *ApplyJournalCreate {
+	mutation := newApplyJournalMutation(c.config, OpCreate)
+	return &ApplyJournalCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ApplyJournal entities.
+func (c *ApplyJournalClient) CreateBulk(builders ...*ApplyJournalCreate) *ApplyJournalCreateBulk {
+	return &ApplyJournalCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ApplyJournalClient) MapCreateBulk(slice any, setFunc func(*ApplyJournalCreate, int)) *ApplyJournalCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ApplyJournalCreateBulk{err: fmt.Errorf("calling to ApplyJournalClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ApplyJournalCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ApplyJournalCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ApplyJournal.
+func (c *ApplyJournalClient) Update() *ApplyJournalUpdate {
+	mutation := newApplyJournalMutation(c.config, OpUpdate)
+	return &ApplyJournalUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ApplyJournalClient) UpdateOne(_m *ApplyJournal) *ApplyJournalUpdateOne {
+	mutation := newApplyJournalMutation(c.config, OpUpdateOne, withApplyJournal(_m))
+	return &ApplyJournalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ApplyJournalClient) UpdateOneID(id string) *ApplyJournalUpdateOne {
+	mutation := newApplyJournalMutation(c.config, OpUpdateOne, withApplyJournalID(id))
+	return &ApplyJournalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ApplyJournal.
+func (c *ApplyJournalClient) Delete() *ApplyJournalDelete {
+	mutation := newApplyJournalMutation(c.config, OpDelete)
+	return &ApplyJournalDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ApplyJournalClient) DeleteOne(_m *ApplyJournal) *ApplyJournalDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ApplyJournalClient) DeleteOneID(id string) *ApplyJournalDeleteOne {
+	builder := c.Delete().Where(applyjournal.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ApplyJournalDeleteOne{builder}
+}
+
+// Query returns a query builder for ApplyJournal.
+func (c *ApplyJournalClient) Query() *ApplyJournalQuery {
+	return &ApplyJournalQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeApplyJournal},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ApplyJournal entity by its id.
+func (c *ApplyJournalClient) Get(ctx context.Context, id string) (*ApplyJournal, error) {
+	return c.Query().Where(applyjournal.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ApplyJournalClient) GetX(ctx context.Context, id string) *ApplyJournal {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *ApplyJournalClient) Hooks() []Hook {
+	return c.hooks.ApplyJournal
+}
+
+// Interceptors returns the client interceptors.
+func (c *ApplyJournalClient) Interceptors() []Interceptor {
+	return c.inters.ApplyJournal
+}
+
+func (c *ApplyJournalClient) mutate(ctx context.Context, m *ApplyJournalMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ApplyJournalCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ApplyJournalUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ApplyJournalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ApplyJournalDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ApplyJournal mutation op: %q", m.Op())
 	}
 }
 
@@ -810,6 +1003,538 @@ func (c *DanmakuEventClient) mutate(ctx context.Context, m *DanmakuEventMutation
 	}
 }
 
+// EffectOutboxClient is a client for the EffectOutbox schema.
+type EffectOutboxClient struct {
+	config
+}
+
+// NewEffectOutboxClient returns a client for the EffectOutbox from the given config.
+func NewEffectOutboxClient(c config) *EffectOutboxClient {
+	return &EffectOutboxClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `effectoutbox.Hooks(f(g(h())))`.
+func (c *EffectOutboxClient) Use(hooks ...Hook) {
+	c.hooks.EffectOutbox = append(c.hooks.EffectOutbox, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `effectoutbox.Intercept(f(g(h())))`.
+func (c *EffectOutboxClient) Intercept(interceptors ...Interceptor) {
+	c.inters.EffectOutbox = append(c.inters.EffectOutbox, interceptors...)
+}
+
+// Create returns a builder for creating a EffectOutbox entity.
+func (c *EffectOutboxClient) Create() *EffectOutboxCreate {
+	mutation := newEffectOutboxMutation(c.config, OpCreate)
+	return &EffectOutboxCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of EffectOutbox entities.
+func (c *EffectOutboxClient) CreateBulk(builders ...*EffectOutboxCreate) *EffectOutboxCreateBulk {
+	return &EffectOutboxCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *EffectOutboxClient) MapCreateBulk(slice any, setFunc func(*EffectOutboxCreate, int)) *EffectOutboxCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &EffectOutboxCreateBulk{err: fmt.Errorf("calling to EffectOutboxClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*EffectOutboxCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &EffectOutboxCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for EffectOutbox.
+func (c *EffectOutboxClient) Update() *EffectOutboxUpdate {
+	mutation := newEffectOutboxMutation(c.config, OpUpdate)
+	return &EffectOutboxUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *EffectOutboxClient) UpdateOne(_m *EffectOutbox) *EffectOutboxUpdateOne {
+	mutation := newEffectOutboxMutation(c.config, OpUpdateOne, withEffectOutbox(_m))
+	return &EffectOutboxUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *EffectOutboxClient) UpdateOneID(id string) *EffectOutboxUpdateOne {
+	mutation := newEffectOutboxMutation(c.config, OpUpdateOne, withEffectOutboxID(id))
+	return &EffectOutboxUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for EffectOutbox.
+func (c *EffectOutboxClient) Delete() *EffectOutboxDelete {
+	mutation := newEffectOutboxMutation(c.config, OpDelete)
+	return &EffectOutboxDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *EffectOutboxClient) DeleteOne(_m *EffectOutbox) *EffectOutboxDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *EffectOutboxClient) DeleteOneID(id string) *EffectOutboxDeleteOne {
+	builder := c.Delete().Where(effectoutbox.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &EffectOutboxDeleteOne{builder}
+}
+
+// Query returns a query builder for EffectOutbox.
+func (c *EffectOutboxClient) Query() *EffectOutboxQuery {
+	return &EffectOutboxQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeEffectOutbox},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a EffectOutbox entity by its id.
+func (c *EffectOutboxClient) Get(ctx context.Context, id string) (*EffectOutbox, error) {
+	return c.Query().Where(effectoutbox.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *EffectOutboxClient) GetX(ctx context.Context, id string) *EffectOutbox {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *EffectOutboxClient) Hooks() []Hook {
+	return c.hooks.EffectOutbox
+}
+
+// Interceptors returns the client interceptors.
+func (c *EffectOutboxClient) Interceptors() []Interceptor {
+	return c.inters.EffectOutbox
+}
+
+func (c *EffectOutboxClient) mutate(ctx context.Context, m *EffectOutboxMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&EffectOutboxCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&EffectOutboxUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&EffectOutboxUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&EffectOutboxDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown EffectOutbox mutation op: %q", m.Op())
+	}
+}
+
+// IdemKeyClient is a client for the IdemKey schema.
+type IdemKeyClient struct {
+	config
+}
+
+// NewIdemKeyClient returns a client for the IdemKey from the given config.
+func NewIdemKeyClient(c config) *IdemKeyClient {
+	return &IdemKeyClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `idemkey.Hooks(f(g(h())))`.
+func (c *IdemKeyClient) Use(hooks ...Hook) {
+	c.hooks.IdemKey = append(c.hooks.IdemKey, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `idemkey.Intercept(f(g(h())))`.
+func (c *IdemKeyClient) Intercept(interceptors ...Interceptor) {
+	c.inters.IdemKey = append(c.inters.IdemKey, interceptors...)
+}
+
+// Create returns a builder for creating a IdemKey entity.
+func (c *IdemKeyClient) Create() *IdemKeyCreate {
+	mutation := newIdemKeyMutation(c.config, OpCreate)
+	return &IdemKeyCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of IdemKey entities.
+func (c *IdemKeyClient) CreateBulk(builders ...*IdemKeyCreate) *IdemKeyCreateBulk {
+	return &IdemKeyCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *IdemKeyClient) MapCreateBulk(slice any, setFunc func(*IdemKeyCreate, int)) *IdemKeyCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &IdemKeyCreateBulk{err: fmt.Errorf("calling to IdemKeyClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*IdemKeyCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &IdemKeyCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for IdemKey.
+func (c *IdemKeyClient) Update() *IdemKeyUpdate {
+	mutation := newIdemKeyMutation(c.config, OpUpdate)
+	return &IdemKeyUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *IdemKeyClient) UpdateOne(_m *IdemKey) *IdemKeyUpdateOne {
+	mutation := newIdemKeyMutation(c.config, OpUpdateOne, withIdemKey(_m))
+	return &IdemKeyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *IdemKeyClient) UpdateOneID(id string) *IdemKeyUpdateOne {
+	mutation := newIdemKeyMutation(c.config, OpUpdateOne, withIdemKeyID(id))
+	return &IdemKeyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for IdemKey.
+func (c *IdemKeyClient) Delete() *IdemKeyDelete {
+	mutation := newIdemKeyMutation(c.config, OpDelete)
+	return &IdemKeyDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *IdemKeyClient) DeleteOne(_m *IdemKey) *IdemKeyDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *IdemKeyClient) DeleteOneID(id string) *IdemKeyDeleteOne {
+	builder := c.Delete().Where(idemkey.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &IdemKeyDeleteOne{builder}
+}
+
+// Query returns a query builder for IdemKey.
+func (c *IdemKeyClient) Query() *IdemKeyQuery {
+	return &IdemKeyQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeIdemKey},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a IdemKey entity by its id.
+func (c *IdemKeyClient) Get(ctx context.Context, id string) (*IdemKey, error) {
+	return c.Query().Where(idemkey.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *IdemKeyClient) GetX(ctx context.Context, id string) *IdemKey {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *IdemKeyClient) Hooks() []Hook {
+	return c.hooks.IdemKey
+}
+
+// Interceptors returns the client interceptors.
+func (c *IdemKeyClient) Interceptors() []Interceptor {
+	return c.inters.IdemKey
+}
+
+func (c *IdemKeyClient) mutate(ctx context.Context, m *IdemKeyMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&IdemKeyCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&IdemKeyUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&IdemKeyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&IdemKeyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown IdemKey mutation op: %q", m.Op())
+	}
+}
+
+// InteractionDecisionClient is a client for the InteractionDecision schema.
+type InteractionDecisionClient struct {
+	config
+}
+
+// NewInteractionDecisionClient returns a client for the InteractionDecision from the given config.
+func NewInteractionDecisionClient(c config) *InteractionDecisionClient {
+	return &InteractionDecisionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `interactiondecision.Hooks(f(g(h())))`.
+func (c *InteractionDecisionClient) Use(hooks ...Hook) {
+	c.hooks.InteractionDecision = append(c.hooks.InteractionDecision, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `interactiondecision.Intercept(f(g(h())))`.
+func (c *InteractionDecisionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.InteractionDecision = append(c.inters.InteractionDecision, interceptors...)
+}
+
+// Create returns a builder for creating a InteractionDecision entity.
+func (c *InteractionDecisionClient) Create() *InteractionDecisionCreate {
+	mutation := newInteractionDecisionMutation(c.config, OpCreate)
+	return &InteractionDecisionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of InteractionDecision entities.
+func (c *InteractionDecisionClient) CreateBulk(builders ...*InteractionDecisionCreate) *InteractionDecisionCreateBulk {
+	return &InteractionDecisionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *InteractionDecisionClient) MapCreateBulk(slice any, setFunc func(*InteractionDecisionCreate, int)) *InteractionDecisionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &InteractionDecisionCreateBulk{err: fmt.Errorf("calling to InteractionDecisionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*InteractionDecisionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &InteractionDecisionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for InteractionDecision.
+func (c *InteractionDecisionClient) Update() *InteractionDecisionUpdate {
+	mutation := newInteractionDecisionMutation(c.config, OpUpdate)
+	return &InteractionDecisionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *InteractionDecisionClient) UpdateOne(_m *InteractionDecision) *InteractionDecisionUpdateOne {
+	mutation := newInteractionDecisionMutation(c.config, OpUpdateOne, withInteractionDecision(_m))
+	return &InteractionDecisionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *InteractionDecisionClient) UpdateOneID(id string) *InteractionDecisionUpdateOne {
+	mutation := newInteractionDecisionMutation(c.config, OpUpdateOne, withInteractionDecisionID(id))
+	return &InteractionDecisionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for InteractionDecision.
+func (c *InteractionDecisionClient) Delete() *InteractionDecisionDelete {
+	mutation := newInteractionDecisionMutation(c.config, OpDelete)
+	return &InteractionDecisionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *InteractionDecisionClient) DeleteOne(_m *InteractionDecision) *InteractionDecisionDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *InteractionDecisionClient) DeleteOneID(id string) *InteractionDecisionDeleteOne {
+	builder := c.Delete().Where(interactiondecision.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &InteractionDecisionDeleteOne{builder}
+}
+
+// Query returns a query builder for InteractionDecision.
+func (c *InteractionDecisionClient) Query() *InteractionDecisionQuery {
+	return &InteractionDecisionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeInteractionDecision},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a InteractionDecision entity by its id.
+func (c *InteractionDecisionClient) Get(ctx context.Context, id string) (*InteractionDecision, error) {
+	return c.Query().Where(interactiondecision.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *InteractionDecisionClient) GetX(ctx context.Context, id string) *InteractionDecision {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *InteractionDecisionClient) Hooks() []Hook {
+	return c.hooks.InteractionDecision
+}
+
+// Interceptors returns the client interceptors.
+func (c *InteractionDecisionClient) Interceptors() []Interceptor {
+	return c.inters.InteractionDecision
+}
+
+func (c *InteractionDecisionClient) mutate(ctx context.Context, m *InteractionDecisionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&InteractionDecisionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&InteractionDecisionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&InteractionDecisionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&InteractionDecisionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown InteractionDecision mutation op: %q", m.Op())
+	}
+}
+
+// LiveDraftClient is a client for the LiveDraft schema.
+type LiveDraftClient struct {
+	config
+}
+
+// NewLiveDraftClient returns a client for the LiveDraft from the given config.
+func NewLiveDraftClient(c config) *LiveDraftClient {
+	return &LiveDraftClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `livedraft.Hooks(f(g(h())))`.
+func (c *LiveDraftClient) Use(hooks ...Hook) {
+	c.hooks.LiveDraft = append(c.hooks.LiveDraft, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `livedraft.Intercept(f(g(h())))`.
+func (c *LiveDraftClient) Intercept(interceptors ...Interceptor) {
+	c.inters.LiveDraft = append(c.inters.LiveDraft, interceptors...)
+}
+
+// Create returns a builder for creating a LiveDraft entity.
+func (c *LiveDraftClient) Create() *LiveDraftCreate {
+	mutation := newLiveDraftMutation(c.config, OpCreate)
+	return &LiveDraftCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of LiveDraft entities.
+func (c *LiveDraftClient) CreateBulk(builders ...*LiveDraftCreate) *LiveDraftCreateBulk {
+	return &LiveDraftCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *LiveDraftClient) MapCreateBulk(slice any, setFunc func(*LiveDraftCreate, int)) *LiveDraftCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &LiveDraftCreateBulk{err: fmt.Errorf("calling to LiveDraftClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*LiveDraftCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &LiveDraftCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for LiveDraft.
+func (c *LiveDraftClient) Update() *LiveDraftUpdate {
+	mutation := newLiveDraftMutation(c.config, OpUpdate)
+	return &LiveDraftUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *LiveDraftClient) UpdateOne(_m *LiveDraft) *LiveDraftUpdateOne {
+	mutation := newLiveDraftMutation(c.config, OpUpdateOne, withLiveDraft(_m))
+	return &LiveDraftUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *LiveDraftClient) UpdateOneID(id string) *LiveDraftUpdateOne {
+	mutation := newLiveDraftMutation(c.config, OpUpdateOne, withLiveDraftID(id))
+	return &LiveDraftUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for LiveDraft.
+func (c *LiveDraftClient) Delete() *LiveDraftDelete {
+	mutation := newLiveDraftMutation(c.config, OpDelete)
+	return &LiveDraftDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *LiveDraftClient) DeleteOne(_m *LiveDraft) *LiveDraftDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *LiveDraftClient) DeleteOneID(id string) *LiveDraftDeleteOne {
+	builder := c.Delete().Where(livedraft.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &LiveDraftDeleteOne{builder}
+}
+
+// Query returns a query builder for LiveDraft.
+func (c *LiveDraftClient) Query() *LiveDraftQuery {
+	return &LiveDraftQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeLiveDraft},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a LiveDraft entity by its id.
+func (c *LiveDraftClient) Get(ctx context.Context, id string) (*LiveDraft, error) {
+	return c.Query().Where(livedraft.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *LiveDraftClient) GetX(ctx context.Context, id string) *LiveDraft {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *LiveDraftClient) Hooks() []Hook {
+	return c.hooks.LiveDraft
+}
+
+// Interceptors returns the client interceptors.
+func (c *LiveDraftClient) Interceptors() []Interceptor {
+	return c.inters.LiveDraft
+}
+
+func (c *LiveDraftClient) mutate(ctx context.Context, m *LiveDraftMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&LiveDraftCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&LiveDraftUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&LiveDraftUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&LiveDraftDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown LiveDraft mutation op: %q", m.Op())
+	}
+}
+
 // LiveSessionClient is a client for the LiveSession schema.
 type LiveSessionClient struct {
 	config
@@ -943,6 +1668,139 @@ func (c *LiveSessionClient) mutate(ctx context.Context, m *LiveSessionMutation) 
 	}
 }
 
+// PatronClient is a client for the Patron schema.
+type PatronClient struct {
+	config
+}
+
+// NewPatronClient returns a client for the Patron from the given config.
+func NewPatronClient(c config) *PatronClient {
+	return &PatronClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `patron.Hooks(f(g(h())))`.
+func (c *PatronClient) Use(hooks ...Hook) {
+	c.hooks.Patron = append(c.hooks.Patron, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `patron.Intercept(f(g(h())))`.
+func (c *PatronClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Patron = append(c.inters.Patron, interceptors...)
+}
+
+// Create returns a builder for creating a Patron entity.
+func (c *PatronClient) Create() *PatronCreate {
+	mutation := newPatronMutation(c.config, OpCreate)
+	return &PatronCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Patron entities.
+func (c *PatronClient) CreateBulk(builders ...*PatronCreate) *PatronCreateBulk {
+	return &PatronCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *PatronClient) MapCreateBulk(slice any, setFunc func(*PatronCreate, int)) *PatronCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &PatronCreateBulk{err: fmt.Errorf("calling to PatronClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*PatronCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &PatronCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Patron.
+func (c *PatronClient) Update() *PatronUpdate {
+	mutation := newPatronMutation(c.config, OpUpdate)
+	return &PatronUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *PatronClient) UpdateOne(_m *Patron) *PatronUpdateOne {
+	mutation := newPatronMutation(c.config, OpUpdateOne, withPatron(_m))
+	return &PatronUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *PatronClient) UpdateOneID(id string) *PatronUpdateOne {
+	mutation := newPatronMutation(c.config, OpUpdateOne, withPatronID(id))
+	return &PatronUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Patron.
+func (c *PatronClient) Delete() *PatronDelete {
+	mutation := newPatronMutation(c.config, OpDelete)
+	return &PatronDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *PatronClient) DeleteOne(_m *Patron) *PatronDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *PatronClient) DeleteOneID(id string) *PatronDeleteOne {
+	builder := c.Delete().Where(patron.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &PatronDeleteOne{builder}
+}
+
+// Query returns a query builder for Patron.
+func (c *PatronClient) Query() *PatronQuery {
+	return &PatronQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypePatron},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Patron entity by its id.
+func (c *PatronClient) Get(ctx context.Context, id string) (*Patron, error) {
+	return c.Query().Where(patron.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *PatronClient) GetX(ctx context.Context, id string) *Patron {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *PatronClient) Hooks() []Hook {
+	return c.hooks.Patron
+}
+
+// Interceptors returns the client interceptors.
+func (c *PatronClient) Interceptors() []Interceptor {
+	return c.inters.Patron
+}
+
+func (c *PatronClient) mutate(ctx context.Context, m *PatronMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&PatronCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&PatronUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&PatronUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&PatronDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Patron mutation op: %q", m.Op())
+	}
+}
+
 // PersonaClient is a client for the Persona schema.
 type PersonaClient struct {
 	config
@@ -1073,6 +1931,139 @@ func (c *PersonaClient) mutate(ctx context.Context, m *PersonaMutation) (Value, 
 		return (&PersonaDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Persona mutation op: %q", m.Op())
+	}
+}
+
+// PersonaRefClient is a client for the PersonaRef schema.
+type PersonaRefClient struct {
+	config
+}
+
+// NewPersonaRefClient returns a client for the PersonaRef from the given config.
+func NewPersonaRefClient(c config) *PersonaRefClient {
+	return &PersonaRefClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `personaref.Hooks(f(g(h())))`.
+func (c *PersonaRefClient) Use(hooks ...Hook) {
+	c.hooks.PersonaRef = append(c.hooks.PersonaRef, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `personaref.Intercept(f(g(h())))`.
+func (c *PersonaRefClient) Intercept(interceptors ...Interceptor) {
+	c.inters.PersonaRef = append(c.inters.PersonaRef, interceptors...)
+}
+
+// Create returns a builder for creating a PersonaRef entity.
+func (c *PersonaRefClient) Create() *PersonaRefCreate {
+	mutation := newPersonaRefMutation(c.config, OpCreate)
+	return &PersonaRefCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of PersonaRef entities.
+func (c *PersonaRefClient) CreateBulk(builders ...*PersonaRefCreate) *PersonaRefCreateBulk {
+	return &PersonaRefCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *PersonaRefClient) MapCreateBulk(slice any, setFunc func(*PersonaRefCreate, int)) *PersonaRefCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &PersonaRefCreateBulk{err: fmt.Errorf("calling to PersonaRefClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*PersonaRefCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &PersonaRefCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for PersonaRef.
+func (c *PersonaRefClient) Update() *PersonaRefUpdate {
+	mutation := newPersonaRefMutation(c.config, OpUpdate)
+	return &PersonaRefUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *PersonaRefClient) UpdateOne(_m *PersonaRef) *PersonaRefUpdateOne {
+	mutation := newPersonaRefMutation(c.config, OpUpdateOne, withPersonaRef(_m))
+	return &PersonaRefUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *PersonaRefClient) UpdateOneID(id string) *PersonaRefUpdateOne {
+	mutation := newPersonaRefMutation(c.config, OpUpdateOne, withPersonaRefID(id))
+	return &PersonaRefUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for PersonaRef.
+func (c *PersonaRefClient) Delete() *PersonaRefDelete {
+	mutation := newPersonaRefMutation(c.config, OpDelete)
+	return &PersonaRefDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *PersonaRefClient) DeleteOne(_m *PersonaRef) *PersonaRefDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *PersonaRefClient) DeleteOneID(id string) *PersonaRefDeleteOne {
+	builder := c.Delete().Where(personaref.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &PersonaRefDeleteOne{builder}
+}
+
+// Query returns a query builder for PersonaRef.
+func (c *PersonaRefClient) Query() *PersonaRefQuery {
+	return &PersonaRefQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypePersonaRef},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a PersonaRef entity by its id.
+func (c *PersonaRefClient) Get(ctx context.Context, id string) (*PersonaRef, error) {
+	return c.Query().Where(personaref.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *PersonaRefClient) GetX(ctx context.Context, id string) *PersonaRef {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *PersonaRefClient) Hooks() []Hook {
+	return c.hooks.PersonaRef
+}
+
+// Interceptors returns the client interceptors.
+func (c *PersonaRefClient) Interceptors() []Interceptor {
+	return c.inters.PersonaRef
+}
+
+func (c *PersonaRefClient) mutate(ctx context.Context, m *PersonaRefMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&PersonaRefCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&PersonaRefUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&PersonaRefUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&PersonaRefDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown PersonaRef mutation op: %q", m.Op())
 	}
 }
 
@@ -1611,11 +2602,13 @@ func (c *ViduKeyClient) mutate(ctx context.Context, m *ViduKeyMutation) (Value, 
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		Asset, AuditLog, CostLedger, DanmakuEvent, LiveSession, Persona, Recording,
-		SessionEvent, Setting, ViduKey []ent.Hook
+		ApplyJournal, Asset, AuditLog, CostLedger, DanmakuEvent, EffectOutbox, IdemKey,
+		InteractionDecision, LiveDraft, LiveSession, Patron, Persona, PersonaRef,
+		Recording, SessionEvent, Setting, ViduKey []ent.Hook
 	}
 	inters struct {
-		Asset, AuditLog, CostLedger, DanmakuEvent, LiveSession, Persona, Recording,
-		SessionEvent, Setting, ViduKey []ent.Interceptor
+		ApplyJournal, Asset, AuditLog, CostLedger, DanmakuEvent, EffectOutbox, IdemKey,
+		InteractionDecision, LiveDraft, LiveSession, Patron, Persona, PersonaRef,
+		Recording, SessionEvent, Setting, ViduKey []ent.Interceptor
 	}
 )

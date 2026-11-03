@@ -41,6 +41,20 @@ func (_u *CostLedgerUpdate) SetNillableSessionID(v *string) *CostLedgerUpdate {
 	return _u
 }
 
+// SetAccountID sets the "account_id" field.
+func (_u *CostLedgerUpdate) SetAccountID(v string) *CostLedgerUpdate {
+	_u.mutation.SetAccountID(v)
+	return _u
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableAccountID(v *string) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetAccountID(*v)
+	}
+	return _u
+}
+
 // SetCreditsStart sets the "credits_start" field.
 func (_u *CostLedgerUpdate) SetCreditsStart(v int64) *CostLedgerUpdate {
 	_u.mutation.ResetCreditsStart()
@@ -83,6 +97,27 @@ func (_u *CostLedgerUpdate) AddCreditsEnd(v int64) *CostLedgerUpdate {
 	return _u
 }
 
+// SetCreditsSpent sets the "credits_spent" field.
+func (_u *CostLedgerUpdate) SetCreditsSpent(v int64) *CostLedgerUpdate {
+	_u.mutation.ResetCreditsSpent()
+	_u.mutation.SetCreditsSpent(v)
+	return _u
+}
+
+// SetNillableCreditsSpent sets the "credits_spent" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableCreditsSpent(v *int64) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetCreditsSpent(*v)
+	}
+	return _u
+}
+
+// AddCreditsSpent adds value to the "credits_spent" field.
+func (_u *CostLedgerUpdate) AddCreditsSpent(v int64) *CostLedgerUpdate {
+	_u.mutation.AddCreditsSpent(v)
+	return _u
+}
+
 // SetTokensIn sets the "tokens_in" field.
 func (_u *CostLedgerUpdate) SetTokensIn(v int64) *CostLedgerUpdate {
 	_u.mutation.ResetTokensIn()
@@ -122,6 +157,48 @@ func (_u *CostLedgerUpdate) SetNillableTokensOut(v *int64) *CostLedgerUpdate {
 // AddTokensOut adds value to the "tokens_out" field.
 func (_u *CostLedgerUpdate) AddTokensOut(v int64) *CostLedgerUpdate {
 	_u.mutation.AddTokensOut(v)
+	return _u
+}
+
+// SetTokensTotal sets the "tokens_total" field.
+func (_u *CostLedgerUpdate) SetTokensTotal(v int64) *CostLedgerUpdate {
+	_u.mutation.ResetTokensTotal()
+	_u.mutation.SetTokensTotal(v)
+	return _u
+}
+
+// SetNillableTokensTotal sets the "tokens_total" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableTokensTotal(v *int64) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetTokensTotal(*v)
+	}
+	return _u
+}
+
+// AddTokensTotal adds value to the "tokens_total" field.
+func (_u *CostLedgerUpdate) AddTokensTotal(v int64) *CostLedgerUpdate {
+	_u.mutation.AddTokensTotal(v)
+	return _u
+}
+
+// SetLlmCalls sets the "llm_calls" field.
+func (_u *CostLedgerUpdate) SetLlmCalls(v int64) *CostLedgerUpdate {
+	_u.mutation.ResetLlmCalls()
+	_u.mutation.SetLlmCalls(v)
+	return _u
+}
+
+// SetNillableLlmCalls sets the "llm_calls" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableLlmCalls(v *int64) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetLlmCalls(*v)
+	}
+	return _u
+}
+
+// AddLlmCalls adds value to the "llm_calls" field.
+func (_u *CostLedgerUpdate) AddLlmCalls(v int64) *CostLedgerUpdate {
+	_u.mutation.AddLlmCalls(v)
 	return _u
 }
 
@@ -188,6 +265,97 @@ func (_u *CostLedgerUpdate) AddEstimatedCost(v float64) *CostLedgerUpdate {
 	return _u
 }
 
+// SetCostSource sets the "cost_source" field.
+func (_u *CostLedgerUpdate) SetCostSource(v string) *CostLedgerUpdate {
+	_u.mutation.SetCostSource(v)
+	return _u
+}
+
+// SetNillableCostSource sets the "cost_source" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableCostSource(v *string) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetCostSource(*v)
+	}
+	return _u
+}
+
+// SetSource sets the "source" field.
+func (_u *CostLedgerUpdate) SetSource(v string) *CostLedgerUpdate {
+	_u.mutation.SetSource(v)
+	return _u
+}
+
+// SetNillableSource sets the "source" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableSource(v *string) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetSource(*v)
+	}
+	return _u
+}
+
+// SetStartedAtMs sets the "started_at_ms" field.
+func (_u *CostLedgerUpdate) SetStartedAtMs(v int64) *CostLedgerUpdate {
+	_u.mutation.ResetStartedAtMs()
+	_u.mutation.SetStartedAtMs(v)
+	return _u
+}
+
+// SetNillableStartedAtMs sets the "started_at_ms" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableStartedAtMs(v *int64) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetStartedAtMs(*v)
+	}
+	return _u
+}
+
+// AddStartedAtMs adds value to the "started_at_ms" field.
+func (_u *CostLedgerUpdate) AddStartedAtMs(v int64) *CostLedgerUpdate {
+	_u.mutation.AddStartedAtMs(v)
+	return _u
+}
+
+// SetEndedAtMs sets the "ended_at_ms" field.
+func (_u *CostLedgerUpdate) SetEndedAtMs(v int64) *CostLedgerUpdate {
+	_u.mutation.ResetEndedAtMs()
+	_u.mutation.SetEndedAtMs(v)
+	return _u
+}
+
+// SetNillableEndedAtMs sets the "ended_at_ms" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableEndedAtMs(v *int64) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetEndedAtMs(*v)
+	}
+	return _u
+}
+
+// AddEndedAtMs adds value to the "ended_at_ms" field.
+func (_u *CostLedgerUpdate) AddEndedAtMs(v int64) *CostLedgerUpdate {
+	_u.mutation.AddEndedAtMs(v)
+	return _u
+}
+
+// SetUpdatedAtMs sets the "updated_at_ms" field.
+func (_u *CostLedgerUpdate) SetUpdatedAtMs(v int64) *CostLedgerUpdate {
+	_u.mutation.ResetUpdatedAtMs()
+	_u.mutation.SetUpdatedAtMs(v)
+	return _u
+}
+
+// SetNillableUpdatedAtMs sets the "updated_at_ms" field if the given value is not nil.
+func (_u *CostLedgerUpdate) SetNillableUpdatedAtMs(v *int64) *CostLedgerUpdate {
+	if v != nil {
+		_u.SetUpdatedAtMs(*v)
+	}
+	return _u
+}
+
+// AddUpdatedAtMs adds value to the "updated_at_ms" field.
+func (_u *CostLedgerUpdate) AddUpdatedAtMs(v int64) *CostLedgerUpdate {
+	_u.mutation.AddUpdatedAtMs(v)
+	return _u
+}
+
 // Mutation returns the CostLedgerMutation object of the builder.
 func (_u *CostLedgerUpdate) Mutation() *CostLedgerMutation {
 	return _u.mutation
@@ -232,6 +400,9 @@ func (_u *CostLedgerUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	if value, ok := _u.mutation.SessionID(); ok {
 		_spec.SetField(costledger.FieldSessionID, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.AccountID(); ok {
+		_spec.SetField(costledger.FieldAccountID, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.CreditsStart(); ok {
 		_spec.SetField(costledger.FieldCreditsStart, field.TypeInt64, value)
 	}
@@ -244,6 +415,12 @@ func (_u *CostLedgerUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	if value, ok := _u.mutation.AddedCreditsEnd(); ok {
 		_spec.AddField(costledger.FieldCreditsEnd, field.TypeInt64, value)
 	}
+	if value, ok := _u.mutation.CreditsSpent(); ok {
+		_spec.SetField(costledger.FieldCreditsSpent, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedCreditsSpent(); ok {
+		_spec.AddField(costledger.FieldCreditsSpent, field.TypeInt64, value)
+	}
 	if value, ok := _u.mutation.TokensIn(); ok {
 		_spec.SetField(costledger.FieldTokensIn, field.TypeInt64, value)
 	}
@@ -255,6 +432,18 @@ func (_u *CostLedgerUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	}
 	if value, ok := _u.mutation.AddedTokensOut(); ok {
 		_spec.AddField(costledger.FieldTokensOut, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.TokensTotal(); ok {
+		_spec.SetField(costledger.FieldTokensTotal, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTokensTotal(); ok {
+		_spec.AddField(costledger.FieldTokensTotal, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.LlmCalls(); ok {
+		_spec.SetField(costledger.FieldLlmCalls, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedLlmCalls(); ok {
+		_spec.AddField(costledger.FieldLlmCalls, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Diamonds(); ok {
 		_spec.SetField(costledger.FieldDiamonds, field.TypeInt64, value)
@@ -273,6 +462,30 @@ func (_u *CostLedgerUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	}
 	if value, ok := _u.mutation.AddedEstimatedCost(); ok {
 		_spec.AddField(costledger.FieldEstimatedCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.CostSource(); ok {
+		_spec.SetField(costledger.FieldCostSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Source(); ok {
+		_spec.SetField(costledger.FieldSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.StartedAtMs(); ok {
+		_spec.SetField(costledger.FieldStartedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedStartedAtMs(); ok {
+		_spec.AddField(costledger.FieldStartedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.EndedAtMs(); ok {
+		_spec.SetField(costledger.FieldEndedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedEndedAtMs(); ok {
+		_spec.AddField(costledger.FieldEndedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.UpdatedAtMs(); ok {
+		_spec.SetField(costledger.FieldUpdatedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUpdatedAtMs(); ok {
+		_spec.AddField(costledger.FieldUpdatedAtMs, field.TypeInt64, value)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
@@ -304,6 +517,20 @@ func (_u *CostLedgerUpdateOne) SetSessionID(v string) *CostLedgerUpdateOne {
 func (_u *CostLedgerUpdateOne) SetNillableSessionID(v *string) *CostLedgerUpdateOne {
 	if v != nil {
 		_u.SetSessionID(*v)
+	}
+	return _u
+}
+
+// SetAccountID sets the "account_id" field.
+func (_u *CostLedgerUpdateOne) SetAccountID(v string) *CostLedgerUpdateOne {
+	_u.mutation.SetAccountID(v)
+	return _u
+}
+
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableAccountID(v *string) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetAccountID(*v)
 	}
 	return _u
 }
@@ -350,6 +577,27 @@ func (_u *CostLedgerUpdateOne) AddCreditsEnd(v int64) *CostLedgerUpdateOne {
 	return _u
 }
 
+// SetCreditsSpent sets the "credits_spent" field.
+func (_u *CostLedgerUpdateOne) SetCreditsSpent(v int64) *CostLedgerUpdateOne {
+	_u.mutation.ResetCreditsSpent()
+	_u.mutation.SetCreditsSpent(v)
+	return _u
+}
+
+// SetNillableCreditsSpent sets the "credits_spent" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableCreditsSpent(v *int64) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetCreditsSpent(*v)
+	}
+	return _u
+}
+
+// AddCreditsSpent adds value to the "credits_spent" field.
+func (_u *CostLedgerUpdateOne) AddCreditsSpent(v int64) *CostLedgerUpdateOne {
+	_u.mutation.AddCreditsSpent(v)
+	return _u
+}
+
 // SetTokensIn sets the "tokens_in" field.
 func (_u *CostLedgerUpdateOne) SetTokensIn(v int64) *CostLedgerUpdateOne {
 	_u.mutation.ResetTokensIn()
@@ -389,6 +637,48 @@ func (_u *CostLedgerUpdateOne) SetNillableTokensOut(v *int64) *CostLedgerUpdateO
 // AddTokensOut adds value to the "tokens_out" field.
 func (_u *CostLedgerUpdateOne) AddTokensOut(v int64) *CostLedgerUpdateOne {
 	_u.mutation.AddTokensOut(v)
+	return _u
+}
+
+// SetTokensTotal sets the "tokens_total" field.
+func (_u *CostLedgerUpdateOne) SetTokensTotal(v int64) *CostLedgerUpdateOne {
+	_u.mutation.ResetTokensTotal()
+	_u.mutation.SetTokensTotal(v)
+	return _u
+}
+
+// SetNillableTokensTotal sets the "tokens_total" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableTokensTotal(v *int64) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetTokensTotal(*v)
+	}
+	return _u
+}
+
+// AddTokensTotal adds value to the "tokens_total" field.
+func (_u *CostLedgerUpdateOne) AddTokensTotal(v int64) *CostLedgerUpdateOne {
+	_u.mutation.AddTokensTotal(v)
+	return _u
+}
+
+// SetLlmCalls sets the "llm_calls" field.
+func (_u *CostLedgerUpdateOne) SetLlmCalls(v int64) *CostLedgerUpdateOne {
+	_u.mutation.ResetLlmCalls()
+	_u.mutation.SetLlmCalls(v)
+	return _u
+}
+
+// SetNillableLlmCalls sets the "llm_calls" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableLlmCalls(v *int64) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetLlmCalls(*v)
+	}
+	return _u
+}
+
+// AddLlmCalls adds value to the "llm_calls" field.
+func (_u *CostLedgerUpdateOne) AddLlmCalls(v int64) *CostLedgerUpdateOne {
+	_u.mutation.AddLlmCalls(v)
 	return _u
 }
 
@@ -452,6 +742,97 @@ func (_u *CostLedgerUpdateOne) SetNillableEstimatedCost(v *float64) *CostLedgerU
 // AddEstimatedCost adds value to the "estimated_cost" field.
 func (_u *CostLedgerUpdateOne) AddEstimatedCost(v float64) *CostLedgerUpdateOne {
 	_u.mutation.AddEstimatedCost(v)
+	return _u
+}
+
+// SetCostSource sets the "cost_source" field.
+func (_u *CostLedgerUpdateOne) SetCostSource(v string) *CostLedgerUpdateOne {
+	_u.mutation.SetCostSource(v)
+	return _u
+}
+
+// SetNillableCostSource sets the "cost_source" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableCostSource(v *string) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetCostSource(*v)
+	}
+	return _u
+}
+
+// SetSource sets the "source" field.
+func (_u *CostLedgerUpdateOne) SetSource(v string) *CostLedgerUpdateOne {
+	_u.mutation.SetSource(v)
+	return _u
+}
+
+// SetNillableSource sets the "source" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableSource(v *string) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetSource(*v)
+	}
+	return _u
+}
+
+// SetStartedAtMs sets the "started_at_ms" field.
+func (_u *CostLedgerUpdateOne) SetStartedAtMs(v int64) *CostLedgerUpdateOne {
+	_u.mutation.ResetStartedAtMs()
+	_u.mutation.SetStartedAtMs(v)
+	return _u
+}
+
+// SetNillableStartedAtMs sets the "started_at_ms" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableStartedAtMs(v *int64) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetStartedAtMs(*v)
+	}
+	return _u
+}
+
+// AddStartedAtMs adds value to the "started_at_ms" field.
+func (_u *CostLedgerUpdateOne) AddStartedAtMs(v int64) *CostLedgerUpdateOne {
+	_u.mutation.AddStartedAtMs(v)
+	return _u
+}
+
+// SetEndedAtMs sets the "ended_at_ms" field.
+func (_u *CostLedgerUpdateOne) SetEndedAtMs(v int64) *CostLedgerUpdateOne {
+	_u.mutation.ResetEndedAtMs()
+	_u.mutation.SetEndedAtMs(v)
+	return _u
+}
+
+// SetNillableEndedAtMs sets the "ended_at_ms" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableEndedAtMs(v *int64) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetEndedAtMs(*v)
+	}
+	return _u
+}
+
+// AddEndedAtMs adds value to the "ended_at_ms" field.
+func (_u *CostLedgerUpdateOne) AddEndedAtMs(v int64) *CostLedgerUpdateOne {
+	_u.mutation.AddEndedAtMs(v)
+	return _u
+}
+
+// SetUpdatedAtMs sets the "updated_at_ms" field.
+func (_u *CostLedgerUpdateOne) SetUpdatedAtMs(v int64) *CostLedgerUpdateOne {
+	_u.mutation.ResetUpdatedAtMs()
+	_u.mutation.SetUpdatedAtMs(v)
+	return _u
+}
+
+// SetNillableUpdatedAtMs sets the "updated_at_ms" field if the given value is not nil.
+func (_u *CostLedgerUpdateOne) SetNillableUpdatedAtMs(v *int64) *CostLedgerUpdateOne {
+	if v != nil {
+		_u.SetUpdatedAtMs(*v)
+	}
+	return _u
+}
+
+// AddUpdatedAtMs adds value to the "updated_at_ms" field.
+func (_u *CostLedgerUpdateOne) AddUpdatedAtMs(v int64) *CostLedgerUpdateOne {
+	_u.mutation.AddUpdatedAtMs(v)
 	return _u
 }
 
@@ -529,6 +910,9 @@ func (_u *CostLedgerUpdateOne) sqlSave(ctx context.Context) (_node *CostLedger, 
 	if value, ok := _u.mutation.SessionID(); ok {
 		_spec.SetField(costledger.FieldSessionID, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.AccountID(); ok {
+		_spec.SetField(costledger.FieldAccountID, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.CreditsStart(); ok {
 		_spec.SetField(costledger.FieldCreditsStart, field.TypeInt64, value)
 	}
@@ -541,6 +925,12 @@ func (_u *CostLedgerUpdateOne) sqlSave(ctx context.Context) (_node *CostLedger, 
 	if value, ok := _u.mutation.AddedCreditsEnd(); ok {
 		_spec.AddField(costledger.FieldCreditsEnd, field.TypeInt64, value)
 	}
+	if value, ok := _u.mutation.CreditsSpent(); ok {
+		_spec.SetField(costledger.FieldCreditsSpent, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedCreditsSpent(); ok {
+		_spec.AddField(costledger.FieldCreditsSpent, field.TypeInt64, value)
+	}
 	if value, ok := _u.mutation.TokensIn(); ok {
 		_spec.SetField(costledger.FieldTokensIn, field.TypeInt64, value)
 	}
@@ -552,6 +942,18 @@ func (_u *CostLedgerUpdateOne) sqlSave(ctx context.Context) (_node *CostLedger, 
 	}
 	if value, ok := _u.mutation.AddedTokensOut(); ok {
 		_spec.AddField(costledger.FieldTokensOut, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.TokensTotal(); ok {
+		_spec.SetField(costledger.FieldTokensTotal, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTokensTotal(); ok {
+		_spec.AddField(costledger.FieldTokensTotal, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.LlmCalls(); ok {
+		_spec.SetField(costledger.FieldLlmCalls, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedLlmCalls(); ok {
+		_spec.AddField(costledger.FieldLlmCalls, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Diamonds(); ok {
 		_spec.SetField(costledger.FieldDiamonds, field.TypeInt64, value)
@@ -570,6 +972,30 @@ func (_u *CostLedgerUpdateOne) sqlSave(ctx context.Context) (_node *CostLedger, 
 	}
 	if value, ok := _u.mutation.AddedEstimatedCost(); ok {
 		_spec.AddField(costledger.FieldEstimatedCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.CostSource(); ok {
+		_spec.SetField(costledger.FieldCostSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Source(); ok {
+		_spec.SetField(costledger.FieldSource, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.StartedAtMs(); ok {
+		_spec.SetField(costledger.FieldStartedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedStartedAtMs(); ok {
+		_spec.AddField(costledger.FieldStartedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.EndedAtMs(); ok {
+		_spec.SetField(costledger.FieldEndedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedEndedAtMs(); ok {
+		_spec.AddField(costledger.FieldEndedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.UpdatedAtMs(); ok {
+		_spec.SetField(costledger.FieldUpdatedAtMs, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUpdatedAtMs(); ok {
+		_spec.AddField(costledger.FieldUpdatedAtMs, field.TypeInt64, value)
 	}
 	_node = &CostLedger{config: _u.config}
 	_spec.Assign = _node.assignValues
