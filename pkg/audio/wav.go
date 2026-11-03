@@ -3,6 +3,8 @@ package audio
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"math"
 )
 
@@ -56,4 +58,53 @@ func TonePCM(ms int64) []byte {
 // PCMDurationMS 返回 PCM 的整毫秒时长。
 func PCMDurationMS(pcm []byte) int64 {
 	return MSForBytes(len(pcm))
+}
+
+// ErrWavFormat 表示 wav 字节不符合 24kHz/s16le/mono PCM 口径。
+var ErrWavFormat = errors.New("audio: wav 不是 24kHz/s16le/mono PCM")
+
+// PCMFromWav 从 RIFF/WAVE 字节中提取裸 PCM。fail-closed：
+// 仅接受 PCM16 单声道 24kHz（与 SampleRate/Channels/BytesPerSample 一致），
+// 其他编码/采样率一律报错，绝不静默重采样。
+func PCMFromWav(wav []byte) ([]byte, error) {
+	if len(wav) < 44 {
+		return nil, fmt.Errorf("%w: 长度不足 %d", ErrWavFormat, len(wav))
+	}
+	if !bytes.Equal(wav[0:4], []byte("RIFF")) || !bytes.Equal(wav[8:12], []byte("WAVE")) {
+		return nil, fmt.Errorf("%w: 缺少 RIFF/WAVE 头", ErrWavFormat)
+	}
+	pos := 12
+	var data []byte
+	for pos+8 <= len(wav) {
+		id := string(wav[pos : pos+4])
+		size := int(binary.LittleEndian.Uint32(wav[pos+4 : pos+8]))
+		body := wav[pos+8:]
+		if len(body) < size {
+			size = len(body)
+		}
+		switch id {
+		case "fmt ":
+			if size < 16 {
+				return nil, fmt.Errorf("%w: fmt 块过短", ErrWavFormat)
+			}
+			format := binary.LittleEndian.Uint16(body[0:2])
+			channels := binary.LittleEndian.Uint16(body[2:4])
+			rate := binary.LittleEndian.Uint32(body[4:8])
+			bits := binary.LittleEndian.Uint16(body[14:16])
+			if format != 1 || channels != uint16(Channels) || int(rate) != SampleRate || bits != uint16(BytesPerSample*8) {
+				return nil, fmt.Errorf("%w: format=%d channels=%d rate=%d bits=%d",
+					ErrWavFormat, format, channels, rate, bits)
+			}
+		case "data":
+			data = body[:size]
+		}
+		pos += 8 + size
+		if size%2 == 1 { // RIFF 块按 2 字节对齐
+			pos++
+		}
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("%w: 缺少 data 块", ErrWavFormat)
+	}
+	return data, nil
 }

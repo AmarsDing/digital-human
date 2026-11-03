@@ -16,6 +16,8 @@ const state = ref<RtcState>('unconfigured')
 const message = ref('')
 const muted = ref(true)
 const remainS = ref(0)
+/** G30：最后一次成功渲染的视频帧（dataURL），收播/断流时铺底防黑屏。 */
+const lastFrame = ref('')
 let adapter: RtcAdapter | null = null
 let timer: ReturnType<typeof setInterval> | null = null
 
@@ -26,7 +28,25 @@ function setState(next: RtcState): void {
   emit('state', next)
 }
 
+/** G30：把 video 当前帧截为 dataURL；jsdom/未渲染帧时静默跳过。 */
+function captureLastFrame(): void {
+  const el = video.value
+  if (!el || !el.videoWidth || !el.videoHeight) return
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = el.videoWidth
+    canvas.height = el.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(el, 0, 0)
+    lastFrame.value = canvas.toDataURL('image/jpeg', 0.7)
+  } catch {
+    /* 截帧失败不阻断收播流程 */
+  }
+}
+
 async function join(): Promise<void> {
+  if (adapter) captureLastFrame() // G30：旧流拆除前先截住最后一帧
   await leave()
   const creds = props.creds
   if (!creds || !creds.token) {
@@ -42,6 +62,7 @@ async function join(): Promise<void> {
     if (!el) throw new Error('video 元素未就绪')
     await adapter.join(creds, el)
     el.muted = muted.value
+    lastFrame.value = '' // 新流就绪，清掉旧帧
     setState('joined')
     startCountdown(creds.tokenExpireAt)
   } catch (err) {
@@ -121,7 +142,10 @@ defineExpose({ join, leave, mute, state })
   <div class="rtc" :data-state="state">
     <video ref="video" class="rtc__video" playsinline autoplay muted />
 
-    <div v-if="!alive" class="rtc__overlay">
+    <!-- G30 末帧保留：收播/断流后画面停在最后一帧，状态提示叠玻璃层而非黑屏 -->
+    <img v-if="lastFrame && !alive" class="rtc__lastframe" :src="lastFrame" alt="" aria-hidden="true" />
+
+    <div v-if="!alive" class="rtc__overlay" :class="{ 'rtc__overlay--glass': !!lastFrame }">
       <div class="rtc__badge">{{ state === 'joining' ? '正在入会…' : state === 'failed' ? '入会失败' : '未入会' }}</div>
       <p class="rtc__tip">{{ message || '等待开播后下发 RTC 凭证' }}</p>
       <button v-if="state === 'failed'" type="button" class="rtc__btn" @click="join">重试</button>
@@ -159,6 +183,17 @@ defineExpose({ join, leave, mute, state })
   height: 100%;
   object-fit: contain;
   background: transparent;
+}
+.rtc__lastframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.rtc__overlay--glass {
+  background: var(--nt-bg-glass);
+  backdrop-filter: var(--nt-glass-filter);
 }
 .rtc__overlay {
   position: absolute;

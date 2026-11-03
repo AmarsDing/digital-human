@@ -2,6 +2,7 @@ package media
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,7 +72,7 @@ func TestFakeDecoderReturnsPCM(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := FakeDecoder{MS: 200}
-	pcm, err := d.Decode(p)
+	pcm, err := d.Decode(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}

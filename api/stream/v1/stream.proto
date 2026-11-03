@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package dh.stream.v1;
+
+option go_package = "github.com/teamwork/digital-human/api/gen/go/stream/v1;streamv1";
+
+import "google/api/annotations.proto";
+
+// StreamService 抖音推流（DZ 批）。stream key 只写不回显（响应只给指纹）。
+// 状态机：idle→starting→pushing；异常 degraded（自动重连）；平台拒绝 rejected（终态）。
+service StreamService {
+  // 设置推流目标（rtmp_url + stream_key，仅存密钥存储/内存，不落 yaml）
+  rpc SetPushTarget(SetPushTargetRequest) returns (SetPushTargetReply) {
+    option (google.api.http) = {post: "/api/v1/stream/target" body: "*"};
+  }
+  // 推流状态快照
+  rpc GetPushStatus(GetPushStatusRequest) returns (GetPushStatusReply) {
+    option (google.api.http) = {get: "/api/v1/stream/status"};
+  }
+  // 开始推流（幂等）
+  rpc StartPush(StartPushRequest) returns (StartPushReply) {
+    option (google.api.http) = {post: "/api/v1/stream/start" body: "*"};
+  }
+  // 停止推流（幂等）
+  rpc StopPush(StopPushRequest) returns (StopPushReply) {
+    option (google.api.http) = {post: "/api/v1/stream/stop" body: "*"};
+  }
+}
+
+message SetPushTargetRequest {
+  string platform = 1;         // v1 仅 douyin
+  string rtmp_url = 2;         // 服务器地址（非密钥）
+  string stream_key = 3;       // 密钥：绝不进日志/响应/yaml
+  string idempotency_key = 4;
+}
+message SetPushTargetReply {
+  bool ok = 1;
+  string key_fingerprint8 = 2; // sha256(key) 前 8 位，仅用于"已配置"回显
+  string error = 3;
+}
+message GetPushStatusRequest {}
+message GetPushStatusReply {
+  string state = 1;            // idle|starting|pushing|degraded|rejected|stopped
+  string platform = 2;
+  int32 bitrate_kbps = 3;
+  double fps = 4;
+  int64 dropped_frames = 5;
+  string key_fingerprint8 = 6;
+  string last_error = 7;
+}
+message StartPushRequest { string idempotency_key = 1; }
+message StartPushReply { bool ok = 1; string reason = 2; }
+message StopPushRequest { string idempotency_key = 1; }
+message StopPushReply { bool ok = 1; string reason = 2; }

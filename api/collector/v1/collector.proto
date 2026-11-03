@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package dh.collector.v1;
+
+option go_package = "github.com/teamwork/digital-human/api/gen/go/collector/v1;collectorv1";
+
+import "google/api/annotations.proto";
+
+// CollectorService 弹幕采集器状态（DZ 批）。采集内核外置（douyinLive + dh-relay），
+// 本服务只做面板配置与状态展示；心跳由 dh-relay HMAC 签名上报。
+service CollectorService {
+  // 面板保存采集配置（房号等）
+  rpc SetCollector(SetCollectorRequest) returns (SetCollectorReply) {
+    option (google.api.http) = {post: "/api/v1/collector/config" body: "*"};
+  }
+  // 采集状态（来自 dh-relay 心跳；>35s 无心跳视为 stopped）
+  rpc GetCollectorStatus(GetCollectorStatusRequest) returns (GetCollectorStatusReply) {
+    option (google.api.http) = {get: "/api/v1/collector/status"};
+  }
+}
+
+message SetCollectorRequest {
+  string platform = 1;         // v1 仅 douyin
+  string room_id = 2;
+  string relay_mode = 3;       // external（v1）| managed（预留）
+  string idempotency_key = 4;
+}
+message SetCollectorReply { bool ok = 1; string error = 2; }
+message GetCollectorStatusRequest {}
+message GetCollectorStatusReply {
+  string state = 1;            // off|connecting|collecting|degraded|stopped
+  string room_id = 2;
+  int64 last_msg_ms = 3;       // 最近一条弹幕的 unix 毫秒
+  int64 msgs_per_min = 4;
+}

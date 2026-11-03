@@ -350,9 +350,9 @@ func validateName(name string) error {
 	return nil
 }
 
-// Decoder 是音频解码端口（真实实现走 ffmpeg，M3 只提供 fake）。
+// Decoder 是音频解码端口（真实实现走 ffmpeg，见 ffmpeg.go；dev 用 fake）。
 type Decoder interface {
-	Decode(pcmPath string) ([]byte, error)
+	Decode(ctx context.Context, pcmPath string) ([]byte, error)
 	Name() string
 }
 
@@ -364,7 +364,7 @@ type FakeDecoder struct {
 
 func (d FakeDecoder) Name() string { return "fake-ffmpeg" }
 
-func (d FakeDecoder) Decode(filePath string) ([]byte, error) {
+func (d FakeDecoder) Decode(_ context.Context, filePath string) ([]byte, error) {
 	st, err := os.Stat(filePath)
 	if err != nil {
 		return nil, err

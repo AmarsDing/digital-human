@@ -35,6 +35,10 @@
       })()
     </script>
     <title>数字人直播 · 控制台</title>
+    <!-- F49 RTC SDK 自托管：defer 保证 DOM 就绪后执行；factory shim 须在 SDK 之后。 -->
+    <script src="/vendor/aliyun-rtc-sdk-7.1.9.js" defer></script>
+    <script src="/vendor/trtc-sdk-5.00.1600.js" defer></script>
+    <script src="/vendor/rtc-factory.js" defer></script>
   </head>
   <body>
     <!-- quasar:entry-point -->
