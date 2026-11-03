@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 KRATOS_TP := $(shell go env GOMODCACHE)/github.com/go-kratos/kratos/v2@v2.9.2/third_party
 MODULE := github.com/teamwork/digital-human
-PROTOS := api/live/v1/live.proto api/live/v1/danmaku.proto api/config/v1/settings.proto
+PROTOS := api/live/v1/live.proto api/live/v1/danmaku.proto api/config/v1/settings.proto api/stream/v1/stream.proto api/collector/v1/collector.proto
 
 .PHONY: all proto ent wire build run test vet fmt web-install web-build ci clean
 

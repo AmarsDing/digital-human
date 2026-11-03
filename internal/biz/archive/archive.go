@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teamwork/digital-human/internal/biz/avatar"
 	"github.com/teamwork/digital-human/internal/biz/billing"
 	"github.com/teamwork/digital-human/internal/biz/live"
 	"github.com/teamwork/digital-human/pkg/eventbus"
@@ -33,16 +34,32 @@ type Detail struct {
 	Events         []eventbus.Event   `json:"events,omitempty"`
 	EventN         int                `json:"event_count"`
 	EventTruncated bool               `json:"event_truncated"`
+	// Persona 详情页人设展示（M5 A20）：快照优先（冻结名），无快照旧场次回落
+	// ProfileResolver 读当前档案；档案已软删时 Deleted=true + 仅 ID（前端空态）。
+	Persona *PersonaBrief `json:"persona,omitempty"`
+}
+
+// PersonaBrief 详情页人设最小视图；Deleted=true 表示档案已软删（空态语义）。
+type PersonaBrief struct {
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	Deleted bool   `json:"deleted,omitempty"`
 }
 
 type Service struct {
-	store   live.SessionStore
-	mgr     *live.Manager
-	billing *billing.Service
+	store    live.SessionStore
+	mgr      *live.Manager
+	billing  *billing.Service
+	resolver avatar.ProfileResolver
 }
 
 func NewService(store live.SessionStore, mgr *live.Manager, bill *billing.Service) *Service {
 	return &Service{store: store, mgr: mgr, billing: bill}
+}
+
+// SetPersonaResolver 注入档案解析器（A20 回落链路）；nil 时无快照旧场次仅回 persona_id。
+func (s *Service) SetPersonaResolver(r avatar.ProfileResolver) {
+	s.resolver = r
 }
 
 // List 按开始时间倒序分页；limit<=0 取 20，最大 200。
@@ -80,7 +97,7 @@ func (s *Service) Detail(ctx context.Context, id string, includeEvents bool) (De
 	if !ok {
 		return Detail{}, ErrNotFound
 	}
-	out := Detail{Session: rec}
+	out := Detail{Session: rec, Persona: s.personaBrief(ctx, rec)}
 	if s.billing != nil {
 		if l, ok, err := s.billing.Get(ctx, id); err == nil && ok {
 			cp := l
@@ -97,6 +114,31 @@ func (s *Service) Detail(ctx context.Context, id string, includeEvents bool) (De
 		out.EventTruncated = truncated
 	}
 	return out, nil
+}
+
+// personaBrief 详情页人设来源决策（A20）：快照 persona_name 存在 → 冻结名（快照语义，
+// 不随档案后续改动漂移）；否则回落 ProfileResolver 读当前档案——ErrNotFound（含软删）
+// → Deleted=true 空态；其他读取错误仅回 ID，不阻断详情主流程。persona_id 为空 → nil。
+func (s *Service) personaBrief(ctx context.Context, rec live.SessionRecord) *PersonaBrief {
+	pid := strings.TrimSpace(rec.PersonaID)
+	if pid == "" {
+		return nil
+	}
+	if name, ok := rec.ConfigSnapshot["persona_name"].(string); ok && name != "" {
+		return &PersonaBrief{ID: pid, Name: name}
+	}
+	if s.resolver == nil {
+		return &PersonaBrief{ID: pid}
+	}
+	prof, err := s.resolver.Resolve(ctx, pid)
+	switch {
+	case err == nil:
+		return &PersonaBrief{ID: pid, Name: prof.PersonaName}
+	case errors.Is(err, avatar.ErrNotFound):
+		return &PersonaBrief{ID: pid, Deleted: true}
+	default:
+		return &PersonaBrief{ID: pid}
+	}
 }
 
 // Count 返回符合 phase 过滤的场次总数（分页 total）。

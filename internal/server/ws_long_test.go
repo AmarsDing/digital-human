@@ -19,6 +19,7 @@ import (
 type wsFixture struct {
 	base    string
 	wsURL   string
+	bus     *eventbus.Bus
 	tickets *MemoryTicketStore
 	mgr     *live.Manager
 	stop    func()
@@ -58,7 +59,7 @@ func startWSServer(t *testing.T) *wsFixture {
 	addr := "127.0.0.1:" + portOf(t, lis.Addr().String())
 	return &wsFixture{
 		base: "http://" + addr, wsURL: "ws://" + addr + "/ws/v1/events",
-		tickets: tickets, mgr: mgr, stop: stop,
+		bus: bus, tickets: tickets, mgr: mgr, stop: stop,
 	}
 }
 
@@ -246,6 +247,53 @@ func TestWSConnectionSurvives120s(t *testing.T) {
 
 	_ = conn.Close()
 	waitDisconnect(t, f.mgr, sessionID)
+}
+
+// 回归：必须过完整生产过滤器链（含 auditFilter 的 statusRecorder 包装）。
+// 历史上 statusRecorder 未透传 http.Hijacker，真机 WS 握手 500；
+// 而既有单测只挂 timeoutFilter，从未覆盖到该缺口。
+func TestWSHandshakeThroughProductionFilters(t *testing.T) {
+	cfg := &conf.Config{
+		Server:   conf.Server{ReadTimeout: 15 * time.Second},
+		Security: conf.Security{Mode: "local", TicketTTL: time.Minute},
+	}
+	bus := eventbus.New(64)
+	mgr := live.NewManager(bus, live.NewMemorySink(64), live.NewFakeController(slog.Default()))
+	tickets := NewMemoryTicketStore(time.Minute)
+	health := NewHealth("test", nil)
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := khttp.NewServer(
+		khttp.Listener(lis),
+		khttp.Timeout(0),
+		khttp.Filter(serverFilters(cfg, slog.Default(), tickets, nil)...),
+	)
+	r := srv.Route("/")
+	r.GET("/ws/v1/events", func(c khttp.Context) error {
+		return serveEventsWS(c, cfg, bus, tickets, health, mgr)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.Start(ctx) }()
+	defer func() {
+		cancel()
+		_ = srv.Stop(context.Background())
+		<-done
+	}()
+
+	const sessionID = "s-filters"
+	ticket, _, err := tickets.Issue(sessionID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wsURL := "ws://127.0.0.1:" + portOf(t, lis.Addr().String()) + "/ws/v1/events"
+	dialer := websocket.Dialer{Subprotocols: []string{eventSubprotocol, "ticket." + ticket}}
+	conn := dialWS(t, &dialer, wsURL+"?session_id="+sessionID)
+	conn.Close()
 }
 
 func waitConnected(t *testing.T, mgr *live.Manager, sessionID string) {

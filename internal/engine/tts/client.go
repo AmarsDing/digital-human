@@ -69,11 +69,15 @@ type APIError struct {
 	Status     int
 	Message    string
 	RetryAfter time.Duration
+	cause      error
 }
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("tts %s (status=%d): %s", e.Code, e.Status, e.Message)
 }
+
+// Unwrap 暴露底层原因（如 context.Canceled），保证取消语义可判定。
+func (e *APIError) Unwrap() error { return e.cause }
 
 type Options struct {
 	BaseURL string // 默认 http://127.0.0.1:9880
@@ -344,7 +348,7 @@ func (c *Client) Audio(ctx context.Context, jobID string) ([]byte, error) {
 	resp, err := c.opt.HTTP.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, &APIError{Code: CodeTimeout, Message: ctx.Err().Error()}
+			return nil, &APIError{Code: CodeTimeout, Message: ctx.Err().Error(), cause: ctx.Err()}
 		}
 		return nil, err
 	}
@@ -380,7 +384,7 @@ func (c *Client) Preview(ctx context.Context, text, voiceID string) ([]byte, err
 	resp, err := c.opt.HTTP.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, &APIError{Code: CodeTimeout, Message: ctx.Err().Error()}
+			return nil, &APIError{Code: CodeTimeout, Message: ctx.Err().Error(), cause: ctx.Err()}
 		}
 		return nil, err
 	}
@@ -434,7 +438,7 @@ func (c *Client) do(ctx context.Context, method, rawURL string, body []byte, out
 	resp, err := c.opt.HTTP.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return 0, &APIError{Code: CodeTimeout, Message: ctx.Err().Error()}
+			return 0, &APIError{Code: CodeTimeout, Message: ctx.Err().Error(), cause: ctx.Err()}
 		}
 		return 0, err
 	}

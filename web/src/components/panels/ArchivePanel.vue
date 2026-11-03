@@ -174,6 +174,14 @@ onMounted(load)
           {{ credits(detail.cost?.credits_spent) }}）· tokens {{ credits(detail.cost?.tokens_total) }} ·
           LLM {{ credits(detail.cost?.llm_calls) }} 次
         </p>
+        <p v-if="detail.persona" class="note">
+          人设
+          <template v-if="detail.persona.deleted">
+            <span class="mono">{{ detail.persona.id.slice(0, 8) }}</span>
+            <span class="warn">档案已删除</span>
+          </template>
+          <template v-else>{{ detail.persona.name || detail.persona.id }}</template>
+        </p>
         <div class="row btns">
           <button type="button" class="mini" @click="exportAs(detail.session.id, 'json')">导出 JSON</button>
           <button type="button" class="mini" @click="exportAs(detail.session.id, 'csv')">导出 CSV</button>
@@ -236,6 +244,9 @@ onMounted(load)
 }
 .error {
   color: var(--nt-danger);
+}
+.warn {
+  color: var(--nt-warn);
 }
 .list {
   display: flex;

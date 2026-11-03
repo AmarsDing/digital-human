@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/teamwork/digital-human/internal/biz/avatar"
 	"github.com/teamwork/digital-human/internal/biz/billing"
 	"github.com/teamwork/digital-human/internal/biz/live"
 )
@@ -54,5 +55,51 @@ func TestListDetailExport(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(raw), "seq,ts_ms,event_id") || !strings.HasSuffix(name, ".csv") {
 		t.Fatalf("csv export=%q name=%q ctype=%q", string(raw), name, ctype)
+	}
+}
+
+// TestDetailPersonaBrief A20：详情人设展示——无快照旧场次回落 ProfileResolver 读当前
+// 档案名；快照冻结名优先；空 persona_id → nil；档案软删 → Deleted=true + 仅 ID。
+func TestDetailPersonaBrief(t *testing.T) {
+	ctx := context.Background()
+	store := live.NewMemorySessionStore()
+	_ = store.Save(ctx, live.SessionRecord{ID: "s1", Phase: live.PhaseEnded, PersonaID: "p1"})
+	_ = store.Save(ctx, live.SessionRecord{ID: "s2", Phase: live.PhaseEnded, PersonaID: "p1",
+		ConfigSnapshot: map[string]any{"v": 1, "persona_name": "冻结名"}})
+	_ = store.Save(ctx, live.SessionRecord{ID: "s3", Phase: live.PhaseEnded})
+	avatars := avatar.NewMemoryStore()
+	if err := avatars.Create(ctx, avatar.Avatar{ID: "p1", Slug: "s1", Name: "小雅", VoiceID: "v"}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(store, nil, billing.NewService(billing.NewMemoryStore()))
+	svc.SetPersonaResolver(avatar.NewService(avatars))
+
+	// 无快照 → 回落当前档案名。
+	d, err := svc.Detail(ctx, "s1", false)
+	if err != nil || d.Persona == nil || d.Persona.Name != "小雅" || d.Persona.Deleted {
+		t.Fatalf("s1 persona=%+v err=%v", d.Persona, err)
+	}
+	// 快照冻结名优先（不读档案）。
+	d, err = svc.Detail(ctx, "s2", false)
+	if err != nil || d.Persona == nil || d.Persona.Name != "冻结名" {
+		t.Fatalf("s2 persona=%+v err=%v", d.Persona, err)
+	}
+	// 空 persona_id → nil。
+	d, err = svc.Detail(ctx, "s3", false)
+	if err != nil || d.Persona != nil {
+		t.Fatalf("s3 persona=%+v err=%v, want nil", d.Persona, err)
+	}
+	// 软删 → Deleted=true，仅 ID 无 Name。
+	if err := avatars.SoftDelete(ctx, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	d, err = svc.Detail(ctx, "s1", false)
+	if err != nil || d.Persona == nil || d.Persona.ID != "p1" || !d.Persona.Deleted || d.Persona.Name != "" {
+		t.Fatalf("软删后 persona=%+v err=%v", d.Persona, err)
+	}
+	// 快照场不受软删影响。
+	d, err = svc.Detail(ctx, "s2", false)
+	if err != nil || d.Persona == nil || d.Persona.Name != "冻结名" || d.Persona.Deleted {
+		t.Fatalf("快照场 persona=%+v err=%v", d.Persona, err)
 	}
 }
