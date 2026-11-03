@@ -26,7 +26,7 @@ go build -o bin\dh.exe ./cmd/dh
 curl.exe -i http://127.0.0.1:8795/healthz
 ```
 
-无 PG/Redis 时 `/healthz` 返回 **503** 且 `degraded=true`，这是预期行为（不是失败）。
+缺 PG/Redis 时 `/healthz` 默认仍返回 **200**（进程可服务即存活），以 `status=degraded` + `missing` 名单显式标注缺失依赖；`health.require_dependencies=true` 恢复旧行为返回 **503**。降级状态对运维显式可见（不是失败，也绝不静默）。
 
 ## 引擎模式（fail-closed）
 
@@ -97,14 +97,22 @@ powershell -File scripts/ci.ps1   # Windows 等价脚本
   （详见 `internal/data/repo/switchable.go` 类型注释）。
 - **前端面板覆盖**：弹幕面板已接入 `GET/POST /api/v1/danmaku/*` 5 条 RPC；口播「合并选中 / 拆分 /
   全部动作」已接 `POST /api/v1/koubo/merge`、`/seg/split`、`/actions_all`。面板路由全集清单
-  `web/src/services/api/panel-routes.json`（54 条）由 Go 与前端双侧测试校验。
-- Vidu Key 当前为明文配置（环境变量/配置文件注入），API 只回显尾 8 位；DPAPI/AES-GCM 加密落盘列入待办。
+  `web/src/services/api/panel-routes.json`（85 条）由 Go 与前端双侧测试校验；另有 1 条独立注册的 preflight 路由，不计入面板清单。
+- Vidu Key 初始值可由环境变量注入；多 Key 管理落盘使用 Windows DPAPI / 非 Windows AES-256-GCM + `DH_SECRET_KEY` 加密，API 只回显尾 8 位。
 - **崩溃恢复（`Manager.Recover`）**：判据是「归属」而非时间窗。启动时（`Server.Start` 前）与 DB 晚就绪时
   各执行一次：凡是 `starting/live/stopping` 且**不属于当前进程在场 session** 的场次一律标记为
   `error(crash_recovered)` 并发布 `live.crash_recovered` 事件——哪怕它几秒前还在更新（那是死进程崩溃前
   的最后一次写入，不标记就会变成永久幽灵 live）。曾用的 60s 陈旧窗口已废弃（会把刚崩溃的场次漏掉）。
   Recover 绝不自动恢复喂流或会话。
 - `.gitignore` 只忽略仓库根 `/storage/`、`/var/`，不会误伤源码目录。
+
+## 开发文档（docs/）
+
+- `docs/architecture.md` — 分层、Wire 装配、事件总线（REST/WS 同源）、单场次语义、崩溃恢复、引擎看门狗/喂流权/Feeder
+- `docs/api-contracts.md` — proto 路由、85 条面板路由 + 1 条独立 preflight 路由、WS ticket 事件流、鉴权模型（local/lan/collector）、事件契约
+- `docs/data-model.md` — Ent 全表清单、Switchable 降级切换与 outbox 补写、幂等表、迁移策略、Redis/内存差异
+- `docs/ops.md` — 三模式（real/dev、rtc disabled/dev/managed）、环境变量、降级语义、/healthz 与 /metrics、日志与审计
+- `docs/verification.md` — D 批验证结论（故障注入、feeder 长跑、E2E、已修缺陷）
 
 ## 目录
 
@@ -122,7 +130,11 @@ configs/             配置样例
 
 ## 未验证项（M0）
 
-- PostgreSQL / Redis：本机未部署，使用内存实现替代，未做真实迁移与并发验证。
+- PostgreSQL / Redis：本机未部署。PG 侧（场次/事件/审计/设置/账本/弹幕/幂等键）已落 Ent 实现并随
+  `onDBReady` 自动切换；Redis 侧（WS ticket、HMAC nonce、开播/收播幂等）在启动时按可达性选 Redis 版，
+  否则用进程内实现。**内存版差异：ticket/nonce/幂等结果重启即丢、多实例不共享**（弹幕内存降级只留
+  最近 512 条，不提供复盘查询）。PG/Redis 契约测试用 `DH_TEST_PG_DSN` / `DH_TEST_REDIS_ADDR`
+  环境变量门控，本机默认 Skip，待真机执行。
 - Vidu：无凭据，未建立真实 WS 会话；心跳参数 `ping_interval=10/ping_timeout=20` 仅按蓝本事实写入设计，
   代码将在 M1 落地并实测。
 - OmniVoice：本机未安装，Gradio 契约与超时语义待 M2 实测。
