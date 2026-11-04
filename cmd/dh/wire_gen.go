@@ -1203,14 +1203,25 @@ func provideCapabilities(
 		} else {
 			mx["push_gate"] = capability.Unknown
 		}
-
-		if p, ok := sessions.(interface{ Persistent() bool }); ok && p.Persistent() {
-			mx["storage_persistent"] = capability.Real
-		} else {
-			mx["storage_persistent"] = capability.Fake
+		// storage_persistent：Ent 已安装且本次 PG 探测可达才算 real；不可达必须 fail-closed。
+		var postgresProbe func(context.Context) data.Status
+		if d != nil {
+			postgresProbe = d.Probe
 		}
+		mx["storage_persistent"] = storagePersistentCapability(ctx, sessions, postgresProbe)
 		return mx
 	}
+}
+
+func storagePersistentCapability(ctx context.Context, sessions live.SessionStore, probe func(context.Context) data.Status) capability.Status {
+	p, ok := sessions.(interface{ Persistent() bool })
+	if !ok || !p.Persistent() {
+		return capability.Fake
+	}
+	if probe == nil || !probe(ctx).Postgres {
+		return capability.Unknown
+	}
+	return capability.Real
 }
 
 func modePolicyFromConfig(cfg *conf.Config) live.ModePolicy {

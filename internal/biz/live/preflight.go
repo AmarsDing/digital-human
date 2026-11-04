@@ -358,19 +358,28 @@ func (p *Preflight) run(ctx context.Context, req PreflightRequest, issueToken bo
 		add("push_gate", CheckUnknown, mode == ModePublicLive, "push_gate", "publish", pushCapability+"; probe_unconfigured")
 	}
 
-	// storage_persistent：§2.2 SessionStore/EventSink——内存实现只能 local-preview，
-	// 公开场必须 persistent。
+	// storage_persistent：Ent 已安装且 PG 当前可达才 pass；故障时公开场阻断，本地预览显式 warn。
 	persistent := false
 	if p.storagePersistent != nil {
 		persistent = p.storagePersistent()
 	}
+	storageCapability := mx.Get("storage_persistent")
+	storageDetail := "capability=" + string(storageCapability)
 	switch {
-	case persistent:
-		add("storage_persistent", CheckPass, true, "session_store", "storage", "")
+	case persistent && storageCapability == capability.Real:
+		add("storage_persistent", CheckPass, true, "session_store", "storage", storageDetail)
 	case mode == ModePublicLive:
-		add("storage_persistent", CheckFail, true, "session_store", "storage", "memory_store_public_blocked")
+		reason := "memory_store_public_blocked"
+		if persistent {
+			reason = "postgres_unreachable"
+		}
+		add("storage_persistent", CheckFail, true, "session_store", "storage", storageDetail+"; "+reason)
 	default:
-		add("storage_persistent", CheckWarn, false, "session_store", "storage", "memory_store")
+		reason := "memory_store"
+		if persistent {
+			reason = "postgres_unreachable"
+		}
+		add("storage_persistent", CheckWarn, false, "session_store", "storage", storageDetail+"; "+reason)
 	}
 
 	ready := true

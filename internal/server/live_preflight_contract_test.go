@@ -81,7 +81,7 @@ func publicPreflightContractHTTP(t *testing.T, avatars *avatar.Service) *preflig
 		return capability.Matrix{
 			"action_sender": capability.Real, "song_player": capability.Real,
 			"tts": capability.Real, "vidu": capability.Real, "koubo_actiongen": capability.Real,
-			"content_storage": capability.Real,
+			"content_storage": capability.Real, "storage_persistent": capability.Real,
 		}
 	}, func() (publish.PushGate, bool) { return gate, false }, func() bool { return true })
 	pf.SetDraftSource(contractDraftSource{})
@@ -288,7 +288,7 @@ func TestLiveHTTPPreflightPushGateCapabilityStates(t *testing.T) {
 				return capability.Matrix{
 					"action_sender": capability.Real, "song_player": capability.Real,
 					"tts": capability.Real, "vidu": capability.Real, "koubo_actiongen": capability.Real,
-					"content_storage": capability.Real, "push_gate": tt.capability,
+					"content_storage": capability.Real, "storage_persistent": capability.Real, "push_gate": tt.capability,
 				}
 			}, func() (publish.PushGate, bool) { return tt.gate, false }, func() bool { return true })
 			pf.SetDraftSource(contractDraftSource{})

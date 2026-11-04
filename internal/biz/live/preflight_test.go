@@ -458,6 +458,42 @@ func TestPublicPreflightAndStartRequireDraft(t *testing.T) {
 	}
 }
 
+func TestPreflightStoragePersistentTracksPostgresProbe(t *testing.T) {
+	ctx := context.Background()
+	current := capability.Real
+	caps := func(ctx context.Context) capability.Matrix {
+		mx := allFakeCaps(ctx)
+		mx["storage_persistent"] = current
+		return mx
+	}
+	pf := NewPreflight(nil, caps, nil, func() bool { return true })
+	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
+
+	storageCheck := func() Check {
+		t.Helper()
+		res := runPreflight(t, pf, ctx, PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
+		for _, check := range res.Checks {
+			if check.Code == "storage_persistent" {
+				return check
+			}
+		}
+		t.Fatal("缺少 storage_persistent 检查")
+		return Check{}
+	}
+
+	if check := storageCheck(); check.Status != CheckPass {
+		t.Fatalf("PG 可达且 Ent 已安装时应 pass: %+v", check)
+	}
+	current = capability.Unknown
+	if check := storageCheck(); check.Status != CheckFail || !strings.Contains(check.Detail, "postgres_unreachable") {
+		t.Fatalf("PG 不可达时必须 fail 且原因可读: %+v", check)
+	}
+	current = capability.Real
+	if check := storageCheck(); check.Status != CheckPass {
+		t.Fatalf("PG 恢复后应回到 pass: %+v", check)
+	}
+}
+
 func TestPublicStartRejectsCapabilityRegression(t *testing.T) {
 	ctx := context.Background()
 	source := &fakeDraftSource{draft: committedDraft(3)}
