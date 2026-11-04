@@ -9,10 +9,12 @@ function idem(): string {
 }
 
 export type StreamState = 'idle' | 'starting' | 'pushing' | 'degraded' | 'rejected' | 'stopped'
+export type TargetVerification = 'unknown' | 'local' | 'douyin'
 export type CollectorState = 'off' | 'connecting' | 'collecting' | 'degraded' | 'stopped'
 
 export interface StreamStatus {
   state: StreamState
+  targetVerification: TargetVerification
   bitrateKbps: number
   fps: number
   droppedFrames: number
@@ -23,6 +25,7 @@ export interface StreamStatus {
 
 interface StreamStatusWire {
   state?: StreamState
+  target_verification?: TargetVerification
   bitrate_kbps?: number
   fps?: number
   dropped_frames?: number
@@ -54,6 +57,7 @@ export async function getStreamStatus(signal?: AbortSignal): Promise<StreamStatu
   const r = await apiRequest<StreamStatusWire>('/api/v1/stream/status', { signal })
   return {
     state: r.state ?? 'idle',
+    targetVerification: r.target_verification ?? 'unknown',
     bitrateKbps: num(r.bitrate_kbps),
     fps: num(r.fps),
     droppedFrames: num(r.dropped_frames),

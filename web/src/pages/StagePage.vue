@@ -416,6 +416,8 @@ const personaGuide = computed(() => {
       return 'repreflight'
     case 'draft_required':
       return 'draft'
+    case 'publish_target_unverified':
+      return 'platform'
     case 'avatar_expired':
       return 'resync'
     default:
@@ -504,6 +506,9 @@ async function doClearTranscript(): Promise<void> {
         重新预检并开播
       </button>
       <span v-else-if="personaGuide === 'draft'">当前后端未提供草稿列表接口；请先在内容包中选择并提交草稿，再返回直播台。</span>
+      <button v-else-if="personaGuide === 'platform'" type="button" :disabled="live.busy" @click="router.push('/platform')">
+        前往平台接入验证
+      </button>
       <template v-else>
         <button type="button" :disabled="resyncBusy || live.busy" @click="resyncAndStart">
           {{ resyncBusy ? '同步中…' : '重新同步并开播' }}

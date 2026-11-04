@@ -187,16 +187,17 @@ func (*GetPushStatusRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetPushStatusReply struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	State           string                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"` // idle|starting|pushing|degraded|rejected|stopped
-	Platform        string                 `protobuf:"bytes,2,opt,name=platform,proto3" json:"platform,omitempty"`
-	BitrateKbps     int32                  `protobuf:"varint,3,opt,name=bitrate_kbps,json=bitrateKbps,proto3" json:"bitrate_kbps,omitempty"`
-	Fps             float64                `protobuf:"fixed64,4,opt,name=fps,proto3" json:"fps,omitempty"`
-	DroppedFrames   int64                  `protobuf:"varint,5,opt,name=dropped_frames,json=droppedFrames,proto3" json:"dropped_frames,omitempty"`
-	KeyFingerprint8 string                 `protobuf:"bytes,6,opt,name=key_fingerprint8,json=keyFingerprint8,proto3" json:"key_fingerprint8,omitempty"`
-	LastError       string                 `protobuf:"bytes,7,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	State              string                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"` // idle|starting|pushing|degraded|rejected|stopped
+	Platform           string                 `protobuf:"bytes,2,opt,name=platform,proto3" json:"platform,omitempty"`
+	BitrateKbps        int32                  `protobuf:"varint,3,opt,name=bitrate_kbps,json=bitrateKbps,proto3" json:"bitrate_kbps,omitempty"`
+	Fps                float64                `protobuf:"fixed64,4,opt,name=fps,proto3" json:"fps,omitempty"`
+	DroppedFrames      int64                  `protobuf:"varint,5,opt,name=dropped_frames,json=droppedFrames,proto3" json:"dropped_frames,omitempty"`
+	KeyFingerprint8    string                 `protobuf:"bytes,6,opt,name=key_fingerprint8,json=keyFingerprint8,proto3" json:"key_fingerprint8,omitempty"`
+	LastError          string                 `protobuf:"bytes,7,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	TargetVerification string                 `protobuf:"bytes,8,opt,name=target_verification,json=targetVerification,proto3" json:"target_verification,omitempty"` // unknown|local|douyin；仅当前进程内验证等级
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GetPushStatusReply) Reset() {
@@ -274,6 +275,13 @@ func (x *GetPushStatusReply) GetKeyFingerprint8() string {
 func (x *GetPushStatusReply) GetLastError() string {
 	if x != nil {
 		return x.LastError
+	}
+	return ""
+}
+
+func (x *GetPushStatusReply) GetTargetVerification() string {
+	if x != nil {
+		return x.TargetVerification
 	}
 	return ""
 }
@@ -485,7 +493,7 @@ const file_stream_v1_stream_proto_rawDesc = "" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12)\n" +
 	"\x10key_fingerprint8\x18\x02 \x01(\tR\x0fkeyFingerprint8\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\"\x16\n" +
-	"\x14GetPushStatusRequest\"\xec\x01\n" +
+	"\x14GetPushStatusRequest\"\x9d\x02\n" +
 	"\x12GetPushStatusReply\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x1a\n" +
 	"\bplatform\x18\x02 \x01(\tR\bplatform\x12!\n" +
@@ -494,7 +502,8 @@ const file_stream_v1_stream_proto_rawDesc = "" +
 	"\x0edropped_frames\x18\x05 \x01(\x03R\rdroppedFrames\x12)\n" +
 	"\x10key_fingerprint8\x18\x06 \x01(\tR\x0fkeyFingerprint8\x12\x1d\n" +
 	"\n" +
-	"last_error\x18\a \x01(\tR\tlastError\";\n" +
+	"last_error\x18\a \x01(\tR\tlastError\x12/\n" +
+	"\x13target_verification\x18\b \x01(\tR\x12targetVerification\";\n" +
 	"\x10StartPushRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\"8\n" +
 	"\x0eStartPushReply\x12\x0e\n" +

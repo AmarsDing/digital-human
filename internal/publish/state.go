@@ -33,13 +33,14 @@ type Metrics struct {
 
 // Status 是推流状态的快照（对前端/API 暴露的形状）。
 type Status struct {
-	State           State   `json:"state"`
-	Platform        string  `json:"platform"`
-	BitrateKbps     int     `json:"bitrate_kbps"`
-	FPS             float64 `json:"fps"`
-	DroppedFrames   int64   `json:"dropped_frames"`
-	KeyFingerprint8 string  `json:"key_fingerprint8"`
-	LastError       string  `json:"last_error"`
+	State              State              `json:"state"`
+	Platform           string             `json:"platform"`
+	TargetVerification TargetVerification `json:"target_verification"`
+	BitrateKbps        int                `json:"bitrate_kbps"`
+	FPS                float64            `json:"fps"`
+	DroppedFrames      int64              `json:"dropped_frames"`
+	KeyFingerprint8    string             `json:"key_fingerprint8"`
+	LastError          string             `json:"last_error"`
 }
 
 // Event 推流状态变化事件（供主实施线接 eventbus，携带 epoch/seq）。
@@ -60,7 +61,7 @@ type machine struct {
 }
 
 func newMachine(platform string, onEvent func(Event)) *machine {
-	return &machine{st: Status{State: StateIdle, Platform: platform}, onEvent: onEvent}
+	return &machine{st: Status{State: StateIdle, Platform: platform, TargetVerification: TargetUnknown}, onEvent: onEvent}
 }
 
 var transitions = map[State][]State{
@@ -111,4 +112,10 @@ func (m *machine) setFingerprint(fp string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.st.KeyFingerprint8 = fp
+}
+
+func (m *machine) setVerification(v TargetVerification) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.st.TargetVerification = v
 }

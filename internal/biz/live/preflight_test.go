@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,10 +128,10 @@ func TestPublicStartRequiresToken(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
 	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, nil)
 	pf := NewPreflight(nil, allRealCaps, func() (publish.PushGate, bool) {
-		return fakePushGate{st: publish.Status{State: publish.StatePushing}}, false
+		return fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}, false
 	}, func() bool { return true })
 	m.SetPreflight(pf)
-	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing}}, false)
+	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}, false)
 	m.SetModePolicy(ModePolicy{})
 
 	if _, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{DraftID: "d1", ExpectedRevision: 1}); !errors.Is(err, ErrPreflightRequired) {
@@ -150,11 +151,11 @@ func TestPublicStartRejectedWithFakeSender(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
 	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, nil)
 	pf := NewPreflight(nil, allFakeCaps, func() (publish.PushGate, bool) {
-		return fakePushGate{st: publish.Status{State: publish.StatePushing}}, false
+		return fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}, false
 	}, func() bool { return true })
 	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
 	m.SetPreflight(pf)
-	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing}}, false)
+	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}, false)
 
 	res := runPreflight(t, pf, ctx, PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
 	if res.Ready {
@@ -175,11 +176,11 @@ func TestPublicStartTokenExpired(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
 	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, nil)
 	pf := NewPreflight(nil, allRealCaps, func() (publish.PushGate, bool) {
-		return fakePushGate{st: publish.Status{State: publish.StatePushing}}, false
+		return fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}, false
 	}, func() bool { return true })
 	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
 	m.SetPreflight(pf)
-	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing}}, false)
+	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}, false)
 
 	res := runPreflight(t, pf, ctx, PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
 	if !res.Ready {
@@ -201,7 +202,7 @@ func TestPublicStartHappyPath(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
 	avatars := newAvatarSvc(t, "p1")
 	m := NewManagerWithStores(eventbus.New(64), sink, ctrl, nil, nil, avatars)
-	gate := fakePushGate{st: publish.Status{State: publish.StatePushing}}
+	gate := fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}
 	pf := NewPreflight(avatars, allRealCaps, func() (publish.PushGate, bool) { return gate, false }, func() bool { return true })
 	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(3)})
 	m.SetPreflight(pf)
@@ -277,7 +278,7 @@ func TestLocalPreviewWhilePushingRejected(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
 	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, nil)
 	m.SetModePolicy(localPreviewPolicy())
-	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing}}, false)
+	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}, false)
 	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModeLocalPreview})
 	if !errors.Is(err, ErrPreviewWhilePushing) {
 		t.Fatalf("推流中 local-preview 必须拒绝: %v", err)
@@ -313,8 +314,27 @@ func committedDraft(revision int64) contentpkg.Draft {
 	return d
 }
 
+func TestPreflightLocalPushReturnsTargetUnverified(t *testing.T) {
+	gate := fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetLocal}}
+	pf := NewPreflight(nil, allRealCaps, func() (publish.PushGate, bool) { return gate, true }, func() bool { return true })
+	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
+	res := runPreflight(t, pf, context.Background(), PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
+	if res.Ready {
+		t.Fatal("本地协议推流不得放行公开开播，allowUnpushed 也不能绕过 public 门禁")
+	}
+	for _, check := range res.Checks {
+		if check.Code == "push_gate" {
+			if !strings.Contains(check.Detail, "[publish_target_unverified]") || strings.Contains(check.Detail, "push_gate_blocked") {
+				t.Fatalf("错误码被泛化: %+v", check)
+			}
+			return
+		}
+	}
+	t.Fatal("缺少 push_gate 检查")
+}
+
 func newDraftPreflight(source *fakeDraftSource, caps CapabilitySource) (*Preflight, fakePushGate) {
-	gate := fakePushGate{st: publish.Status{State: publish.StatePushing}}
+	gate := fakePushGate{st: publish.Status{State: publish.StatePushing, TargetVerification: publish.TargetDouyin}}
 	pf := NewPreflight(nil, caps, func() (publish.PushGate, bool) { return gate, false }, func() bool { return true })
 	pf.SetDraftSource(source)
 	return pf, gate

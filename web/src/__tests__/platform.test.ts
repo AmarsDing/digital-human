@@ -121,15 +121,36 @@ describe('平台接入页', () => {
     wrapper.unmount()
   })
 
-  it('pushing 时胶囊为推流中，开始按钮禁用、停止可用', async () => {
-    vi.stubGlobal('fetch', okFetch({ ...STREAM_OK, state: 'pushing', bitrate_kbps: 2500, fps: 30 }))
+  it('真实抖音 pushing 时胶囊为推流中，开始按钮禁用、停止可用', async () => {
+    vi.stubGlobal('fetch', okFetch({ ...STREAM_OK, state: 'pushing', target_verification: 'douyin', bitrate_kbps: 2500, fps: 30 }))
     const wrapper = await mountPage()
     expect(wrapper.text()).toContain('推流中')
+    expect(wrapper.find('[aria-label="推流控制"] .capsule--success').exists()).toBe(true)
     expect(wrapper.text()).toContain('2500')
     const startBtn = wrapper.findAll('button').find((b) => b.text() === '开始推流')
     const stopBtn = wrapper.findAll('button').find((b) => b.text() === '停止推流')
     expect(startBtn?.attributes('disabled')).toBeDefined()
     expect(stopBtn?.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('本地 MediaMTX pushing 只显示本地协议验证，不渲染为可用', async () => {
+    vi.stubGlobal('fetch', okFetch({ ...STREAM_OK, state: 'pushing', target_verification: 'local' }))
+    const wrapper = await mountPage()
+    const capsule = wrapper.find('[aria-label="推流控制"] .capsule')
+    expect(capsule.text()).toBe('仅本地协议验证')
+    expect(capsule.classes()).toContain('capsule--warn')
+    expect(wrapper.find('[aria-label="推流控制"] .capsule--success').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('未识别目标 pushing 显示平台未验证，不渲染为可用', async () => {
+    vi.stubGlobal('fetch', okFetch({ ...STREAM_OK, state: 'pushing', target_verification: 'unknown' }))
+    const wrapper = await mountPage()
+    const capsule = wrapper.find('[aria-label="推流控制"] .capsule')
+    expect(capsule.text()).toBe('平台未验证')
+    expect(capsule.classes()).toContain('capsule--warn')
+    expect(wrapper.find('[aria-label="推流控制"] .capsule--success').exists()).toBe(false)
     wrapper.unmount()
   })
 

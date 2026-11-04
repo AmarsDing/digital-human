@@ -37,25 +37,22 @@ type rtmpTarget struct {
 }
 
 func parseRTMP(rawURL, key string) (rtmpTarget, error) {
-	u, err := url.Parse(rawURL)
+	normalized, err := normalizeTarget(Target{RTMPURL: rawURL, Key: key})
 	if err != nil {
-		return rtmpTarget{}, fmt.Errorf("rtmp: 地址解析失败: %w", err)
+		return rtmpTarget{}, err
 	}
-	if u.Scheme != "rtmp" {
-		return rtmpTarget{}, fmt.Errorf("rtmp: 仅支持 rtmp://（rtmps 待真机验证）: %s", u.Scheme)
-	}
-	host := u.Host
-	if !strings.Contains(host, ":") {
-		host += ":1935"
+	u, _ := url.Parse(normalized.RTMPURL)
+	port := u.Port()
+	if port == "" {
+		port = "1935"
 	}
 	app := strings.TrimPrefix(u.Path, "/")
-	if app == "" {
-		return rtmpTarget{}, errors.New("rtmp: 地址缺少 app 路径")
-	}
-	if key == "" {
-		return rtmpTarget{}, errors.New("rtmp: stream key 为空")
-	}
-	return rtmpTarget{host: host, app: app, key: key, tcURL: "rtmp://" + u.Host + "/" + app}, nil
+	return rtmpTarget{
+		host:  net.JoinHostPort(u.Hostname(), port),
+		app:   app,
+		key:   normalized.Key,
+		tcURL: normalized.RTMPURL,
+	}, nil
 }
 
 // DialRTMP 建立连接并完成握手与 publish。全程死线由 timeout 约束。
@@ -66,7 +63,7 @@ func DialRTMP(rawURL, key string, timeout time.Duration) (*RTMPClient, error) {
 	}
 	conn, err := net.DialTimeout("tcp", t.host, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("rtmp: 连接失败: %w", err)
+		return nil, classifyNetworkError(err)
 	}
 	c := &RTMPClient{conn: conn, br: bufio.NewReader(conn), chunkSize: 4096,
 		inChunk: 128}
@@ -275,7 +272,7 @@ func (c *RTMPClient) writeChunk(csid uint32, typeID byte, streamID uint32, ts ui
 			n = len(payload) - off
 		}
 		if off > 0 { // fmt3 续片
-			if _, err := c.conn.Write(basic[:1]); err != nil {
+			if _, err := c.conn.Write([]byte{basic[0] | 0xc0}); err != nil {
 				return err
 			}
 		}

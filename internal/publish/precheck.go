@@ -21,15 +21,21 @@ type PushGate interface {
 // （默认 false；仅本地调试时由配置显式打开）。
 // 返回 nil 表示允许开播；否则错误信息为可操作原因。
 func CheckStartLive(g PushGate, allowUnpushed bool) error {
-	if allowUnpushed {
-		return nil
-	}
 	if g == nil {
+		if allowUnpushed {
+			return nil
+		}
 		return fmt.Errorf("%w: 推流模块未装配（检查 internal/publish 接线）", ErrPushRequired)
 	}
 	st := g.Status()
+	if allowUnpushed && st.State != StatePushing {
+		return nil
+	}
 	switch st.State {
 	case StatePushing:
+		if st.TargetVerification != TargetDouyin {
+			return &Error{Code: "publish_target_unverified", Message: "需先完成一次真实抖音推流验证"}
+		}
 		return nil
 	case StateRejected:
 		return fmt.Errorf("%w: 推流被平台拒绝（stream key 可能已失效），请在平台接入面板更新推流凭据", ErrPushRequired)

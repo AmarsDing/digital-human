@@ -51,6 +51,12 @@ function bool(key: string): boolean {
 function field(col: FieldSpec): string {
   return col.type === 'textarea' ? 'field field--wide' : 'field'
 }
+function inputValue(col: FieldSpec, ev: Event): unknown {
+  const value = (ev.target as HTMLInputElement).value
+  if (col.type === 'number') return Number(value)
+  if (col.format === 'csv') return value.split(',').map((item) => item.trim()).filter(Boolean)
+  return value
+}
 </script>
 
 <template>
@@ -104,15 +110,7 @@ function field(col: FieldSpec): string {
               :step="col.step"
               :aria-invalid="!!invalid[col.key]"
               :class="{ 'field__control--invalid': !!invalid[col.key] }"
-              @input="
-                emit(
-                  'update',
-                  col.key,
-                  col.type === 'number'
-                    ? Number(($event.target as HTMLInputElement).value)
-                    : ($event.target as HTMLInputElement).value
-                )
-              "
+              @input="emit('update', col.key, inputValue(col, $event))"
               @blur="onBlur(col, $event)"
             />
             <span v-if="col.suffix" class="field__suffix">{{ col.suffix }}</span>

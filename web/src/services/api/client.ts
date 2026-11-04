@@ -136,6 +136,8 @@ export function classifyApiError(err: unknown): { code: string; message: string 
         return { code: err.code, message: 'public-live 必须先选择并提交草稿，再携带草稿 ID 与版本重新预检；不能使用空草稿开播' }
       case 'mode_not_allowed':
         return { code: err.code, message: '服务端未允许当前开播模式，请检查后端开播配置；前端不会切换模式重试' }
+      case 'publish_target_unverified':
+        return { code: err.code, message: '真实抖音推流目标尚未验证，请前往平台接入完成真实推流验证后重新预检' }
       // 数字人档案（G 批 M2/M4）错误码归一。
       case 'persona_not_found':
         return { code: err.code, message: '所选数字人档案不存在或已删除，请到档案页重新选择' }

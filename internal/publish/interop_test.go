@@ -1,14 +1,14 @@
 package publish
 
-// 真实协议互验测试（非默认跑）：
-// 真实 ffmpeg 编码 → 本包 RTMP 客户端 → 真实 MediaMTX 接收端。
+// 真实协议互验测试（非默认跑）：本包 RTMP 客户端 → 真实 MediaMTX 接收端。
+// helper 只产生 FLV 协议样本，不代表真实编码或真实平台验证；真实 ffmpeg 用例单独门控。
 // 需要环境变量（缺一即 skip）：
 //   DH_INTEROP=1            总开关
-//   DH_FFMPEG_BIN           便携版 ffmpeg.exe 绝对路径
+//   DH_FFMPEG_BIN           仅真实 ffmpeg 用例需要的 ffmpeg.exe 绝对路径
 //   DH_MEDIAMTX_BIN         mediamtx.exe 绝对路径
 //   DH_MEDIAMTX_CONF        mediamtx.yml 绝对路径
-// 断言：连接成功、MediaMTX 侧读到流（tracks/bytesReceived）、指标采样、
-// ffmpeg argv 无 key、断流→degraded→重连成功。
+// 断言：连接成功、MediaMTX 侧读到流（tracks/bytesReceived）、本地验证等级、
+// 公开开播阻断；真实 ffmpeg 用例另验指标、argv 无 key、断流重连。
 
 import (
 	"context"
@@ -114,6 +114,150 @@ func ffmpegArgv(t *testing.T) []string {
 		}
 	}
 	return lines
+}
+
+// TestInteropRTMPMediaMTX 只验证真实 RTMP 服务端互操作，不经过 ffmpeg。
+// 用于无 ffmpeg 环境：握手/发布/收流/断连均为真实网络行为。
+func TestInteropRTMPMediaMTX(t *testing.T) {
+	if os.Getenv("DH_INTEROP") != "1" {
+		t.Skip("DH_INTEROP!=1，跳过真实互验")
+	}
+	mtx, conf := os.Getenv("DH_MEDIAMTX_BIN"), os.Getenv("DH_MEDIAMTX_CONF")
+	if mtx == "" || conf == "" {
+		t.Skip("缺少 DH_MEDIAMTX_BIN / DH_MEDIAMTX_CONF")
+	}
+
+	server := startMediaMTX(t, mtx, conf)
+	defer server.stop()
+
+	// 本地协议互验使用的公开 path 名，不是真实推流凭据。
+	const pathKey = "protocol-interop"
+	client, err := DialRTMP("rtmp://127.0.0.1:1935/live", pathKey, 5*time.Second)
+	if err != nil {
+		t.Fatalf("RTMP 握手/发布失败: %v", err)
+	}
+	t.Logf("RTMP 握手、connect、createStream、publish 均成功 streamID=%d inChunk=%d outChunk=%d",
+		client.streamID, client.inChunk, client.chunkSize)
+
+	if err := client.SendMeta(720, 1280, 30); err != nil {
+		t.Fatal(err)
+	}
+	// SPS/PPS 取自 MediaMTX 内置默认参数集，避免手工样本失真。
+	avcConfig := []byte{
+		0x17, 0x00, 0x00, 0x00, 0x00,
+		0x01, 0x42, 0xc0, 0x28, 0xff, 0xe1, 0x00, 0x19,
+		0x67, 0x42, 0xc0, 0x28, 0xd9, 0x00, 0x78, 0x02, 0x27, 0xe5,
+		0x84, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00, 0x00, 0x03, 0x00,
+		0xf0, 0x3c, 0x60, 0xc9, 0x20, 0x01, 0x00, 0x04, 0x08, 0x06, 0x07, 0x08,
+	}
+	if err := client.SendTag(Tag{Type: 9, Data: avcConfig}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SendTag(Tag{Type: 8, Data: []byte{0xaf, 0x00, 0x12, 0x10}}); err != nil {
+		t.Fatal(err)
+	}
+	// gortmplib 需要观察到至少 2 秒 DTS 跨度才完成轨道识别。
+	for i := uint32(0); i <= 5; i++ {
+		ts := i * 500
+		// 5009 字节 video tag 跨越客户端 4096 字节 chunk 边界，覆盖真实大帧续片。
+		video := make([]byte, 5009)
+		copy(video, []byte{0x17, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x88, 0x65})
+		if err := client.SendTag(Tag{Type: 9, Timestamp: ts, Data: video}); err != nil {
+			t.Fatal(err)
+		}
+		audio := []byte{0xaf, 0x01, 0x21, 0x10, 0x04, 0x60, 0x8c, 0x1c}
+		if err := client.SendTag(Tag{Type: 8, Timestamp: ts, Data: audio}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resp, err := http.Get("http://127.0.0.1:9997/v3/rtmpconns/list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var connStats json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&connStats); err != nil {
+		resp.Body.Close()
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	t.Logf("MediaMTX RTMP 连接统计: %s", connStats)
+
+	wantPath := "live/" + pathKey
+	var b1 int64
+	var lastReady bool
+	var lastTracks []string
+	var lastBytes int64
+	var lastErr error
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		lastReady, lastTracks, lastBytes, lastErr = mtxPath(wantPath)
+		if lastErr == nil && lastReady && len(lastTracks) == 2 && lastBytes > 0 {
+			b1 = lastBytes
+			t.Logf("MediaMTX 已注册 path ready=%v tracks=%v bytesReceived=%d", lastReady, lastTracks, lastBytes)
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if b1 == 0 {
+		t.Fatalf("MediaMTX 未观测到双轨就绪 path %q: ready=%v tracks=%v bytesReceived=%d err=%v",
+			wantPath, lastReady, lastTracks, lastBytes, lastErr)
+	}
+
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		ready, _, _, err := mtxPath(wantPath)
+		if err != nil || !ready {
+			t.Logf("RTMP 断连后 MediaMTX path 已撤销 ready=%v err=%v", ready, err)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatal("RTMP 断连后 MediaMTX path 仍为 ready")
+}
+
+func TestInteropPublisherLocalVerification(t *testing.T) {
+	if os.Getenv("DH_INTEROP") != "1" {
+		t.Skip("DH_INTEROP!=1，跳过真实互验")
+	}
+	mtx, conf := os.Getenv("DH_MEDIAMTX_BIN"), os.Getenv("DH_MEDIAMTX_CONF")
+	if mtx == "" || conf == "" {
+		t.Skip("缺少 DH_MEDIAMTX_BIN / DH_MEDIAMTX_CONF")
+	}
+	t.Setenv("GO_WANT_HELPER", "1")
+	t.Setenv("HELPER_HOLD", "3s")
+
+	server := startMediaMTX(t, mtx, conf)
+	defer server.stop()
+	p := NewPublisher(Config{
+		Source:            SourceSynthetic,
+		FFmpegBin:         os.Args[0],
+		FFmpegPrepend:     []string{"fake-ffmpeg"},
+		FirstMediaTimeout: 2 * time.Second,
+		BackoffInit:       5 * time.Second,
+		Logf:              func(f string, a ...any) { t.Logf(f, a...) },
+	}, &MemTargetStore{})
+	if _, err := p.SetTarget(Target{RTMPURL: "rtmp://127.0.0.1:1935/live", Key: interopKey}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Stop(); p.Wait() }()
+
+	st := waitState(t, p, StatePushing, 10*time.Second)
+	if st.TargetVerification != TargetLocal {
+		t.Fatalf("本地 MediaMTX 验证等级=%q, want=%q", st.TargetVerification, TargetLocal)
+	}
+	err := CheckStartLive(p, false)
+	if ErrorCode(err) != "publish_target_unverified" {
+		t.Fatalf("本地协议成功不得解锁公开开播: err=%v code=%q", err, ErrorCode(err))
+	}
+	t.Logf("真实 MediaMTX 已进入 %s，target_verification=%s；公开开播精确阻断: %v",
+		st.State, st.TargetVerification, err)
 }
 
 func TestInteropRealFFmpegMediaMTX(t *testing.T) {

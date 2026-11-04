@@ -14,6 +14,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/live"
 	"github.com/teamwork/digital-human/internal/biz/rtc"
+	"github.com/teamwork/digital-human/internal/publish"
 )
 
 // LiveService 只做参数映射，业务全部在 biz/live；动作指令额外经过 action.Scheduler
@@ -195,6 +196,8 @@ func mapLiveError(err error) error {
 		return kerrors.New(409, "capability_blocked", err.Error())
 	case errors.Is(err, live.ErrPushGateRequired):
 		return kerrors.New(409, "push_gate_required", err.Error())
+	case publish.ErrorCode(err) == "publish_target_unverified":
+		return kerrors.New(409, "publish_target_unverified", err.Error())
 	case errors.Is(err, live.ErrPreviewWhilePushing):
 		return kerrors.New(409, "local_preview_while_pushing", err.Error())
 	default:

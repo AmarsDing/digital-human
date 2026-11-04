@@ -105,13 +105,14 @@ func (c *chainStore) Save(t Target) error { return c.mem.Save(t) }
 
 // Config Publisher 配置。
 type Config struct {
-	Platform       string
-	Source         SourceKind
-	Stage          CaptureConfig
-	Encoder        EncoderConfig
-	FFmpegBin      string   // 默认 ffmpeg；测试注入 helper
-	FFmpegPrepend  []string // 测试注入 helper 参数
-	ConnectTimeout time.Duration
+	Platform          string
+	Source            SourceKind
+	Stage             CaptureConfig
+	Encoder           EncoderConfig
+	FFmpegBin         string   // 默认 ffmpeg；测试注入 helper
+	FFmpegPrepend     []string // 测试注入 helper 参数
+	ConnectTimeout    time.Duration
+	FirstMediaTimeout time.Duration
 	// 退避：初始 2s，倍增，上限 30s；连续 MaxRetries 次失败转 rejected 之外的终态停止。
 	BackoffInit time.Duration
 	BackoffMax  time.Duration
@@ -130,6 +131,9 @@ func (c *Config) withDefaults() {
 	}
 	if c.ConnectTimeout == 0 {
 		c.ConnectTimeout = 10 * time.Second
+	}
+	if c.FirstMediaTimeout <= 0 {
+		c.FirstMediaTimeout = 10 * time.Second
 	}
 	if c.BackoffInit <= 0 {
 		c.BackoffInit = 2 * time.Second
@@ -193,12 +197,23 @@ func (p *Publisher) Status() Status { return p.m.snapshot() }
 
 // SetTarget 更新推流目标（写入内存层；env 已配置时报错提示改 env）。
 func (p *Publisher) SetTarget(t Target) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	switch p.m.snapshot().State {
+	case StateStarting, StatePushing, StateDegraded:
+		return "", &Error{Code: "publish_target_active", Message: "推流活动中，请先停止推流再更换目标"}
+	}
 	t.Platform = p.cfg.Platform
+	t, err := normalizeTarget(t)
+	if err != nil {
+		return "", err
+	}
 	if err := p.store.Save(t); err != nil {
 		return "", err
 	}
 	fp := t.Fingerprint8()
 	p.m.setFingerprint(fp)
+	p.m.setVerification(TargetUnknown)
 	return fp, nil
 }
 
@@ -215,6 +230,12 @@ func (p *Publisher) Start(ctx context.Context) error {
 		p.mu.Unlock()
 		return errors.New("publish: 未配置推流目标（设置 DH_RTMP_URL/DH_STREAM_KEY 或面板保存）")
 	}
+	t, err := normalizeTarget(t)
+	if err != nil {
+		p.mu.Unlock()
+		return err
+	}
+	p.m.setVerification(TargetUnknown)
 	if err := p.m.transit(StateStarting, ""); err != nil {
 		p.mu.Unlock()
 		return err
@@ -263,10 +284,15 @@ func (p *Publisher) runLoop(ctx context.Context, id int64, t Target) {
 		if ctx.Err() != nil {
 			return
 		}
+		established := p.m.snapshot().State == StatePushing
 		if errors.Is(err, ErrPublishRejected) {
 			p.logf("publish: 推流被拒（key 失效？）: %v", scrubErr(err, t))
 			_ = p.m.transit(StateRejected, "publish_rejected")
 			return
+		}
+		if established {
+			retries = 0
+			backoff = p.cfg.BackoffInit
 		}
 		retries++
 		if retries > p.cfg.MaxRetries {
@@ -295,6 +321,8 @@ func (p *Publisher) runOnce(ctx context.Context, id int64, t Target) error {
 	if err != nil {
 		return err
 	}
+	// DialRTMP 返回即已收到 NetStream.Publish.Start；验证等级只在此单点写入。
+	p.m.setVerification(classifyTarget(t.RTMPURL))
 	defer rc.Close()
 
 	d := &FFmpegDriver{Bin: p.cfg.FFmpegBin, PrependArgs: p.cfg.FFmpegPrepend}
@@ -338,12 +366,9 @@ func (p *Publisher) runOnce(ctx context.Context, id int64, t Target) error {
 	if err := rc.SendMeta(ec.Width, ec.Height, ec.FPS); err != nil {
 		return err
 	}
-	if err := p.m.transit(StatePushing, ""); err != nil {
-		return err
-	}
-	p.logf("publish: 推流中（platform=%s %dx%d@%d）", p.cfg.Platform, ec.Width, ec.Height, ec.FPS)
 
-	// FLV → RTMP 转发（阻塞直到 ffmpeg 退出/出错）
+	// FLV → RTMP 转发；首个音频/视频 tag 成功后才允许进入 pushing。
+	firstMedia := make(chan struct{})
 	forwardErr := make(chan error, 1)
 	go func() {
 		br := bufio.NewReader(d.Stdout())
@@ -351,6 +376,7 @@ func (p *Publisher) runOnce(ctx context.Context, id int64, t Target) error {
 			forwardErr <- err
 			return
 		}
+		mediaSent := false
 		for {
 			tag, err := ReadFLVTag(br)
 			if err != nil {
@@ -365,8 +391,30 @@ func (p *Publisher) runOnce(ctx context.Context, id int64, t Target) error {
 				forwardErr <- err
 				return
 			}
+			if !mediaSent && (tag.Type == 8 || tag.Type == 9) {
+				mediaSent = true
+				close(firstMedia)
+			}
 		}
 	}()
+
+	firstMediaTimer := time.NewTimer(p.cfg.FirstMediaTimeout)
+	defer firstMediaTimer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-waitErr:
+		return fmt.Errorf("publish: ffmpeg 退出: %v", err)
+	case err := <-forwardErr:
+		return err
+	case <-firstMediaTimer.C:
+		return &Error{Code: "publish_first_media_timeout", Message: "推流已连接，但未收到媒体数据，请检查采集源和编码器"}
+	case <-firstMedia:
+	}
+	if err := p.m.transit(StatePushing, ""); err != nil {
+		return err
+	}
+	p.logf("publish: 推流中（platform=%s %dx%d@%d）", p.cfg.Platform, ec.Width, ec.Height, ec.FPS)
 
 	select {
 	case <-ctx.Done():

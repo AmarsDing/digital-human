@@ -4,6 +4,7 @@ package publish
 // 验证：状态机流转、重连退避、key 不进 argv/日志、指标解析。
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	streamv1 "github.com/teamwork/digital-human/api/gen/go/stream/v1"
 )
 
 func helperPublisher(t *testing.T, srv *fakeRTMPServer, dump string, logs *syncedLog) *Publisher {
@@ -83,10 +86,25 @@ func TestPublisherEndToEnd(t *testing.T) {
 	if err := p.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	// helper 每次跑 200ms 后退出 → 触发重连；MaxRetries=2 → 最终 stopped
-	st := waitState(t, p, StateStopped, 15*time.Second)
-	if st.LastError != "max_retries_exceeded" {
-		t.Fatalf("LastError: %q", st.LastError)
+	if got := waitState(t, p, StatePushing, 10*time.Second).TargetVerification; got != TargetLocal {
+		t.Fatalf("RTMP 发布回执后应记录本地协议验证，got=%q", got)
+	}
+	// helper 每轮都有首媒体，退出后重连；成功会话不会累计到 MaxRetries。
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		srv.mu.Lock()
+		connections := srv.connCount
+		srv.mu.Unlock()
+		if connections >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("重连未发生：connCount=%d\nlogs:\n%s", connections, logs.all())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := p.Stop(); err != nil {
+		t.Fatal(err)
 	}
 	p.Wait()
 
@@ -122,7 +140,7 @@ func TestPublisherEndToEnd(t *testing.T) {
 	}
 
 	// 4) 指标被解析
-	st = p.Status()
+	st := p.Status()
 	if st.FPS == 0 || st.BitrateKbps == 0 || st.DroppedFrames != 3 {
 		t.Fatalf("metrics: %+v", st)
 	}
@@ -182,12 +200,226 @@ func TestPublisherStartIdempotent(t *testing.T) {
 	if st := p.Status(); st.State != StateStopped {
 		t.Fatalf("want stopped, got %s", st.State)
 	}
-	// stopped 后可再次 Start（幂等重开）
+	// stopped 后可再次 Start（幂等重开）；本轮有首媒体，断线不会耗尽连续失败次数。
 	if err := p.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	waitState(t, p, StateStopped, 15*time.Second)
+	waitState(t, p, StatePushing, 10*time.Second)
+	if err := p.Stop(); err != nil {
+		t.Fatal(err)
+	}
 	p.Wait()
+}
+
+func TestPublisherWaitsForFirstMediaBeforePushing(t *testing.T) {
+	srv := newFakeRTMPServer(t)
+	defer srv.close()
+	t.Setenv("HELPER_MEDIA_DELAY", "250ms")
+	logs := &syncedLog{}
+	p := helperPublisher(t, srv, filepath.Join(t.TempDir(), "argv.txt"), logs)
+	if _, err := p.SetTarget(Target{RTMPURL: srv.url(), Key: testStreamKey}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = p.Stop()
+		p.Wait()
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		srv.mu.Lock()
+		gotMeta := srv.gotMeta > 0
+		srv.mu.Unlock()
+		if gotMeta {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("等待 RTMP metadata 超时")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if st := p.Status(); st.State != StateStarting {
+		t.Fatalf("首媒体前必须保持 starting，got=%s", st.State)
+	}
+	waitState(t, p, StatePushing, 3*time.Second)
+}
+
+func TestFirstMediaTimeoutBecomesDegraded(t *testing.T) {
+	srv := newFakeRTMPServer(t)
+	defer srv.close()
+	t.Setenv("HELPER_NO_MEDIA", "1")
+	logs := &syncedLog{}
+	p := helperPublisher(t, srv, filepath.Join(t.TempDir(), "argv.txt"), logs)
+	p.cfg.FirstMediaTimeout = 50 * time.Millisecond
+	p.cfg.BackoffInit = 5 * time.Second
+	p.cfg.BackoffMax = 5 * time.Second
+	events := make(chan Event, 16)
+	p.m.onEvent = func(e Event) { events <- e }
+	if _, err := p.SetTarget(Target{RTMPURL: srv.url(), Key: testStreamKey}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = p.Stop()
+		p.Wait()
+	}()
+
+	var sawPushing bool
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case e := <-events:
+			if e.State == StatePushing {
+				sawPushing = true
+			}
+			if e.State != StateDegraded {
+				continue
+			}
+			if sawPushing {
+				t.Fatal("无媒体会话不得进入 pushing")
+			}
+			if !strings.Contains(e.Reason, "publish_first_media_timeout") ||
+				!strings.Contains(e.Reason, "未收到媒体") {
+				t.Fatalf("degraded 原因不可读或不精确: %q", e.Reason)
+			}
+			return
+		case <-timer.C:
+			t.Fatalf("未等到首媒体超时 degraded；state=%s last=%q logs:\n%s",
+				p.Status().State, p.Status().LastError, logs.all())
+		}
+	}
+}
+
+func TestRetryAfterEstablishedSessionStartsAtOne(t *testing.T) {
+	srv := newFakeRTMPServer(t)
+	defer srv.close()
+	logs := &syncedLog{}
+	p := helperPublisher(t, srv, filepath.Join(t.TempDir(), "argv.txt"), logs)
+	if _, err := p.SetTarget(Target{RTMPURL: srv.url(), Key: testStreamKey}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = p.Stop()
+		p.Wait()
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for strings.Count(logs.all(), "后第 1 次重连") < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("成功会话后的重试未从 1 开始:\n%s", logs.all())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if strings.Contains(logs.all(), "后第 2 次重连") {
+		t.Fatalf("成功会话不应累计连续失败次数:\n%s", logs.all())
+	}
+}
+
+func TestTargetVerificationLifecycle(t *testing.T) {
+	store := &MemTargetStore{}
+	p := NewPublisher(Config{}, store)
+	p.m.setVerification(TargetDouyin)
+	if _, err := p.SetTarget(Target{RTMPURL: "rtmp://127.0.0.1/live", Key: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Status().TargetVerification; got != TargetUnknown {
+		t.Fatalf("更换目标后必须清除验证状态，got=%q", got)
+	}
+
+	p.m.setVerification(TargetDouyin)
+	if err := p.m.transit(StateStarting, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.m.transit(StatePushing, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, err := p.SetTarget(Target{RTMPURL: "rtmp://127.0.0.1/other", Key: "second"})
+	if ErrorCode(err) != "publish_target_active" {
+		t.Fatalf("活动会话更换目标应精确拒绝，err=%v code=%q", err, ErrorCode(err))
+	}
+	got, _ := store.Load()
+	if got.RTMPURL != "rtmp://127.0.0.1/live" || got.Key != "first" {
+		t.Fatalf("拒绝更换目标时不得覆盖原目标: %+v", got)
+	}
+}
+
+func TestStartClearsTargetVerification(t *testing.T) {
+	store := &MemTargetStore{}
+	if err := store.Save(Target{RTMPURL: "rtmp://127.0.0.1/live", Key: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	p := NewPublisher(Config{}, store)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	p.dialRTMP = func(string, string, time.Duration) (rtmpConn, error) {
+		close(started)
+		<-release
+		return nil, errors.New("dial failed")
+	}
+	p.m.setVerification(TargetDouyin)
+	if err := p.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if got := p.Status().TargetVerification; got != TargetUnknown {
+		t.Fatalf("重新 Start 必须清除旧验证状态，got=%q", got)
+	}
+	close(release)
+	if err := p.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	p.Wait()
+}
+
+func TestStreamServiceStatusIncludesTargetVerification(t *testing.T) {
+	p := NewPublisher(Config{}, &MemTargetStore{})
+	p.m.setVerification(TargetLocal)
+	reply, err := NewStreamService(p).GetPushStatus(t.Context(), &streamv1.GetPushStatusRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.TargetVerification != string(TargetLocal) {
+		t.Fatalf("target_verification=%q, want=%q", reply.TargetVerification, TargetLocal)
+	}
+}
+
+type staticPushGate struct{ st Status }
+
+func (g staticPushGate) Status() Status { return g.st }
+
+func TestCheckStartLiveRequiresDouyinVerification(t *testing.T) {
+	tests := []struct {
+		name         string
+		verification TargetVerification
+		allow        bool
+		wantCode     string
+	}{
+		{name: "本地协议成功不解锁", verification: TargetLocal, wantCode: "publish_target_unverified"},
+		{name: "本地预览开关不解锁未验证推流", verification: TargetLocal, allow: true, wantCode: "publish_target_unverified"},
+		{name: "未识别域名不解锁", verification: TargetUnknown, wantCode: "publish_target_unverified"},
+		{name: "真实抖音回执解锁", verification: TargetDouyin},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := staticPushGate{st: Status{State: StatePushing, TargetVerification: tt.verification}}
+			err := CheckStartLive(g, tt.allow)
+			if tt.wantCode == "" && err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantCode != "" && ErrorCode(err) != tt.wantCode {
+				t.Fatalf("err=%v code=%q", err, ErrorCode(err))
+			}
+		})
+	}
 }
 
 func TestCheckStartLive(t *testing.T) {

@@ -25,8 +25,17 @@ const VARIANTS: Record<string, 'neutral' | 'info' | 'success' | 'warn' | 'danger
   stopped: 'neutral'
 }
 
-const stateLabel = computed(() => LABELS[store.streamState] ?? store.streamState)
-const variant = computed(() => VARIANTS[store.streamState] ?? 'neutral')
+const stateLabel = computed(() => {
+  if (store.streamState === 'pushing') {
+    if (store.stream?.targetVerification === 'local') return '仅本地协议验证'
+    if (store.stream?.targetVerification !== 'douyin') return '平台未验证'
+  }
+  return LABELS[store.streamState] ?? store.streamState
+})
+const variant = computed(() => {
+  if (store.streamState === 'pushing' && store.stream?.targetVerification !== 'douyin') return 'warn'
+  return VARIANTS[store.streamState] ?? 'neutral'
+})
 // starting/pushing 禁止重复点开始；degraded 可重试。
 const startDisabled = computed(() => store.controlBusy || store.streamBusy)
 const stopDisabled = computed(() => store.controlBusy || !store.streamStoppable)

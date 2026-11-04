@@ -489,7 +489,7 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 	// 未推上/被推拒/重连中均拒绝开播并给出可操作原因（fail-closed 于推流能力本身）。
 	g, allowUnpushed := m.currentPushGate()
 	if g != nil {
-		if err := publish.CheckStartLive(g, allowUnpushed); err != nil {
+		if err := publish.CheckStartLive(g, allowUnpushed && mode == ModeLocalPreview); err != nil {
 			return "", PhaseIdle, "", mode, err // errors.Is(err, publish.ErrPushRequired) 可供 service 层映射 409
 		}
 		// §7.6 local-preview 禁止连接公开推流：推流中开播预览是语义谎言，显式拒绝。

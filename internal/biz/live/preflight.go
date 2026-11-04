@@ -343,7 +343,7 @@ func (p *Preflight) run(ctx context.Context, req PreflightRequest, issueToken bo
 				add("push_gate", CheckWarn, false, "push_gate", "publish", "push_gate_not_wired")
 			}
 		default:
-			if err := publish.CheckStartLive(g, allowUnpushed); err != nil {
+			if err := publish.CheckStartLive(g, allowUnpushed && mode == ModeLocalPreview); err != nil {
 				if mode == ModePublicLive {
 					add("push_gate", CheckFail, true, "push_gate", "publish", err.Error())
 				} else {

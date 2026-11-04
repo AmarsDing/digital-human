@@ -13,7 +13,7 @@ import {
   stopLive
 } from '../services/api/live'
 import { ApiError, classifyApiError } from '../services/api/client'
-import type { LivePreflightResult } from '../services/api/live'
+import type { LiveCheckStatus, LivePreflightResult } from '../services/api/live'
 import type { LiveStatus, WireEvent } from '../services/api/types'
 
 let loadVersion = 0
@@ -30,7 +30,16 @@ interface StartInput {
 
 type SelectionGuard = () => boolean | Promise<boolean>
 
+const CHECK_STATUSES = new Set<LiveCheckStatus>(['pass', 'warn', 'fail', 'unknown', 'running'])
+
 function requirePreflightBinding(result: LivePreflightResult): void {
+  if (result.mode !== 'public-live' && result.mode !== 'local-preview') {
+    throw new ApiError(428, 'preflight_contract_invalid', `开播预检返回非法 mode：${String(result.mode)}，已阻断开播`)
+  }
+  const invalidCheck = result.checks.find((c) => !CHECK_STATUSES.has(c.status))
+  if (invalidCheck) {
+    throw new ApiError(428, 'preflight_contract_invalid', `开播预检返回非法 check status：${invalidCheck.code}=${invalidCheck.status}，已阻断开播`)
+  }
   const missing: string[] = []
   if (result.mode === 'public-live' && !result.personaId) missing.push('personaId')
   if (result.mode === 'public-live' && !result.draftId) missing.push('draftId')
@@ -122,6 +131,9 @@ export const useLiveStore = defineStore('live', {
         })
         requirePreflightBinding(preflight)
         const blocked = preflight.checks.filter((c) => c.status === 'fail' || c.status === 'unknown' || c.status === 'running')
+        if (blocked.some((c) => c.detail?.includes('[publish_target_unverified]'))) {
+          throw new ApiError(428, 'publish_target_unverified', 'publish_target_unverified')
+        }
         if (!preflight.ready || blocked.length) {
           const details = blocked.map((c) => `${c.code}=${c.status}${c.detail ? `：${c.detail}` : ''}`).join('；')
           throw new ApiError(428, 'preflight_not_ready', `开播预检未通过${details ? `：${details}` : ''}`)

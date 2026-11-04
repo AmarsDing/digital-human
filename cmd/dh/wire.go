@@ -1164,13 +1164,14 @@ func provideCapabilities(
 		// koubo_actiongen 与内容包 FileStore 当前均为显式内存/fake 装配。
 		mx["koubo_actiongen"] = capability.Fake
 		mx["content_storage"] = capability.Fake
-		// push_gate（DZ 批已装配时探测当前推流状态）。
+		// push_gate / douyin_publish 只读 Publisher 在真实发布回执后记录的验证等级。
 		if pub == nil {
 			mx["push_gate"] = capability.Unconfigured
-		} else if pub.Status().State == publish.StatePushing {
-			mx["push_gate"] = capability.Real
+			mx["douyin_publish"] = capability.Unconfigured
 		} else {
-			mx["push_gate"] = capability.Unknown
+			status := publishCapabilityStatus(pub.Status())
+			mx["push_gate"] = status
+			mx["douyin_publish"] = status
 		}
 		// storage_persistent：SessionStore 热切后为 Ent 才算 real；内存=fake（只能 local-preview）。
 		if p, ok := sessions.(interface{ Persistent() bool }); ok && p.Persistent() {

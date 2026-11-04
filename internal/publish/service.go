@@ -37,13 +37,14 @@ func (s *StreamService) SetTarget(_ context.Context, req *streamv1.SetPushTarget
 func (s *StreamService) GetPushStatus(context.Context, *streamv1.GetPushStatusRequest) (*streamv1.GetPushStatusReply, error) {
 	st := s.pub.Status()
 	return &streamv1.GetPushStatusReply{
-		State:           string(st.State),
-		Platform:        st.Platform,
-		BitrateKbps:     int32(st.BitrateKbps),
-		Fps:             st.FPS,
-		DroppedFrames:   st.DroppedFrames,
-		KeyFingerprint8: st.KeyFingerprint8,
-		LastError:       st.LastError,
+		State:              string(st.State),
+		Platform:           st.Platform,
+		TargetVerification: string(st.TargetVerification),
+		BitrateKbps:        int32(st.BitrateKbps),
+		Fps:                st.FPS,
+		DroppedFrames:      st.DroppedFrames,
+		KeyFingerprint8:    st.KeyFingerprint8,
+		LastError:          st.LastError,
 	}, nil
 }
 

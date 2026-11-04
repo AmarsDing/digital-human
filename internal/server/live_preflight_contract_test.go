@@ -19,10 +19,12 @@ import (
 	"github.com/teamwork/digital-human/pkg/eventbus"
 )
 
-type preflightContractGate struct{}
+type preflightContractGate struct {
+	target publish.TargetVerification
+}
 
-func (preflightContractGate) Status() publish.Status {
-	return publish.Status{State: publish.StatePushing}
+func (g preflightContractGate) Status() publish.Status {
+	return publish.Status{State: publish.StatePushing, TargetVerification: g.target}
 }
 
 type preflightHTTPFixture struct {
@@ -69,7 +71,7 @@ func (contractDraftSource) GetDraft(context.Context, string) (contentpkg.Draft, 
 func publicPreflightContractHTTP(t *testing.T, avatars *avatar.Service) *preflightHTTPFixture {
 	t.Helper()
 	mgr := live.NewManagerWithStores(eventbus.New(64), live.NewMemorySink(64), live.NewFakeController(slog.Default()), nil, nil, avatars)
-	gate := preflightContractGate{}
+	gate := preflightContractGate{target: publish.TargetDouyin}
 	pf := live.NewPreflight(avatars, func(context.Context) capability.Matrix {
 		return capability.Matrix{
 			"action_sender": capability.Real, "song_player": capability.Real,
@@ -246,6 +248,29 @@ func TestLiveHTTPModeSpoofReturns409(t *testing.T) {
 	t.Logf("spoofed Start local-preview response: status=%d body=%v", resp.StatusCode, body)
 	if snap := f.mgr.Snapshot(); snap.SessionID != "" || snap.Phase != live.PhaseIdle {
 		t.Fatalf("mode 拒绝后不得创建场次: %+v", snap)
+	}
+}
+
+func TestLiveHTTPStartWithUnverifiedTargetReturns409(t *testing.T) {
+	for _, target := range []publish.TargetVerification{publish.TargetLocal, publish.TargetUnknown} {
+		t.Run(string(target), func(t *testing.T) {
+			mgr := live.NewManagerWithStores(eventbus.New(64), live.NewMemorySink(64), live.NewFakeController(slog.Default()), nil, nil, nil)
+			gate := preflightContractGate{target: target}
+			mgr.SetPushGate(gate, false)
+			f := startPreflightContractHTTP(t, mgr, nil)
+			defer f.stop()
+
+			resp, body := postLive(t, f.base, "/api/v1/live/start", "", map[string]any{
+				"mode": "public-live", "draft_id": "d1", "expected_revision": 3,
+			})
+			t.Logf("%s %s\n%s", resp.Proto, resp.Status, body["_raw"])
+			if resp.StatusCode != http.StatusConflict || body["code"] != float64(http.StatusConflict) || body["reason"] != "publish_target_unverified" {
+				t.Fatalf("未验证目标必须返回 409/publish_target_unverified: status=%d body=%v", resp.StatusCode, body)
+			}
+			if snap := f.mgr.Snapshot(); snap.SessionID != "" || snap.Phase != live.PhaseIdle {
+				t.Fatalf("拒绝后不得创建场次: %+v", snap)
+			}
+		})
 	}
 }
 

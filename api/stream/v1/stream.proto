@@ -47,6 +47,7 @@ message GetPushStatusReply {
   int64 dropped_frames = 5;
   string key_fingerprint8 = 6;
   string last_error = 7;
+  string target_verification = 8; // unknown|local|douyin；仅当前进程内验证等级
 }
 message StartPushRequest { string idempotency_key = 1; }
 message StartPushReply { bool ok = 1; string reason = 2; }

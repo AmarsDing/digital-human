@@ -251,6 +251,23 @@ describe('StagePage 统一 preflight 开播入口', () => {
     w.unmount()
   })
 
+  it('publish_target_unverified 引导平台接入验证，不在直播台自动重试', async () => {
+    const live = useLiveStore()
+    live.errorCode = 'publish_target_unverified'
+    live.error = '真实抖音推流目标尚未验证，请前往平台接入完成真实推流验证后重新预检'
+    const start = vi.spyOn(live, 'start').mockResolvedValue(true)
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    const guide = w.find('.guide-banner')
+    const jump = guide.findAll('button').find((b) => b.text() === '前往平台接入验证')
+    expect(jump).toBeDefined()
+    await jump!.trigger('click')
+    expect(h.push).toHaveBeenCalledWith('/platform')
+    expect(start).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
   it('draft_required 引导先选择并提交草稿，不用空草稿自动重试', async () => {
     const live = useLiveStore()
     live.errorCode = 'draft_required'

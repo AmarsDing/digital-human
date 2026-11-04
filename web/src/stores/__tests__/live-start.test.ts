@@ -206,6 +206,54 @@ describe('live store 严格 preflight 开播', () => {
   })
 
   it.each([
+    { mode: 'server-live' },
+    { mode: undefined }
+  ])('Preflight 返回非法 mode=$mode 时 fail-closed，不进入 Start', async ({ mode }) => {
+    preflightMock.mockResolvedValue({ ...readyPreflight(), mode } as never)
+    const store = useLiveStore()
+    const ok = await store.start()
+
+    expect(ok).toBe(false)
+    expect(store.errorCode).toBe('preflight_contract_invalid')
+    expect(store.error).toContain('mode')
+    expect(startMock).not.toHaveBeenCalled()
+  })
+
+  it('Preflight check 返回未知 status 时 fail-closed，不把未知当 pass', async () => {
+    preflightMock.mockResolvedValue({
+      ...readyPreflight(),
+      checks: [{ ...readyPreflight().checks[0], status: 'passed' }]
+    } as never)
+    const store = useLiveStore()
+    const ok = await store.start()
+
+    expect(ok).toBe(false)
+    expect(store.errorCode).toBe('preflight_contract_invalid')
+    expect(store.error).toContain('passed')
+    expect(startMock).not.toHaveBeenCalled()
+  })
+
+  it('publish_target_unverified 专属阻断且不自动重试', async () => {
+    preflightMock.mockResolvedValue({
+      ...readyPreflight(),
+      checks: [{
+        ...readyPreflight().checks[0],
+        code: 'publish',
+        status: 'fail',
+        detail: '[publish_target_unverified] 需先完成一次真实抖音推流验证'
+      }]
+    } as never)
+    const store = useLiveStore()
+    const ok = await store.start()
+
+    expect(ok).toBe(false)
+    expect(store.errorCode).toBe('publish_target_unverified')
+    expect(store.error).toBe('真实抖音推流目标尚未验证，请前往平台接入完成真实推流验证后重新预检')
+    expect(preflightMock).toHaveBeenCalledTimes(1)
+    expect(startMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
     {
       name: 'non-ready',
       patch: {
