@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { GROUP_SPECS } from '../../components/settings/schema'
+import { GROUP_SPECS, millisecondsToSeconds, secondsToMilliseconds } from '../../components/settings/schema'
 
 const getSettings = vi.fn()
 const saveSettings = vi.fn()
@@ -22,6 +22,34 @@ const BACKEND_GROUPS = [
   { id: 'session', title: '会话', effective: 'next_session', values: { avatar_id: 'a-1' } },
   { id: 'danmaku', title: '弹幕主播模式', effective: 'immediate', values: { mode: 'confirm' } }
 ]
+
+describe('read_interval 秒与毫秒转换边界', () => {
+  it.each([
+    { seconds: 0, milliseconds: 0 },
+    { seconds: -1.2345, milliseconds: -1234 },
+    { seconds: 1.2349, milliseconds: 1234 },
+    { seconds: 20.001, milliseconds: 20001 },
+    { seconds: 9007199254740, milliseconds: 9007199254740000 }
+  ])('$seconds 秒向零截断为 $milliseconds 毫秒', ({ seconds, milliseconds }) => {
+    expect(secondsToMilliseconds(seconds)).toBe(milliseconds)
+  })
+
+  it.each([
+    { milliseconds: 0, seconds: 0 },
+    { milliseconds: -1234, seconds: -1.234 },
+    { milliseconds: 1, seconds: 0.001 },
+    { milliseconds: 9007199254740000, seconds: 9007199254740 }
+  ])('$milliseconds 毫秒显示为 $seconds 秒', ({ milliseconds, seconds }) => {
+    expect(millisecondsToSeconds(milliseconds)).toBe(seconds)
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 9007199254741])(
+    '拒绝无法安全表示的秒数 %s',
+    (seconds) => {
+      expect(() => secondsToMilliseconds(seconds)).toThrow(RangeError)
+    }
+  )
+})
 
 describe('settings store', () => {
   beforeEach(() => {

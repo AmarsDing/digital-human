@@ -4,7 +4,7 @@ import NtSelect from '../ui/NtSelect.vue'
 import NtToggle from '../ui/NtToggle.vue'
 import NtTextarea from '../ui/NtTextarea.vue'
 import NtSecretText from '../ui/NtSecretText.vue'
-import type { FieldSpec, GroupSpec } from './schema'
+import { millisecondsToSeconds, secondsToMilliseconds, type FieldSpec, type GroupSpec } from './schema'
 
 const props = defineProps<{
   spec: GroupSpec
@@ -34,6 +34,13 @@ function onBlur(col: FieldSpec, ev: Event): void {
   if (!Number.isFinite(v)) msg = '请输入数字'
   else if (col.min !== undefined && v < col.min) msg = `不能小于 ${col.min}`
   else if (col.max !== undefined && v > col.max) msg = `不能大于 ${col.max}`
+  else if (col.unitConversion === 'ms-to-s') {
+    try {
+      secondsToMilliseconds(v)
+    } catch {
+      msg = '超出安全毫秒范围'
+    }
+  }
   const next = { ...invalid.value }
   if (msg) next[col.key] = msg
   else delete next[col.key]
@@ -44,6 +51,12 @@ function onBlur(col: FieldSpec, ev: Event): void {
 function str(key: string): string {
   const v = props.values[key]
   return v === null || v === undefined ? '' : String(v)
+}
+function displayValue(col: FieldSpec): string {
+  const raw = props.values[col.key]
+  if (col.unitConversion !== 'ms-to-s' || raw === null || raw === undefined || raw === '') return str(col.key)
+  const milliseconds = Number(raw)
+  return Number.isFinite(milliseconds) ? String(millisecondsToSeconds(milliseconds)) : ''
 }
 function bool(key: string): boolean {
   return Boolean(props.values[key])
@@ -56,6 +69,18 @@ function inputValue(col: FieldSpec, ev: Event): unknown {
   if (col.type === 'number') return Number(value)
   if (col.format === 'csv') return value.split(',').map((item) => item.trim()).filter(Boolean)
   return value
+}
+function onInput(col: FieldSpec, ev: Event): void {
+  if (col.type === 'number' && col.unitConversion === 'ms-to-s') {
+    const seconds = Number((ev.target as HTMLInputElement).value)
+    try {
+      emit('update', col.key, secondsToMilliseconds(seconds))
+    } catch {
+      // 非有限值/超大值不污染 store；失焦时显示明确校验错误。
+    }
+    return
+  }
+  emit('update', col.key, inputValue(col, ev))
 }
 </script>
 
@@ -104,13 +129,13 @@ function inputValue(col: FieldSpec, ev: Event): unknown {
           <span class="field__control">
             <input
               :type="col.type === 'number' ? 'number' : 'text'"
-              :value="str(col.key)"
+              :value="displayValue(col)"
               :min="col.min"
               :max="col.max"
               :step="col.step"
               :aria-invalid="!!invalid[col.key]"
               :class="{ 'field__control--invalid': !!invalid[col.key] }"
-              @input="emit('update', col.key, inputValue(col, $event))"
+              @input="onInput(col, $event)"
               @blur="onBlur(col, $event)"
             />
             <span v-if="col.suffix" class="field__suffix">{{ col.suffix }}</span>

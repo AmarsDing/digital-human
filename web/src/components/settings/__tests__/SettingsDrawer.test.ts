@@ -149,6 +149,36 @@ describe('SettingsDrawer', () => {
     expect(saveBtn.attributes('disabled')).toBeUndefined()
   })
 
+  it('read_interval 表单以秒展示，store 始终保存截断后的整数毫秒', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useSettingsStore()
+    await store.load()
+    const w = mount(SettingsDrawer, { props: { open: true }, global: { plugins: [pinia] } })
+    await w.findAll('.drawer__tab')[11].trigger('click')
+
+    const label = w.findAll('label').find((el) => el.text().includes('播报间隔'))!
+    const input = label.get('input')
+    expect((input.element as HTMLInputElement).value).toBe('20')
+    expect(label.text()).toContain('秒')
+
+    await input.setValue('1.2349')
+    expect(store.groupById('danmaku')?.values.read_interval_ms).toBe(1234)
+
+    await input.setValue('9007199254741')
+    expect(store.groupById('danmaku')?.values.read_interval_ms).toBe(1234)
+    await input.trigger('blur')
+    expect(label.text()).toContain('超出安全毫秒范围')
+
+    await input.setValue('-1')
+    expect(store.groupById('danmaku')?.values.read_interval_ms).toBe(-1000)
+    await input.trigger('blur')
+    expect(label.text()).toContain('不能小于 0.5')
+
+    await input.setValue('0')
+    expect(store.groupById('danmaku')?.values.read_interval_ms).toBe(0)
+  })
+
   // R3-04：7 个只读键展示 active 档案派生值（v3 §1.2），而非 settings 库存储旧值。
   describe('只读派生值（R3-04）', () => {
     function mockActiveAvatar(prompt: string): void {

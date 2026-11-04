@@ -12,6 +12,8 @@ export interface FieldSpec {
   step?: number
   suffix?: string
   format?: 'csv'
+  // 存储为整数毫秒、表单以秒展示；仅用于显式声明的字段。
+  unitConversion?: 'ms-to-s'
   // 只读派生字段的跳转链接（v3 §1.2：已迁移至数字人档案）。
   linkTo?: string
   linkLabel?: string
@@ -24,6 +26,19 @@ export interface GroupSpec {
   note?: string
   fields: FieldSpec[]
   defaults: Record<string, unknown>
+}
+
+export function millisecondsToSeconds(milliseconds: number): number {
+  if (!Number.isFinite(milliseconds)) throw new RangeError('milliseconds must be finite')
+  return milliseconds / 1000
+}
+
+// 后端只接受整数毫秒；多余精度向零截断，超出安全整数范围则拒绝写入。
+export function secondsToMilliseconds(seconds: number): number {
+  if (!Number.isFinite(seconds)) throw new RangeError('seconds must be finite')
+  const milliseconds = Math.trunc(seconds * 1000)
+  if (!Number.isSafeInteger(milliseconds)) throw new RangeError('milliseconds exceed safe integer range')
+  return milliseconds
 }
 
 export const GROUP_SPECS: GroupSpec[] = [
@@ -294,7 +309,7 @@ export const GROUP_SPECS: GroupSpec[] = [
         { label: '顺序复读', value: 'read_all' },
         { label: '弹幕主播（复读+AI 回答）', value: 'dm_anchor' }
       ], hint: 'read_all 按顺序只复读；dm_anchor 取最新弹幕复读并给 AI 完整回答（需配 LLM）' },
-      { key: 'read_interval_ms', label: '播报间隔', type: 'number', min: 500, step: 100, suffix: 'ms' },
+      { key: 'read_interval_ms', label: '播报间隔', type: 'number', min: 0.5, step: 0.1, suffix: '秒', unitConversion: 'ms-to-s' },
       { key: 'vip_interval_ms', label: 'VIP 间隔', type: 'number', min: 500, step: 100, suffix: 'ms' },
       { key: 'block_words', label: '屏蔽词（逗号/换行分隔）', type: 'textarea' }
     ],
