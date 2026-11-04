@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import VideoStage from '../components/stage/VideoStage.vue'
+import PreflightDialog from '../components/stage/PreflightDialog.vue'
+import { usePreparationStore } from '../stores/preparation'
 import ComposerBar from '../components/stage/ComposerBar.vue'
 import RightRail from '../components/stage/RightRail.vue'
 import MetricsPopover from '../components/stage/MetricsPopover.vue'
@@ -35,6 +37,8 @@ import { createVisibilityPolling } from '../utils/polling'
 import { registerStageHotkeys } from '../utils/hotkeys'
 
 const router = useRouter()
+const preparation = usePreparationStore()
+const preflightOpen = ref(false)
 const live = useLiveStore()
 const events = useEventsStore()
 const transcript = useTranscriptStore()
@@ -268,7 +272,7 @@ function handleQuickAction(id: string): void {
     selectGroup('live', id)
     return
   }
-  if (id === 'preflight' && !live.busy && !live.isLive) void start()
+  if (id === 'preflight' && !live.busy && !live.isLive) void checkBeforeStart()
 }
 
 selectGroup(stageMode.value)
@@ -380,6 +384,14 @@ async function loadActiveAvatarName(): Promise<void> {
 }
 
 async function start(): Promise<void> {
+  await preparation.load()
+  if (preparation.selected) {
+    const draft = preparation.selected
+    activeAvatarId.value = draft.snapshot.avatar?.id || ''
+    await live.start({ personaId: activeAvatarId.value, draftId: draft.draft_id, expectedRevision: draft.revision },
+      () => preparation.selected?.draft_id === draft.draft_id && preparation.selected.revision === draft.revision)
+    return
+  }
   // G 批 M4：开播链路带 persona_id——读取当前 active 档案（v3 §1.2 唯一真相源）；
   // 无 active 档案时回落旧路径（settings 会话值），保持兼容。
   activeAvatarId.value = ''
@@ -407,6 +419,17 @@ async function start(): Promise<void> {
     greeting: String(s?.values.greeting ?? '')
   })
 }
+
+async function checkBeforeStart(): Promise<void> {
+  if (live.busy || live.isLive) return
+  preflightOpen.value = true
+  await preparation.load()
+  const draft = preparation.selected
+  const personaId = draft?.snapshot.avatar?.id || activeAvatarId.value
+  await live.runPreflight({ personaId, draftId: draft?.draft_id, expectedRevision: draft?.revision })
+}
+
+watch(() => preparation.selected, () => live.invalidatePreflight())
 
 // 「重新同步并开播」（v3 §2.2）：sync 成功后只进入一次统一 preflight/start 流程。
 // resyncCtrl：组件卸载时中断轮询，避免离开直播台后 480s 上限的后台请求（R3-02）。
@@ -483,10 +506,10 @@ async function doClearTranscript(): Promise<void> {
     <div v-if="personaGuide" class="guide-banner" role="alert">
       <span>{{ live.error }}</span>
       <button v-if="personaGuide === 'jump'" type="button" @click="router.push('/avatars')">前往档案页</button>
-      <button v-else-if="personaGuide === 'repreflight'" type="button" :disabled="live.busy" @click="start">
-        重新预检并开播
+      <button v-else-if="personaGuide === 'repreflight'" type="button" :disabled="live.busy" @click="checkBeforeStart">
+        重新预检
       </button>
-      <span v-else-if="personaGuide === 'draft'">当前后端未提供草稿列表接口；请先在内容包中选择并提交草稿，再返回直播台。</span>
+      <button v-else-if="personaGuide === 'draft'" type="button" @click="router.push('/prepare')">选择并提交场次草稿</button>
       <button v-else-if="personaGuide === 'platform'" type="button" :disabled="live.busy" @click="router.push('/platform')">
         前往平台接入验证
       </button>
@@ -503,10 +526,14 @@ async function doClearTranscript(): Promise<void> {
       <span>{{ stageMode === 'live' ? '本场已冻结；形象、人设与音色修改仅作用于下一场' : '配置与开播预检仅作用于下一场' }}</span>
       <span v-if="activeAvatarName" class="stage-mode__avatar">当前形象：{{ activeAvatarName }}</span>
       <div class="stage-mode__actions">
+        <button type="button" class="tool" @click="router.push('/prepare')">场次准备</button>
         <MetricsPopover :items="stats" />
       </div>
     </div>
 
+    <PreflightDialog :open="preflightOpen" :result="live.preflight" :busy="live.busy" :error="live.error"
+      @close="preflightOpen = false" @retry="checkBeforeStart" @prepare="router.push('/prepare')"
+      @start="preflightOpen = false; start()" />
     <main class="deck" :style="deckStyle">
       <div class="deck__stage">
         <VideoStage

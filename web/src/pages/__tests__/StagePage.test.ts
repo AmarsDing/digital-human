@@ -372,23 +372,22 @@ describe('StagePage 统一 preflight 开播入口', () => {
     w.unmount()
   })
 
-  it('preflight_expired 提供重新预检动作并重新进入统一 start', async () => {
+  it('preflight_expired 只重新预检，等待用户明确开播', async () => {
     h.listAvatars.mockResolvedValue(activeAvatar(7))
     const live = useLiveStore()
     live.errorCode = 'preflight_expired'
     live.error = '开播预检凭证已过期，请重新预检后再开播'
     const start = vi.spyOn(live, 'start').mockResolvedValue(true)
+    const preflight = vi.spyOn(live, 'runPreflight').mockResolvedValue(true)
     const w = shallowMount(StagePage)
     await flushPromises()
 
-    const retry = w.findAll('button').find((b) => b.text() === '重新预检并开播')
+    const retry = w.findAll('button').find((b) => b.text() === '重新预检')
     expect(retry).toBeDefined()
     await retry!.trigger('click')
     await flushPromises()
-    expect(start).toHaveBeenCalledWith(
-      { personaId: 'p1' },
-      expect.any(Function)
-    )
+    expect(preflight).toHaveBeenCalledTimes(1)
+    expect(start).not.toHaveBeenCalled()
     expect(h.push).not.toHaveBeenCalledWith('/avatars')
     w.unmount()
   })
@@ -399,15 +398,16 @@ describe('StagePage 统一 preflight 开播入口', () => {
     live.errorCode = 'preflight_required'
     live.error = '开播预检凭证缺失、未知、过期或已消费，请重新预检后再开播'
     const start = vi.spyOn(live, 'start').mockResolvedValue(true)
+    const preflight = vi.spyOn(live, 'runPreflight').mockResolvedValue(true)
     const w = shallowMount(StagePage)
     await flushPromises()
 
-    const retry = w.findAll('button').find((b) => b.text() === '重新预检并开播')
+    const retry = w.findAll('button').find((b) => b.text() === '重新预检')
     expect(retry).toBeDefined()
     await retry!.trigger('click')
     await flushPromises()
-    expect(start).toHaveBeenCalledTimes(1)
-    expect(start).toHaveBeenCalledWith({ personaId: 'p1' }, expect.any(Function))
+    expect(preflight).toHaveBeenCalledTimes(1)
+    expect(start).not.toHaveBeenCalled()
     w.unmount()
   })
 
@@ -437,8 +437,9 @@ describe('StagePage 统一 preflight 开播入口', () => {
     await flushPromises()
 
     const guide = w.find('.guide-banner')
-    expect(guide.text()).toContain('选择并提交草稿')
-    expect(guide.text()).toContain('草稿列表接口')
+    expect(guide.text()).toContain('选择并提交场次草稿')
+    await guide.get('button').trigger('click')
+    expect(h.push).toHaveBeenCalledWith('/prepare')
     expect(w.findAll('button').some((b) => b.text() === '重新预检并开播')).toBe(false)
     expect(start).not.toHaveBeenCalled()
     w.unmount()

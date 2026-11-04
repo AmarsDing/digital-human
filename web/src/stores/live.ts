@@ -65,6 +65,7 @@ interface LiveState {
   errorCode: string
   lastLoadedAt: number
   llmClearedTurns: number
+  preflight: LivePreflightResult | null
 }
 
 export const useLiveStore = defineStore('live', {
@@ -75,7 +76,8 @@ export const useLiveStore = defineStore('live', {
     error: '',
     errorCode: '',
     lastLoadedAt: 0,
-    llmClearedTurns: 0
+    llmClearedTurns: 0,
+    preflight: null
   }),
   getters: {
     phase: (s) => s.status?.phase || 'idle',
@@ -88,6 +90,17 @@ export const useLiveStore = defineStore('live', {
     rtcReady: (s) => !!s.status?.rtc?.tokenExpireAt
   },
   actions: {
+    invalidatePreflight(): void { this.preflight = null },
+
+    async runPreflight(input: StartInput = {}): Promise<boolean> {
+      if (this.busy) return false
+      this.preflight = null
+      return this.stableAction(async () => {
+        const result = await preflightLive(input)
+        requirePreflightBinding(result)
+        this.preflight = result
+      })
+    },
     async load(): Promise<void> {
       const version = ++loadVersion
       try {
@@ -129,6 +142,7 @@ export const useLiveStore = defineStore('live', {
           draftId,
           expectedRevision
         })
+        this.preflight = preflight
         requirePreflightBinding(preflight)
         const blocked = preflight.checks.filter((c) => c.status === 'fail' || c.status === 'unknown' || c.status === 'running')
         if (blocked.some((c) => c.detail?.includes('[publish_target_unverified]'))) {

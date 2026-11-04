@@ -111,6 +111,11 @@ function safeParse(text: string): unknown {
 export function classifyApiError(err: unknown): { code: string; message: string } {
   if (err instanceof ApiError) {
     switch (err.code) {
+      case 'draft_revision_conflict':
+      case 'draft_fencing_conflict':
+      case 'draft_owner_conflict':
+      case 'draft_lease_expired':
+        return { code: err.code, message: '草稿已更新或编辑权限已过期，请从列表重新打开后再保存' }
       case 'unauthorized':
         return { code: err.code, message: '管理员凭证无效，请重新登录' }
       case 'network_timeout':
