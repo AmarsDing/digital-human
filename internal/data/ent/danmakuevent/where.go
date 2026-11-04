@@ -97,9 +97,29 @@ func Source(v string) predicate.DanmakuEvent {
 	return predicate.DanmakuEvent(sql.FieldEQ(FieldSource, v))
 }
 
+// SourceEventID applies equality check predicate on the "source_event_id" field. It's identical to SourceEventIDEQ.
+func SourceEventID(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEQ(FieldSourceEventID, v))
+}
+
 // Decision applies equality check predicate on the "decision" field. It's identical to DecisionEQ.
 func Decision(v string) predicate.DanmakuEvent {
 	return predicate.DanmakuEvent(sql.FieldEQ(FieldDecision, v))
+}
+
+// OccurredAtMs applies equality check predicate on the "occurred_at_ms" field. It's identical to OccurredAtMsEQ.
+func OccurredAtMs(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEQ(FieldOccurredAtMs, v))
+}
+
+// ReceivedAtMs applies equality check predicate on the "received_at_ms" field. It's identical to ReceivedAtMsEQ.
+func ReceivedAtMs(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEQ(FieldReceivedAtMs, v))
+}
+
+// ExpiresAtMs applies equality check predicate on the "expires_at_ms" field. It's identical to ExpiresAtMsEQ.
+func ExpiresAtMs(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEQ(FieldExpiresAtMs, v))
 }
 
 // CreatedAtMs applies equality check predicate on the "created_at_ms" field. It's identical to CreatedAtMsEQ.
@@ -577,6 +597,81 @@ func SourceContainsFold(v string) predicate.DanmakuEvent {
 	return predicate.DanmakuEvent(sql.FieldContainsFold(FieldSource, v))
 }
 
+// SourceEventIDEQ applies the EQ predicate on the "source_event_id" field.
+func SourceEventIDEQ(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEQ(FieldSourceEventID, v))
+}
+
+// SourceEventIDNEQ applies the NEQ predicate on the "source_event_id" field.
+func SourceEventIDNEQ(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNEQ(FieldSourceEventID, v))
+}
+
+// SourceEventIDIn applies the In predicate on the "source_event_id" field.
+func SourceEventIDIn(vs ...string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldIn(FieldSourceEventID, vs...))
+}
+
+// SourceEventIDNotIn applies the NotIn predicate on the "source_event_id" field.
+func SourceEventIDNotIn(vs ...string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNotIn(FieldSourceEventID, vs...))
+}
+
+// SourceEventIDGT applies the GT predicate on the "source_event_id" field.
+func SourceEventIDGT(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldGT(FieldSourceEventID, v))
+}
+
+// SourceEventIDGTE applies the GTE predicate on the "source_event_id" field.
+func SourceEventIDGTE(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldGTE(FieldSourceEventID, v))
+}
+
+// SourceEventIDLT applies the LT predicate on the "source_event_id" field.
+func SourceEventIDLT(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldLT(FieldSourceEventID, v))
+}
+
+// SourceEventIDLTE applies the LTE predicate on the "source_event_id" field.
+func SourceEventIDLTE(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldLTE(FieldSourceEventID, v))
+}
+
+// SourceEventIDContains applies the Contains predicate on the "source_event_id" field.
+func SourceEventIDContains(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldContains(FieldSourceEventID, v))
+}
+
+// SourceEventIDHasPrefix applies the HasPrefix predicate on the "source_event_id" field.
+func SourceEventIDHasPrefix(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldHasPrefix(FieldSourceEventID, v))
+}
+
+// SourceEventIDHasSuffix applies the HasSuffix predicate on the "source_event_id" field.
+func SourceEventIDHasSuffix(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldHasSuffix(FieldSourceEventID, v))
+}
+
+// SourceEventIDIsNil applies the IsNil predicate on the "source_event_id" field.
+func SourceEventIDIsNil() predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldIsNull(FieldSourceEventID))
+}
+
+// SourceEventIDNotNil applies the NotNil predicate on the "source_event_id" field.
+func SourceEventIDNotNil() predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNotNull(FieldSourceEventID))
+}
+
+// SourceEventIDEqualFold applies the EqualFold predicate on the "source_event_id" field.
+func SourceEventIDEqualFold(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEqualFold(FieldSourceEventID, v))
+}
+
+// SourceEventIDContainsFold applies the ContainsFold predicate on the "source_event_id" field.
+func SourceEventIDContainsFold(v string) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldContainsFold(FieldSourceEventID, v))
+}
+
 // DecisionEQ applies the EQ predicate on the "decision" field.
 func DecisionEQ(v string) predicate.DanmakuEvent {
 	return predicate.DanmakuEvent(sql.FieldEQ(FieldDecision, v))
@@ -640,6 +735,126 @@ func DecisionEqualFold(v string) predicate.DanmakuEvent {
 // DecisionContainsFold applies the ContainsFold predicate on the "decision" field.
 func DecisionContainsFold(v string) predicate.DanmakuEvent {
 	return predicate.DanmakuEvent(sql.FieldContainsFold(FieldDecision, v))
+}
+
+// OccurredAtMsEQ applies the EQ predicate on the "occurred_at_ms" field.
+func OccurredAtMsEQ(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEQ(FieldOccurredAtMs, v))
+}
+
+// OccurredAtMsNEQ applies the NEQ predicate on the "occurred_at_ms" field.
+func OccurredAtMsNEQ(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNEQ(FieldOccurredAtMs, v))
+}
+
+// OccurredAtMsIn applies the In predicate on the "occurred_at_ms" field.
+func OccurredAtMsIn(vs ...int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldIn(FieldOccurredAtMs, vs...))
+}
+
+// OccurredAtMsNotIn applies the NotIn predicate on the "occurred_at_ms" field.
+func OccurredAtMsNotIn(vs ...int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNotIn(FieldOccurredAtMs, vs...))
+}
+
+// OccurredAtMsGT applies the GT predicate on the "occurred_at_ms" field.
+func OccurredAtMsGT(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldGT(FieldOccurredAtMs, v))
+}
+
+// OccurredAtMsGTE applies the GTE predicate on the "occurred_at_ms" field.
+func OccurredAtMsGTE(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldGTE(FieldOccurredAtMs, v))
+}
+
+// OccurredAtMsLT applies the LT predicate on the "occurred_at_ms" field.
+func OccurredAtMsLT(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldLT(FieldOccurredAtMs, v))
+}
+
+// OccurredAtMsLTE applies the LTE predicate on the "occurred_at_ms" field.
+func OccurredAtMsLTE(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldLTE(FieldOccurredAtMs, v))
+}
+
+// ReceivedAtMsEQ applies the EQ predicate on the "received_at_ms" field.
+func ReceivedAtMsEQ(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEQ(FieldReceivedAtMs, v))
+}
+
+// ReceivedAtMsNEQ applies the NEQ predicate on the "received_at_ms" field.
+func ReceivedAtMsNEQ(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNEQ(FieldReceivedAtMs, v))
+}
+
+// ReceivedAtMsIn applies the In predicate on the "received_at_ms" field.
+func ReceivedAtMsIn(vs ...int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldIn(FieldReceivedAtMs, vs...))
+}
+
+// ReceivedAtMsNotIn applies the NotIn predicate on the "received_at_ms" field.
+func ReceivedAtMsNotIn(vs ...int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNotIn(FieldReceivedAtMs, vs...))
+}
+
+// ReceivedAtMsGT applies the GT predicate on the "received_at_ms" field.
+func ReceivedAtMsGT(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldGT(FieldReceivedAtMs, v))
+}
+
+// ReceivedAtMsGTE applies the GTE predicate on the "received_at_ms" field.
+func ReceivedAtMsGTE(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldGTE(FieldReceivedAtMs, v))
+}
+
+// ReceivedAtMsLT applies the LT predicate on the "received_at_ms" field.
+func ReceivedAtMsLT(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldLT(FieldReceivedAtMs, v))
+}
+
+// ReceivedAtMsLTE applies the LTE predicate on the "received_at_ms" field.
+func ReceivedAtMsLTE(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldLTE(FieldReceivedAtMs, v))
+}
+
+// ExpiresAtMsEQ applies the EQ predicate on the "expires_at_ms" field.
+func ExpiresAtMsEQ(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldEQ(FieldExpiresAtMs, v))
+}
+
+// ExpiresAtMsNEQ applies the NEQ predicate on the "expires_at_ms" field.
+func ExpiresAtMsNEQ(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNEQ(FieldExpiresAtMs, v))
+}
+
+// ExpiresAtMsIn applies the In predicate on the "expires_at_ms" field.
+func ExpiresAtMsIn(vs ...int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldIn(FieldExpiresAtMs, vs...))
+}
+
+// ExpiresAtMsNotIn applies the NotIn predicate on the "expires_at_ms" field.
+func ExpiresAtMsNotIn(vs ...int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldNotIn(FieldExpiresAtMs, vs...))
+}
+
+// ExpiresAtMsGT applies the GT predicate on the "expires_at_ms" field.
+func ExpiresAtMsGT(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldGT(FieldExpiresAtMs, v))
+}
+
+// ExpiresAtMsGTE applies the GTE predicate on the "expires_at_ms" field.
+func ExpiresAtMsGTE(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldGTE(FieldExpiresAtMs, v))
+}
+
+// ExpiresAtMsLT applies the LT predicate on the "expires_at_ms" field.
+func ExpiresAtMsLT(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldLT(FieldExpiresAtMs, v))
+}
+
+// ExpiresAtMsLTE applies the LTE predicate on the "expires_at_ms" field.
+func ExpiresAtMsLTE(v int64) predicate.DanmakuEvent {
+	return predicate.DanmakuEvent(sql.FieldLTE(FieldExpiresAtMs, v))
 }
 
 // CreatedAtMsEQ applies the EQ predicate on the "created_at_ms" field.

@@ -28,6 +28,7 @@ import (
 	"github.com/teamwork/digital-human/internal/data/ent/recording"
 	"github.com/teamwork/digital-human/internal/data/ent/sessionevent"
 	"github.com/teamwork/digital-human/internal/data/ent/setting"
+	"github.com/teamwork/digital-human/internal/data/ent/songrequest"
 	"github.com/teamwork/digital-human/internal/data/ent/vidukey"
 )
 
@@ -105,6 +106,7 @@ func checkColumn(t, c string) error {
 			recording.Table:           recording.ValidColumn,
 			sessionevent.Table:        sessionevent.ValidColumn,
 			setting.Table:             setting.ValidColumn,
+			songrequest.Table:         songrequest.ValidColumn,
 			vidukey.Table:             vidukey.ValidColumn,
 		})
 	})

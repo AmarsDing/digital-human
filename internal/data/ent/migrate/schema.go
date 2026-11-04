@@ -123,7 +123,11 @@ var (
 		{Name: "text", Type: field.TypeString, Nullable: true},
 		{Name: "diamond", Type: field.TypeInt64, Default: 0},
 		{Name: "source", Type: field.TypeString, Nullable: true},
+		{Name: "source_event_id", Type: field.TypeString, Nullable: true},
 		{Name: "decision", Type: field.TypeString, Default: ""},
+		{Name: "occurred_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "received_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "expires_at_ms", Type: field.TypeInt64, Default: 0},
 		{Name: "created_at_ms", Type: field.TypeInt64, Default: 0},
 	}
 	// DanmakuEventsTable holds the schema information for the "danmaku_events" table.
@@ -135,7 +139,12 @@ var (
 			{
 				Name:    "danmakuevent_session_id_created_at_ms",
 				Unique:  false,
-				Columns: []*schema.Column{DanmakuEventsColumns[1], DanmakuEventsColumns[9]},
+				Columns: []*schema.Column{DanmakuEventsColumns[1], DanmakuEventsColumns[13]},
+			},
+			{
+				Name:    "danmakuevent_source_source_event_id",
+				Unique:  true,
+				Columns: []*schema.Column{DanmakuEventsColumns[7], DanmakuEventsColumns[8]},
 			},
 		},
 	}
@@ -454,6 +463,53 @@ var (
 		Columns:    SettingsColumns,
 		PrimaryKey: []*schema.Column{SettingsColumns[0]},
 	}
+	// SongRequestsColumns holds the columns for the "song_requests" table.
+	SongRequestsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString, Unique: true},
+		{Name: "session_id", Type: field.TypeString},
+		{Name: "source_event_row_id", Type: field.TypeString},
+		{Name: "decision_id", Type: field.TypeString, Default: ""},
+		{Name: "effect_idempotency_key", Type: field.TypeString, Default: ""},
+		{Name: "user_key", Type: field.TypeString},
+		{Name: "file", Type: field.TypeString},
+		{Name: "script", Type: field.TypeString, Default: ""},
+		{Name: "status", Type: field.TypeString, Default: "queued"},
+		{Name: "queue_seq", Type: field.TypeInt64, Default: 0},
+		{Name: "position", Type: field.TypeInt, Default: 0},
+		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "play_id", Type: field.TypeString, Default: ""},
+		{Name: "attempt", Type: field.TypeInt, Default: 0},
+		{Name: "last_error", Type: field.TypeString, Default: ""},
+		{Name: "reconcile_status", Type: field.TypeString, Default: "none"},
+		{Name: "created_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "expires_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "started_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "terminal_at_ms", Type: field.TypeInt64, Default: 0},
+		{Name: "terminal_reason", Type: field.TypeString, Default: ""},
+	}
+	// SongRequestsTable holds the schema information for the "song_requests" table.
+	SongRequestsTable = &schema.Table{
+		Name:       "song_requests",
+		Columns:    SongRequestsColumns,
+		PrimaryKey: []*schema.Column{SongRequestsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "songrequest_session_id_source_event_row_id",
+				Unique:  true,
+				Columns: []*schema.Column{SongRequestsColumns[1], SongRequestsColumns[2]},
+			},
+			{
+				Name:    "songrequest_queue_seq",
+				Unique:  false,
+				Columns: []*schema.Column{SongRequestsColumns[9]},
+			},
+			{
+				Name:    "songrequest_session_id_status",
+				Unique:  false,
+				Columns: []*schema.Column{SongRequestsColumns[1], SongRequestsColumns[8]},
+			},
+		},
+	}
 	// ViduKeysColumns holds the columns for the "vidu_keys" table.
 	ViduKeysColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeString, Unique: true},
@@ -495,6 +551,7 @@ var (
 		RecordingsTable,
 		SessionEventsTable,
 		SettingsTable,
+		SongRequestsTable,
 		ViduKeysTable,
 	}
 )

@@ -30,8 +30,16 @@ type DanmakuEvent struct {
 	Diamond int64 `json:"diamond,omitempty"`
 	// Source holds the value of the "source" field.
 	Source string `json:"source,omitempty"`
+	// SourceEventID holds the value of the "source_event_id" field.
+	SourceEventID string `json:"source_event_id,omitempty"`
 	// Decision holds the value of the "decision" field.
 	Decision string `json:"decision,omitempty"`
+	// OccurredAtMs holds the value of the "occurred_at_ms" field.
+	OccurredAtMs int64 `json:"occurred_at_ms,omitempty"`
+	// ReceivedAtMs holds the value of the "received_at_ms" field.
+	ReceivedAtMs int64 `json:"received_at_ms,omitempty"`
+	// ExpiresAtMs holds the value of the "expires_at_ms" field.
+	ExpiresAtMs int64 `json:"expires_at_ms,omitempty"`
 	// CreatedAtMs holds the value of the "created_at_ms" field.
 	CreatedAtMs  int64 `json:"created_at_ms,omitempty"`
 	selectValues sql.SelectValues
@@ -42,9 +50,9 @@ func (*DanmakuEvent) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case danmakuevent.FieldDiamond, danmakuevent.FieldCreatedAtMs:
+		case danmakuevent.FieldDiamond, danmakuevent.FieldOccurredAtMs, danmakuevent.FieldReceivedAtMs, danmakuevent.FieldExpiresAtMs, danmakuevent.FieldCreatedAtMs:
 			values[i] = new(sql.NullInt64)
-		case danmakuevent.FieldID, danmakuevent.FieldSessionID, danmakuevent.FieldKind, danmakuevent.FieldUserID, danmakuevent.FieldUserName, danmakuevent.FieldText, danmakuevent.FieldSource, danmakuevent.FieldDecision:
+		case danmakuevent.FieldID, danmakuevent.FieldSessionID, danmakuevent.FieldKind, danmakuevent.FieldUserID, danmakuevent.FieldUserName, danmakuevent.FieldText, danmakuevent.FieldSource, danmakuevent.FieldSourceEventID, danmakuevent.FieldDecision:
 			values[i] = new(sql.NullString)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -109,11 +117,35 @@ func (_m *DanmakuEvent) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.Source = value.String
 			}
+		case danmakuevent.FieldSourceEventID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field source_event_id", values[i])
+			} else if value.Valid {
+				_m.SourceEventID = value.String
+			}
 		case danmakuevent.FieldDecision:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field decision", values[i])
 			} else if value.Valid {
 				_m.Decision = value.String
+			}
+		case danmakuevent.FieldOccurredAtMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field occurred_at_ms", values[i])
+			} else if value.Valid {
+				_m.OccurredAtMs = value.Int64
+			}
+		case danmakuevent.FieldReceivedAtMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field received_at_ms", values[i])
+			} else if value.Valid {
+				_m.ReceivedAtMs = value.Int64
+			}
+		case danmakuevent.FieldExpiresAtMs:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field expires_at_ms", values[i])
+			} else if value.Valid {
+				_m.ExpiresAtMs = value.Int64
 			}
 		case danmakuevent.FieldCreatedAtMs:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -178,8 +210,20 @@ func (_m *DanmakuEvent) String() string {
 	builder.WriteString("source=")
 	builder.WriteString(_m.Source)
 	builder.WriteString(", ")
+	builder.WriteString("source_event_id=")
+	builder.WriteString(_m.SourceEventID)
+	builder.WriteString(", ")
 	builder.WriteString("decision=")
 	builder.WriteString(_m.Decision)
+	builder.WriteString(", ")
+	builder.WriteString("occurred_at_ms=")
+	builder.WriteString(fmt.Sprintf("%v", _m.OccurredAtMs))
+	builder.WriteString(", ")
+	builder.WriteString("received_at_ms=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ReceivedAtMs))
+	builder.WriteString(", ")
+	builder.WriteString("expires_at_ms=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ExpiresAtMs))
 	builder.WriteString(", ")
 	builder.WriteString("created_at_ms=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CreatedAtMs))

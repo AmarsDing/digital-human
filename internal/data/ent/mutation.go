@@ -27,6 +27,7 @@ import (
 	"github.com/teamwork/digital-human/internal/data/ent/recording"
 	"github.com/teamwork/digital-human/internal/data/ent/sessionevent"
 	"github.com/teamwork/digital-human/internal/data/ent/setting"
+	"github.com/teamwork/digital-human/internal/data/ent/songrequest"
 	"github.com/teamwork/digital-human/internal/data/ent/vidukey"
 )
 
@@ -55,6 +56,7 @@ const (
 	TypeRecording           = "Recording"
 	TypeSessionEvent        = "SessionEvent"
 	TypeSetting             = "Setting"
+	TypeSongRequest         = "SongRequest"
 	TypeViduKey             = "ViduKey"
 )
 
@@ -4658,24 +4660,31 @@ func (m *CostLedgerMutation) ResetEdge(name string) error {
 // DanmakuEventMutation represents an operation that mutates the DanmakuEvent nodes in the graph.
 type DanmakuEventMutation struct {
 	config
-	op               Op
-	typ              string
-	id               *string
-	session_id       *string
-	kind             *string
-	user_id          *string
-	user_name        *string
-	text             *string
-	diamond          *int64
-	adddiamond       *int64
-	source           *string
-	decision         *string
-	created_at_ms    *int64
-	addcreated_at_ms *int64
-	clearedFields    map[string]struct{}
-	done             bool
-	oldValue         func(context.Context) (*DanmakuEvent, error)
-	predicates       []predicate.DanmakuEvent
+	op                Op
+	typ               string
+	id                *string
+	session_id        *string
+	kind              *string
+	user_id           *string
+	user_name         *string
+	text              *string
+	diamond           *int64
+	adddiamond        *int64
+	source            *string
+	source_event_id   *string
+	decision          *string
+	occurred_at_ms    *int64
+	addoccurred_at_ms *int64
+	received_at_ms    *int64
+	addreceived_at_ms *int64
+	expires_at_ms     *int64
+	addexpires_at_ms  *int64
+	created_at_ms     *int64
+	addcreated_at_ms  *int64
+	clearedFields     map[string]struct{}
+	done              bool
+	oldValue          func(context.Context) (*DanmakuEvent, error)
+	predicates        []predicate.DanmakuEvent
 }
 
 var _ ent.Mutation = (*DanmakuEventMutation)(nil)
@@ -5106,6 +5115,55 @@ func (m *DanmakuEventMutation) ResetSource() {
 	delete(m.clearedFields, danmakuevent.FieldSource)
 }
 
+// SetSourceEventID sets the "source_event_id" field.
+func (m *DanmakuEventMutation) SetSourceEventID(s string) {
+	m.source_event_id = &s
+}
+
+// SourceEventID returns the value of the "source_event_id" field in the mutation.
+func (m *DanmakuEventMutation) SourceEventID() (r string, exists bool) {
+	v := m.source_event_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceEventID returns the old "source_event_id" field's value of the DanmakuEvent entity.
+// If the DanmakuEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DanmakuEventMutation) OldSourceEventID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceEventID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceEventID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceEventID: %w", err)
+	}
+	return oldValue.SourceEventID, nil
+}
+
+// ClearSourceEventID clears the value of the "source_event_id" field.
+func (m *DanmakuEventMutation) ClearSourceEventID() {
+	m.source_event_id = nil
+	m.clearedFields[danmakuevent.FieldSourceEventID] = struct{}{}
+}
+
+// SourceEventIDCleared returns if the "source_event_id" field was cleared in this mutation.
+func (m *DanmakuEventMutation) SourceEventIDCleared() bool {
+	_, ok := m.clearedFields[danmakuevent.FieldSourceEventID]
+	return ok
+}
+
+// ResetSourceEventID resets all changes to the "source_event_id" field.
+func (m *DanmakuEventMutation) ResetSourceEventID() {
+	m.source_event_id = nil
+	delete(m.clearedFields, danmakuevent.FieldSourceEventID)
+}
+
 // SetDecision sets the "decision" field.
 func (m *DanmakuEventMutation) SetDecision(s string) {
 	m.decision = &s
@@ -5140,6 +5198,174 @@ func (m *DanmakuEventMutation) OldDecision(ctx context.Context) (v string, err e
 // ResetDecision resets all changes to the "decision" field.
 func (m *DanmakuEventMutation) ResetDecision() {
 	m.decision = nil
+}
+
+// SetOccurredAtMs sets the "occurred_at_ms" field.
+func (m *DanmakuEventMutation) SetOccurredAtMs(i int64) {
+	m.occurred_at_ms = &i
+	m.addoccurred_at_ms = nil
+}
+
+// OccurredAtMs returns the value of the "occurred_at_ms" field in the mutation.
+func (m *DanmakuEventMutation) OccurredAtMs() (r int64, exists bool) {
+	v := m.occurred_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOccurredAtMs returns the old "occurred_at_ms" field's value of the DanmakuEvent entity.
+// If the DanmakuEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DanmakuEventMutation) OldOccurredAtMs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOccurredAtMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOccurredAtMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOccurredAtMs: %w", err)
+	}
+	return oldValue.OccurredAtMs, nil
+}
+
+// AddOccurredAtMs adds i to the "occurred_at_ms" field.
+func (m *DanmakuEventMutation) AddOccurredAtMs(i int64) {
+	if m.addoccurred_at_ms != nil {
+		*m.addoccurred_at_ms += i
+	} else {
+		m.addoccurred_at_ms = &i
+	}
+}
+
+// AddedOccurredAtMs returns the value that was added to the "occurred_at_ms" field in this mutation.
+func (m *DanmakuEventMutation) AddedOccurredAtMs() (r int64, exists bool) {
+	v := m.addoccurred_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetOccurredAtMs resets all changes to the "occurred_at_ms" field.
+func (m *DanmakuEventMutation) ResetOccurredAtMs() {
+	m.occurred_at_ms = nil
+	m.addoccurred_at_ms = nil
+}
+
+// SetReceivedAtMs sets the "received_at_ms" field.
+func (m *DanmakuEventMutation) SetReceivedAtMs(i int64) {
+	m.received_at_ms = &i
+	m.addreceived_at_ms = nil
+}
+
+// ReceivedAtMs returns the value of the "received_at_ms" field in the mutation.
+func (m *DanmakuEventMutation) ReceivedAtMs() (r int64, exists bool) {
+	v := m.received_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReceivedAtMs returns the old "received_at_ms" field's value of the DanmakuEvent entity.
+// If the DanmakuEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DanmakuEventMutation) OldReceivedAtMs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReceivedAtMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReceivedAtMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReceivedAtMs: %w", err)
+	}
+	return oldValue.ReceivedAtMs, nil
+}
+
+// AddReceivedAtMs adds i to the "received_at_ms" field.
+func (m *DanmakuEventMutation) AddReceivedAtMs(i int64) {
+	if m.addreceived_at_ms != nil {
+		*m.addreceived_at_ms += i
+	} else {
+		m.addreceived_at_ms = &i
+	}
+}
+
+// AddedReceivedAtMs returns the value that was added to the "received_at_ms" field in this mutation.
+func (m *DanmakuEventMutation) AddedReceivedAtMs() (r int64, exists bool) {
+	v := m.addreceived_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetReceivedAtMs resets all changes to the "received_at_ms" field.
+func (m *DanmakuEventMutation) ResetReceivedAtMs() {
+	m.received_at_ms = nil
+	m.addreceived_at_ms = nil
+}
+
+// SetExpiresAtMs sets the "expires_at_ms" field.
+func (m *DanmakuEventMutation) SetExpiresAtMs(i int64) {
+	m.expires_at_ms = &i
+	m.addexpires_at_ms = nil
+}
+
+// ExpiresAtMs returns the value of the "expires_at_ms" field in the mutation.
+func (m *DanmakuEventMutation) ExpiresAtMs() (r int64, exists bool) {
+	v := m.expires_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAtMs returns the old "expires_at_ms" field's value of the DanmakuEvent entity.
+// If the DanmakuEvent object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DanmakuEventMutation) OldExpiresAtMs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAtMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAtMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAtMs: %w", err)
+	}
+	return oldValue.ExpiresAtMs, nil
+}
+
+// AddExpiresAtMs adds i to the "expires_at_ms" field.
+func (m *DanmakuEventMutation) AddExpiresAtMs(i int64) {
+	if m.addexpires_at_ms != nil {
+		*m.addexpires_at_ms += i
+	} else {
+		m.addexpires_at_ms = &i
+	}
+}
+
+// AddedExpiresAtMs returns the value that was added to the "expires_at_ms" field in this mutation.
+func (m *DanmakuEventMutation) AddedExpiresAtMs() (r int64, exists bool) {
+	v := m.addexpires_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetExpiresAtMs resets all changes to the "expires_at_ms" field.
+func (m *DanmakuEventMutation) ResetExpiresAtMs() {
+	m.expires_at_ms = nil
+	m.addexpires_at_ms = nil
 }
 
 // SetCreatedAtMs sets the "created_at_ms" field.
@@ -5232,7 +5458,7 @@ func (m *DanmakuEventMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *DanmakuEventMutation) Fields() []string {
-	fields := make([]string, 0, 9)
+	fields := make([]string, 0, 13)
 	if m.session_id != nil {
 		fields = append(fields, danmakuevent.FieldSessionID)
 	}
@@ -5254,8 +5480,20 @@ func (m *DanmakuEventMutation) Fields() []string {
 	if m.source != nil {
 		fields = append(fields, danmakuevent.FieldSource)
 	}
+	if m.source_event_id != nil {
+		fields = append(fields, danmakuevent.FieldSourceEventID)
+	}
 	if m.decision != nil {
 		fields = append(fields, danmakuevent.FieldDecision)
+	}
+	if m.occurred_at_ms != nil {
+		fields = append(fields, danmakuevent.FieldOccurredAtMs)
+	}
+	if m.received_at_ms != nil {
+		fields = append(fields, danmakuevent.FieldReceivedAtMs)
+	}
+	if m.expires_at_ms != nil {
+		fields = append(fields, danmakuevent.FieldExpiresAtMs)
 	}
 	if m.created_at_ms != nil {
 		fields = append(fields, danmakuevent.FieldCreatedAtMs)
@@ -5282,8 +5520,16 @@ func (m *DanmakuEventMutation) Field(name string) (ent.Value, bool) {
 		return m.Diamond()
 	case danmakuevent.FieldSource:
 		return m.Source()
+	case danmakuevent.FieldSourceEventID:
+		return m.SourceEventID()
 	case danmakuevent.FieldDecision:
 		return m.Decision()
+	case danmakuevent.FieldOccurredAtMs:
+		return m.OccurredAtMs()
+	case danmakuevent.FieldReceivedAtMs:
+		return m.ReceivedAtMs()
+	case danmakuevent.FieldExpiresAtMs:
+		return m.ExpiresAtMs()
 	case danmakuevent.FieldCreatedAtMs:
 		return m.CreatedAtMs()
 	}
@@ -5309,8 +5555,16 @@ func (m *DanmakuEventMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldDiamond(ctx)
 	case danmakuevent.FieldSource:
 		return m.OldSource(ctx)
+	case danmakuevent.FieldSourceEventID:
+		return m.OldSourceEventID(ctx)
 	case danmakuevent.FieldDecision:
 		return m.OldDecision(ctx)
+	case danmakuevent.FieldOccurredAtMs:
+		return m.OldOccurredAtMs(ctx)
+	case danmakuevent.FieldReceivedAtMs:
+		return m.OldReceivedAtMs(ctx)
+	case danmakuevent.FieldExpiresAtMs:
+		return m.OldExpiresAtMs(ctx)
 	case danmakuevent.FieldCreatedAtMs:
 		return m.OldCreatedAtMs(ctx)
 	}
@@ -5371,12 +5625,40 @@ func (m *DanmakuEventMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetSource(v)
 		return nil
+	case danmakuevent.FieldSourceEventID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceEventID(v)
+		return nil
 	case danmakuevent.FieldDecision:
 		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDecision(v)
+		return nil
+	case danmakuevent.FieldOccurredAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOccurredAtMs(v)
+		return nil
+	case danmakuevent.FieldReceivedAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReceivedAtMs(v)
+		return nil
+	case danmakuevent.FieldExpiresAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAtMs(v)
 		return nil
 	case danmakuevent.FieldCreatedAtMs:
 		v, ok := value.(int64)
@@ -5396,6 +5678,15 @@ func (m *DanmakuEventMutation) AddedFields() []string {
 	if m.adddiamond != nil {
 		fields = append(fields, danmakuevent.FieldDiamond)
 	}
+	if m.addoccurred_at_ms != nil {
+		fields = append(fields, danmakuevent.FieldOccurredAtMs)
+	}
+	if m.addreceived_at_ms != nil {
+		fields = append(fields, danmakuevent.FieldReceivedAtMs)
+	}
+	if m.addexpires_at_ms != nil {
+		fields = append(fields, danmakuevent.FieldExpiresAtMs)
+	}
 	if m.addcreated_at_ms != nil {
 		fields = append(fields, danmakuevent.FieldCreatedAtMs)
 	}
@@ -5409,6 +5700,12 @@ func (m *DanmakuEventMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case danmakuevent.FieldDiamond:
 		return m.AddedDiamond()
+	case danmakuevent.FieldOccurredAtMs:
+		return m.AddedOccurredAtMs()
+	case danmakuevent.FieldReceivedAtMs:
+		return m.AddedReceivedAtMs()
+	case danmakuevent.FieldExpiresAtMs:
+		return m.AddedExpiresAtMs()
 	case danmakuevent.FieldCreatedAtMs:
 		return m.AddedCreatedAtMs()
 	}
@@ -5426,6 +5723,27 @@ func (m *DanmakuEventMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddDiamond(v)
+		return nil
+	case danmakuevent.FieldOccurredAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOccurredAtMs(v)
+		return nil
+	case danmakuevent.FieldReceivedAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReceivedAtMs(v)
+		return nil
+	case danmakuevent.FieldExpiresAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddExpiresAtMs(v)
 		return nil
 	case danmakuevent.FieldCreatedAtMs:
 		v, ok := value.(int64)
@@ -5454,6 +5772,9 @@ func (m *DanmakuEventMutation) ClearedFields() []string {
 	if m.FieldCleared(danmakuevent.FieldSource) {
 		fields = append(fields, danmakuevent.FieldSource)
 	}
+	if m.FieldCleared(danmakuevent.FieldSourceEventID) {
+		fields = append(fields, danmakuevent.FieldSourceEventID)
+	}
 	return fields
 }
 
@@ -5479,6 +5800,9 @@ func (m *DanmakuEventMutation) ClearField(name string) error {
 		return nil
 	case danmakuevent.FieldSource:
 		m.ClearSource()
+		return nil
+	case danmakuevent.FieldSourceEventID:
+		m.ClearSourceEventID()
 		return nil
 	}
 	return fmt.Errorf("unknown DanmakuEvent nullable field %s", name)
@@ -5509,8 +5833,20 @@ func (m *DanmakuEventMutation) ResetField(name string) error {
 	case danmakuevent.FieldSource:
 		m.ResetSource()
 		return nil
+	case danmakuevent.FieldSourceEventID:
+		m.ResetSourceEventID()
+		return nil
 	case danmakuevent.FieldDecision:
 		m.ResetDecision()
+		return nil
+	case danmakuevent.FieldOccurredAtMs:
+		m.ResetOccurredAtMs()
+		return nil
+	case danmakuevent.FieldReceivedAtMs:
+		m.ResetReceivedAtMs()
+		return nil
+	case danmakuevent.FieldExpiresAtMs:
+		m.ResetExpiresAtMs()
 		return nil
 	case danmakuevent.FieldCreatedAtMs:
 		m.ResetCreatedAtMs()
@@ -16317,6 +16653,1631 @@ func (m *SettingMutation) ClearEdge(name string) error {
 // It returns an error if the edge is not defined in the schema.
 func (m *SettingMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown Setting edge %s", name)
+}
+
+// SongRequestMutation represents an operation that mutates the SongRequest nodes in the graph.
+type SongRequestMutation struct {
+	config
+	op                     Op
+	typ                    string
+	id                     *string
+	session_id             *string
+	source_event_row_id    *string
+	decision_id            *string
+	effect_idempotency_key *string
+	user_key               *string
+	file                   *string
+	script                 *string
+	status                 *string
+	queue_seq              *int64
+	addqueue_seq           *int64
+	position               *int
+	addposition            *int
+	version                *int64
+	addversion             *int64
+	play_id                *string
+	attempt                *int
+	addattempt             *int
+	last_error             *string
+	reconcile_status       *string
+	created_at_ms          *int64
+	addcreated_at_ms       *int64
+	expires_at_ms          *int64
+	addexpires_at_ms       *int64
+	started_at_ms          *int64
+	addstarted_at_ms       *int64
+	terminal_at_ms         *int64
+	addterminal_at_ms      *int64
+	terminal_reason        *string
+	clearedFields          map[string]struct{}
+	done                   bool
+	oldValue               func(context.Context) (*SongRequest, error)
+	predicates             []predicate.SongRequest
+}
+
+var _ ent.Mutation = (*SongRequestMutation)(nil)
+
+// songrequestOption allows management of the mutation configuration using functional options.
+type songrequestOption func(*SongRequestMutation)
+
+// newSongRequestMutation creates new mutation for the SongRequest entity.
+func newSongRequestMutation(c config, op Op, opts ...songrequestOption) *SongRequestMutation {
+	m := &SongRequestMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeSongRequest,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withSongRequestID sets the ID field of the mutation.
+func withSongRequestID(id string) songrequestOption {
+	return func(m *SongRequestMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *SongRequest
+		)
+		m.oldValue = func(ctx context.Context) (*SongRequest, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().SongRequest.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withSongRequest sets the old SongRequest of the mutation.
+func withSongRequest(node *SongRequest) songrequestOption {
+	return func(m *SongRequestMutation) {
+		m.oldValue = func(context.Context) (*SongRequest, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m SongRequestMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m SongRequestMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetID sets the value of the id field. Note that this
+// operation is only accepted on creation of SongRequest entities.
+func (m *SongRequestMutation) SetID(id string) {
+	m.id = &id
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *SongRequestMutation) ID() (id string, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *SongRequestMutation) IDs(ctx context.Context) ([]string, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []string{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().SongRequest.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetSessionID sets the "session_id" field.
+func (m *SongRequestMutation) SetSessionID(s string) {
+	m.session_id = &s
+}
+
+// SessionID returns the value of the "session_id" field in the mutation.
+func (m *SongRequestMutation) SessionID() (r string, exists bool) {
+	v := m.session_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSessionID returns the old "session_id" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldSessionID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSessionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSessionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSessionID: %w", err)
+	}
+	return oldValue.SessionID, nil
+}
+
+// ResetSessionID resets all changes to the "session_id" field.
+func (m *SongRequestMutation) ResetSessionID() {
+	m.session_id = nil
+}
+
+// SetSourceEventRowID sets the "source_event_row_id" field.
+func (m *SongRequestMutation) SetSourceEventRowID(s string) {
+	m.source_event_row_id = &s
+}
+
+// SourceEventRowID returns the value of the "source_event_row_id" field in the mutation.
+func (m *SongRequestMutation) SourceEventRowID() (r string, exists bool) {
+	v := m.source_event_row_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceEventRowID returns the old "source_event_row_id" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldSourceEventRowID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceEventRowID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceEventRowID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceEventRowID: %w", err)
+	}
+	return oldValue.SourceEventRowID, nil
+}
+
+// ResetSourceEventRowID resets all changes to the "source_event_row_id" field.
+func (m *SongRequestMutation) ResetSourceEventRowID() {
+	m.source_event_row_id = nil
+}
+
+// SetDecisionID sets the "decision_id" field.
+func (m *SongRequestMutation) SetDecisionID(s string) {
+	m.decision_id = &s
+}
+
+// DecisionID returns the value of the "decision_id" field in the mutation.
+func (m *SongRequestMutation) DecisionID() (r string, exists bool) {
+	v := m.decision_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDecisionID returns the old "decision_id" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldDecisionID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDecisionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDecisionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDecisionID: %w", err)
+	}
+	return oldValue.DecisionID, nil
+}
+
+// ResetDecisionID resets all changes to the "decision_id" field.
+func (m *SongRequestMutation) ResetDecisionID() {
+	m.decision_id = nil
+}
+
+// SetEffectIdempotencyKey sets the "effect_idempotency_key" field.
+func (m *SongRequestMutation) SetEffectIdempotencyKey(s string) {
+	m.effect_idempotency_key = &s
+}
+
+// EffectIdempotencyKey returns the value of the "effect_idempotency_key" field in the mutation.
+func (m *SongRequestMutation) EffectIdempotencyKey() (r string, exists bool) {
+	v := m.effect_idempotency_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEffectIdempotencyKey returns the old "effect_idempotency_key" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldEffectIdempotencyKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEffectIdempotencyKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEffectIdempotencyKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEffectIdempotencyKey: %w", err)
+	}
+	return oldValue.EffectIdempotencyKey, nil
+}
+
+// ResetEffectIdempotencyKey resets all changes to the "effect_idempotency_key" field.
+func (m *SongRequestMutation) ResetEffectIdempotencyKey() {
+	m.effect_idempotency_key = nil
+}
+
+// SetUserKey sets the "user_key" field.
+func (m *SongRequestMutation) SetUserKey(s string) {
+	m.user_key = &s
+}
+
+// UserKey returns the value of the "user_key" field in the mutation.
+func (m *SongRequestMutation) UserKey() (r string, exists bool) {
+	v := m.user_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserKey returns the old "user_key" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldUserKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserKey: %w", err)
+	}
+	return oldValue.UserKey, nil
+}
+
+// ResetUserKey resets all changes to the "user_key" field.
+func (m *SongRequestMutation) ResetUserKey() {
+	m.user_key = nil
+}
+
+// SetFile sets the "file" field.
+func (m *SongRequestMutation) SetFile(s string) {
+	m.file = &s
+}
+
+// File returns the value of the "file" field in the mutation.
+func (m *SongRequestMutation) File() (r string, exists bool) {
+	v := m.file
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldFile returns the old "file" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldFile(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldFile is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldFile requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldFile: %w", err)
+	}
+	return oldValue.File, nil
+}
+
+// ResetFile resets all changes to the "file" field.
+func (m *SongRequestMutation) ResetFile() {
+	m.file = nil
+}
+
+// SetScript sets the "script" field.
+func (m *SongRequestMutation) SetScript(s string) {
+	m.script = &s
+}
+
+// Script returns the value of the "script" field in the mutation.
+func (m *SongRequestMutation) Script() (r string, exists bool) {
+	v := m.script
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldScript returns the old "script" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldScript(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldScript is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldScript requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldScript: %w", err)
+	}
+	return oldValue.Script, nil
+}
+
+// ResetScript resets all changes to the "script" field.
+func (m *SongRequestMutation) ResetScript() {
+	m.script = nil
+}
+
+// SetStatus sets the "status" field.
+func (m *SongRequestMutation) SetStatus(s string) {
+	m.status = &s
+}
+
+// Status returns the value of the "status" field in the mutation.
+func (m *SongRequestMutation) Status() (r string, exists bool) {
+	v := m.status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStatus returns the old "status" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStatus: %w", err)
+	}
+	return oldValue.Status, nil
+}
+
+// ResetStatus resets all changes to the "status" field.
+func (m *SongRequestMutation) ResetStatus() {
+	m.status = nil
+}
+
+// SetQueueSeq sets the "queue_seq" field.
+func (m *SongRequestMutation) SetQueueSeq(i int64) {
+	m.queue_seq = &i
+	m.addqueue_seq = nil
+}
+
+// QueueSeq returns the value of the "queue_seq" field in the mutation.
+func (m *SongRequestMutation) QueueSeq() (r int64, exists bool) {
+	v := m.queue_seq
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldQueueSeq returns the old "queue_seq" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldQueueSeq(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldQueueSeq is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldQueueSeq requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldQueueSeq: %w", err)
+	}
+	return oldValue.QueueSeq, nil
+}
+
+// AddQueueSeq adds i to the "queue_seq" field.
+func (m *SongRequestMutation) AddQueueSeq(i int64) {
+	if m.addqueue_seq != nil {
+		*m.addqueue_seq += i
+	} else {
+		m.addqueue_seq = &i
+	}
+}
+
+// AddedQueueSeq returns the value that was added to the "queue_seq" field in this mutation.
+func (m *SongRequestMutation) AddedQueueSeq() (r int64, exists bool) {
+	v := m.addqueue_seq
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetQueueSeq resets all changes to the "queue_seq" field.
+func (m *SongRequestMutation) ResetQueueSeq() {
+	m.queue_seq = nil
+	m.addqueue_seq = nil
+}
+
+// SetPosition sets the "position" field.
+func (m *SongRequestMutation) SetPosition(i int) {
+	m.position = &i
+	m.addposition = nil
+}
+
+// Position returns the value of the "position" field in the mutation.
+func (m *SongRequestMutation) Position() (r int, exists bool) {
+	v := m.position
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPosition returns the old "position" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldPosition(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPosition is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPosition requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPosition: %w", err)
+	}
+	return oldValue.Position, nil
+}
+
+// AddPosition adds i to the "position" field.
+func (m *SongRequestMutation) AddPosition(i int) {
+	if m.addposition != nil {
+		*m.addposition += i
+	} else {
+		m.addposition = &i
+	}
+}
+
+// AddedPosition returns the value that was added to the "position" field in this mutation.
+func (m *SongRequestMutation) AddedPosition() (r int, exists bool) {
+	v := m.addposition
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPosition resets all changes to the "position" field.
+func (m *SongRequestMutation) ResetPosition() {
+	m.position = nil
+	m.addposition = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *SongRequestMutation) SetVersion(i int64) {
+	m.version = &i
+	m.addversion = nil
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *SongRequestMutation) Version() (r int64, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// AddVersion adds i to the "version" field.
+func (m *SongRequestMutation) AddVersion(i int64) {
+	if m.addversion != nil {
+		*m.addversion += i
+	} else {
+		m.addversion = &i
+	}
+}
+
+// AddedVersion returns the value that was added to the "version" field in this mutation.
+func (m *SongRequestMutation) AddedVersion() (r int64, exists bool) {
+	v := m.addversion
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *SongRequestMutation) ResetVersion() {
+	m.version = nil
+	m.addversion = nil
+}
+
+// SetPlayID sets the "play_id" field.
+func (m *SongRequestMutation) SetPlayID(s string) {
+	m.play_id = &s
+}
+
+// PlayID returns the value of the "play_id" field in the mutation.
+func (m *SongRequestMutation) PlayID() (r string, exists bool) {
+	v := m.play_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPlayID returns the old "play_id" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldPlayID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPlayID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPlayID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPlayID: %w", err)
+	}
+	return oldValue.PlayID, nil
+}
+
+// ResetPlayID resets all changes to the "play_id" field.
+func (m *SongRequestMutation) ResetPlayID() {
+	m.play_id = nil
+}
+
+// SetAttempt sets the "attempt" field.
+func (m *SongRequestMutation) SetAttempt(i int) {
+	m.attempt = &i
+	m.addattempt = nil
+}
+
+// Attempt returns the value of the "attempt" field in the mutation.
+func (m *SongRequestMutation) Attempt() (r int, exists bool) {
+	v := m.attempt
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAttempt returns the old "attempt" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldAttempt(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAttempt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAttempt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAttempt: %w", err)
+	}
+	return oldValue.Attempt, nil
+}
+
+// AddAttempt adds i to the "attempt" field.
+func (m *SongRequestMutation) AddAttempt(i int) {
+	if m.addattempt != nil {
+		*m.addattempt += i
+	} else {
+		m.addattempt = &i
+	}
+}
+
+// AddedAttempt returns the value that was added to the "attempt" field in this mutation.
+func (m *SongRequestMutation) AddedAttempt() (r int, exists bool) {
+	v := m.addattempt
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAttempt resets all changes to the "attempt" field.
+func (m *SongRequestMutation) ResetAttempt() {
+	m.attempt = nil
+	m.addattempt = nil
+}
+
+// SetLastError sets the "last_error" field.
+func (m *SongRequestMutation) SetLastError(s string) {
+	m.last_error = &s
+}
+
+// LastError returns the value of the "last_error" field in the mutation.
+func (m *SongRequestMutation) LastError() (r string, exists bool) {
+	v := m.last_error
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastError returns the old "last_error" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldLastError(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastError is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastError requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastError: %w", err)
+	}
+	return oldValue.LastError, nil
+}
+
+// ResetLastError resets all changes to the "last_error" field.
+func (m *SongRequestMutation) ResetLastError() {
+	m.last_error = nil
+}
+
+// SetReconcileStatus sets the "reconcile_status" field.
+func (m *SongRequestMutation) SetReconcileStatus(s string) {
+	m.reconcile_status = &s
+}
+
+// ReconcileStatus returns the value of the "reconcile_status" field in the mutation.
+func (m *SongRequestMutation) ReconcileStatus() (r string, exists bool) {
+	v := m.reconcile_status
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReconcileStatus returns the old "reconcile_status" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldReconcileStatus(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReconcileStatus is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReconcileStatus requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReconcileStatus: %w", err)
+	}
+	return oldValue.ReconcileStatus, nil
+}
+
+// ResetReconcileStatus resets all changes to the "reconcile_status" field.
+func (m *SongRequestMutation) ResetReconcileStatus() {
+	m.reconcile_status = nil
+}
+
+// SetCreatedAtMs sets the "created_at_ms" field.
+func (m *SongRequestMutation) SetCreatedAtMs(i int64) {
+	m.created_at_ms = &i
+	m.addcreated_at_ms = nil
+}
+
+// CreatedAtMs returns the value of the "created_at_ms" field in the mutation.
+func (m *SongRequestMutation) CreatedAtMs() (r int64, exists bool) {
+	v := m.created_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAtMs returns the old "created_at_ms" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldCreatedAtMs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAtMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAtMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAtMs: %w", err)
+	}
+	return oldValue.CreatedAtMs, nil
+}
+
+// AddCreatedAtMs adds i to the "created_at_ms" field.
+func (m *SongRequestMutation) AddCreatedAtMs(i int64) {
+	if m.addcreated_at_ms != nil {
+		*m.addcreated_at_ms += i
+	} else {
+		m.addcreated_at_ms = &i
+	}
+}
+
+// AddedCreatedAtMs returns the value that was added to the "created_at_ms" field in this mutation.
+func (m *SongRequestMutation) AddedCreatedAtMs() (r int64, exists bool) {
+	v := m.addcreated_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCreatedAtMs resets all changes to the "created_at_ms" field.
+func (m *SongRequestMutation) ResetCreatedAtMs() {
+	m.created_at_ms = nil
+	m.addcreated_at_ms = nil
+}
+
+// SetExpiresAtMs sets the "expires_at_ms" field.
+func (m *SongRequestMutation) SetExpiresAtMs(i int64) {
+	m.expires_at_ms = &i
+	m.addexpires_at_ms = nil
+}
+
+// ExpiresAtMs returns the value of the "expires_at_ms" field in the mutation.
+func (m *SongRequestMutation) ExpiresAtMs() (r int64, exists bool) {
+	v := m.expires_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExpiresAtMs returns the old "expires_at_ms" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldExpiresAtMs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExpiresAtMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExpiresAtMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExpiresAtMs: %w", err)
+	}
+	return oldValue.ExpiresAtMs, nil
+}
+
+// AddExpiresAtMs adds i to the "expires_at_ms" field.
+func (m *SongRequestMutation) AddExpiresAtMs(i int64) {
+	if m.addexpires_at_ms != nil {
+		*m.addexpires_at_ms += i
+	} else {
+		m.addexpires_at_ms = &i
+	}
+}
+
+// AddedExpiresAtMs returns the value that was added to the "expires_at_ms" field in this mutation.
+func (m *SongRequestMutation) AddedExpiresAtMs() (r int64, exists bool) {
+	v := m.addexpires_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetExpiresAtMs resets all changes to the "expires_at_ms" field.
+func (m *SongRequestMutation) ResetExpiresAtMs() {
+	m.expires_at_ms = nil
+	m.addexpires_at_ms = nil
+}
+
+// SetStartedAtMs sets the "started_at_ms" field.
+func (m *SongRequestMutation) SetStartedAtMs(i int64) {
+	m.started_at_ms = &i
+	m.addstarted_at_ms = nil
+}
+
+// StartedAtMs returns the value of the "started_at_ms" field in the mutation.
+func (m *SongRequestMutation) StartedAtMs() (r int64, exists bool) {
+	v := m.started_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStartedAtMs returns the old "started_at_ms" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldStartedAtMs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStartedAtMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStartedAtMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStartedAtMs: %w", err)
+	}
+	return oldValue.StartedAtMs, nil
+}
+
+// AddStartedAtMs adds i to the "started_at_ms" field.
+func (m *SongRequestMutation) AddStartedAtMs(i int64) {
+	if m.addstarted_at_ms != nil {
+		*m.addstarted_at_ms += i
+	} else {
+		m.addstarted_at_ms = &i
+	}
+}
+
+// AddedStartedAtMs returns the value that was added to the "started_at_ms" field in this mutation.
+func (m *SongRequestMutation) AddedStartedAtMs() (r int64, exists bool) {
+	v := m.addstarted_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetStartedAtMs resets all changes to the "started_at_ms" field.
+func (m *SongRequestMutation) ResetStartedAtMs() {
+	m.started_at_ms = nil
+	m.addstarted_at_ms = nil
+}
+
+// SetTerminalAtMs sets the "terminal_at_ms" field.
+func (m *SongRequestMutation) SetTerminalAtMs(i int64) {
+	m.terminal_at_ms = &i
+	m.addterminal_at_ms = nil
+}
+
+// TerminalAtMs returns the value of the "terminal_at_ms" field in the mutation.
+func (m *SongRequestMutation) TerminalAtMs() (r int64, exists bool) {
+	v := m.terminal_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTerminalAtMs returns the old "terminal_at_ms" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldTerminalAtMs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTerminalAtMs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTerminalAtMs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTerminalAtMs: %w", err)
+	}
+	return oldValue.TerminalAtMs, nil
+}
+
+// AddTerminalAtMs adds i to the "terminal_at_ms" field.
+func (m *SongRequestMutation) AddTerminalAtMs(i int64) {
+	if m.addterminal_at_ms != nil {
+		*m.addterminal_at_ms += i
+	} else {
+		m.addterminal_at_ms = &i
+	}
+}
+
+// AddedTerminalAtMs returns the value that was added to the "terminal_at_ms" field in this mutation.
+func (m *SongRequestMutation) AddedTerminalAtMs() (r int64, exists bool) {
+	v := m.addterminal_at_ms
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTerminalAtMs resets all changes to the "terminal_at_ms" field.
+func (m *SongRequestMutation) ResetTerminalAtMs() {
+	m.terminal_at_ms = nil
+	m.addterminal_at_ms = nil
+}
+
+// SetTerminalReason sets the "terminal_reason" field.
+func (m *SongRequestMutation) SetTerminalReason(s string) {
+	m.terminal_reason = &s
+}
+
+// TerminalReason returns the value of the "terminal_reason" field in the mutation.
+func (m *SongRequestMutation) TerminalReason() (r string, exists bool) {
+	v := m.terminal_reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTerminalReason returns the old "terminal_reason" field's value of the SongRequest entity.
+// If the SongRequest object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SongRequestMutation) OldTerminalReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTerminalReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTerminalReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTerminalReason: %w", err)
+	}
+	return oldValue.TerminalReason, nil
+}
+
+// ResetTerminalReason resets all changes to the "terminal_reason" field.
+func (m *SongRequestMutation) ResetTerminalReason() {
+	m.terminal_reason = nil
+}
+
+// Where appends a list predicates to the SongRequestMutation builder.
+func (m *SongRequestMutation) Where(ps ...predicate.SongRequest) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the SongRequestMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *SongRequestMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.SongRequest, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *SongRequestMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *SongRequestMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (SongRequest).
+func (m *SongRequestMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *SongRequestMutation) Fields() []string {
+	fields := make([]string, 0, 20)
+	if m.session_id != nil {
+		fields = append(fields, songrequest.FieldSessionID)
+	}
+	if m.source_event_row_id != nil {
+		fields = append(fields, songrequest.FieldSourceEventRowID)
+	}
+	if m.decision_id != nil {
+		fields = append(fields, songrequest.FieldDecisionID)
+	}
+	if m.effect_idempotency_key != nil {
+		fields = append(fields, songrequest.FieldEffectIdempotencyKey)
+	}
+	if m.user_key != nil {
+		fields = append(fields, songrequest.FieldUserKey)
+	}
+	if m.file != nil {
+		fields = append(fields, songrequest.FieldFile)
+	}
+	if m.script != nil {
+		fields = append(fields, songrequest.FieldScript)
+	}
+	if m.status != nil {
+		fields = append(fields, songrequest.FieldStatus)
+	}
+	if m.queue_seq != nil {
+		fields = append(fields, songrequest.FieldQueueSeq)
+	}
+	if m.position != nil {
+		fields = append(fields, songrequest.FieldPosition)
+	}
+	if m.version != nil {
+		fields = append(fields, songrequest.FieldVersion)
+	}
+	if m.play_id != nil {
+		fields = append(fields, songrequest.FieldPlayID)
+	}
+	if m.attempt != nil {
+		fields = append(fields, songrequest.FieldAttempt)
+	}
+	if m.last_error != nil {
+		fields = append(fields, songrequest.FieldLastError)
+	}
+	if m.reconcile_status != nil {
+		fields = append(fields, songrequest.FieldReconcileStatus)
+	}
+	if m.created_at_ms != nil {
+		fields = append(fields, songrequest.FieldCreatedAtMs)
+	}
+	if m.expires_at_ms != nil {
+		fields = append(fields, songrequest.FieldExpiresAtMs)
+	}
+	if m.started_at_ms != nil {
+		fields = append(fields, songrequest.FieldStartedAtMs)
+	}
+	if m.terminal_at_ms != nil {
+		fields = append(fields, songrequest.FieldTerminalAtMs)
+	}
+	if m.terminal_reason != nil {
+		fields = append(fields, songrequest.FieldTerminalReason)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *SongRequestMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case songrequest.FieldSessionID:
+		return m.SessionID()
+	case songrequest.FieldSourceEventRowID:
+		return m.SourceEventRowID()
+	case songrequest.FieldDecisionID:
+		return m.DecisionID()
+	case songrequest.FieldEffectIdempotencyKey:
+		return m.EffectIdempotencyKey()
+	case songrequest.FieldUserKey:
+		return m.UserKey()
+	case songrequest.FieldFile:
+		return m.File()
+	case songrequest.FieldScript:
+		return m.Script()
+	case songrequest.FieldStatus:
+		return m.Status()
+	case songrequest.FieldQueueSeq:
+		return m.QueueSeq()
+	case songrequest.FieldPosition:
+		return m.Position()
+	case songrequest.FieldVersion:
+		return m.Version()
+	case songrequest.FieldPlayID:
+		return m.PlayID()
+	case songrequest.FieldAttempt:
+		return m.Attempt()
+	case songrequest.FieldLastError:
+		return m.LastError()
+	case songrequest.FieldReconcileStatus:
+		return m.ReconcileStatus()
+	case songrequest.FieldCreatedAtMs:
+		return m.CreatedAtMs()
+	case songrequest.FieldExpiresAtMs:
+		return m.ExpiresAtMs()
+	case songrequest.FieldStartedAtMs:
+		return m.StartedAtMs()
+	case songrequest.FieldTerminalAtMs:
+		return m.TerminalAtMs()
+	case songrequest.FieldTerminalReason:
+		return m.TerminalReason()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *SongRequestMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case songrequest.FieldSessionID:
+		return m.OldSessionID(ctx)
+	case songrequest.FieldSourceEventRowID:
+		return m.OldSourceEventRowID(ctx)
+	case songrequest.FieldDecisionID:
+		return m.OldDecisionID(ctx)
+	case songrequest.FieldEffectIdempotencyKey:
+		return m.OldEffectIdempotencyKey(ctx)
+	case songrequest.FieldUserKey:
+		return m.OldUserKey(ctx)
+	case songrequest.FieldFile:
+		return m.OldFile(ctx)
+	case songrequest.FieldScript:
+		return m.OldScript(ctx)
+	case songrequest.FieldStatus:
+		return m.OldStatus(ctx)
+	case songrequest.FieldQueueSeq:
+		return m.OldQueueSeq(ctx)
+	case songrequest.FieldPosition:
+		return m.OldPosition(ctx)
+	case songrequest.FieldVersion:
+		return m.OldVersion(ctx)
+	case songrequest.FieldPlayID:
+		return m.OldPlayID(ctx)
+	case songrequest.FieldAttempt:
+		return m.OldAttempt(ctx)
+	case songrequest.FieldLastError:
+		return m.OldLastError(ctx)
+	case songrequest.FieldReconcileStatus:
+		return m.OldReconcileStatus(ctx)
+	case songrequest.FieldCreatedAtMs:
+		return m.OldCreatedAtMs(ctx)
+	case songrequest.FieldExpiresAtMs:
+		return m.OldExpiresAtMs(ctx)
+	case songrequest.FieldStartedAtMs:
+		return m.OldStartedAtMs(ctx)
+	case songrequest.FieldTerminalAtMs:
+		return m.OldTerminalAtMs(ctx)
+	case songrequest.FieldTerminalReason:
+		return m.OldTerminalReason(ctx)
+	}
+	return nil, fmt.Errorf("unknown SongRequest field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *SongRequestMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case songrequest.FieldSessionID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSessionID(v)
+		return nil
+	case songrequest.FieldSourceEventRowID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceEventRowID(v)
+		return nil
+	case songrequest.FieldDecisionID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDecisionID(v)
+		return nil
+	case songrequest.FieldEffectIdempotencyKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEffectIdempotencyKey(v)
+		return nil
+	case songrequest.FieldUserKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserKey(v)
+		return nil
+	case songrequest.FieldFile:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetFile(v)
+		return nil
+	case songrequest.FieldScript:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetScript(v)
+		return nil
+	case songrequest.FieldStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStatus(v)
+		return nil
+	case songrequest.FieldQueueSeq:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetQueueSeq(v)
+		return nil
+	case songrequest.FieldPosition:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPosition(v)
+		return nil
+	case songrequest.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	case songrequest.FieldPlayID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPlayID(v)
+		return nil
+	case songrequest.FieldAttempt:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAttempt(v)
+		return nil
+	case songrequest.FieldLastError:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastError(v)
+		return nil
+	case songrequest.FieldReconcileStatus:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReconcileStatus(v)
+		return nil
+	case songrequest.FieldCreatedAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAtMs(v)
+		return nil
+	case songrequest.FieldExpiresAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExpiresAtMs(v)
+		return nil
+	case songrequest.FieldStartedAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStartedAtMs(v)
+		return nil
+	case songrequest.FieldTerminalAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTerminalAtMs(v)
+		return nil
+	case songrequest.FieldTerminalReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTerminalReason(v)
+		return nil
+	}
+	return fmt.Errorf("unknown SongRequest field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *SongRequestMutation) AddedFields() []string {
+	var fields []string
+	if m.addqueue_seq != nil {
+		fields = append(fields, songrequest.FieldQueueSeq)
+	}
+	if m.addposition != nil {
+		fields = append(fields, songrequest.FieldPosition)
+	}
+	if m.addversion != nil {
+		fields = append(fields, songrequest.FieldVersion)
+	}
+	if m.addattempt != nil {
+		fields = append(fields, songrequest.FieldAttempt)
+	}
+	if m.addcreated_at_ms != nil {
+		fields = append(fields, songrequest.FieldCreatedAtMs)
+	}
+	if m.addexpires_at_ms != nil {
+		fields = append(fields, songrequest.FieldExpiresAtMs)
+	}
+	if m.addstarted_at_ms != nil {
+		fields = append(fields, songrequest.FieldStartedAtMs)
+	}
+	if m.addterminal_at_ms != nil {
+		fields = append(fields, songrequest.FieldTerminalAtMs)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *SongRequestMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case songrequest.FieldQueueSeq:
+		return m.AddedQueueSeq()
+	case songrequest.FieldPosition:
+		return m.AddedPosition()
+	case songrequest.FieldVersion:
+		return m.AddedVersion()
+	case songrequest.FieldAttempt:
+		return m.AddedAttempt()
+	case songrequest.FieldCreatedAtMs:
+		return m.AddedCreatedAtMs()
+	case songrequest.FieldExpiresAtMs:
+		return m.AddedExpiresAtMs()
+	case songrequest.FieldStartedAtMs:
+		return m.AddedStartedAtMs()
+	case songrequest.FieldTerminalAtMs:
+		return m.AddedTerminalAtMs()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *SongRequestMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case songrequest.FieldQueueSeq:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddQueueSeq(v)
+		return nil
+	case songrequest.FieldPosition:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPosition(v)
+		return nil
+	case songrequest.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVersion(v)
+		return nil
+	case songrequest.FieldAttempt:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAttempt(v)
+		return nil
+	case songrequest.FieldCreatedAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCreatedAtMs(v)
+		return nil
+	case songrequest.FieldExpiresAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddExpiresAtMs(v)
+		return nil
+	case songrequest.FieldStartedAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddStartedAtMs(v)
+		return nil
+	case songrequest.FieldTerminalAtMs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTerminalAtMs(v)
+		return nil
+	}
+	return fmt.Errorf("unknown SongRequest numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *SongRequestMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *SongRequestMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *SongRequestMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown SongRequest nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *SongRequestMutation) ResetField(name string) error {
+	switch name {
+	case songrequest.FieldSessionID:
+		m.ResetSessionID()
+		return nil
+	case songrequest.FieldSourceEventRowID:
+		m.ResetSourceEventRowID()
+		return nil
+	case songrequest.FieldDecisionID:
+		m.ResetDecisionID()
+		return nil
+	case songrequest.FieldEffectIdempotencyKey:
+		m.ResetEffectIdempotencyKey()
+		return nil
+	case songrequest.FieldUserKey:
+		m.ResetUserKey()
+		return nil
+	case songrequest.FieldFile:
+		m.ResetFile()
+		return nil
+	case songrequest.FieldScript:
+		m.ResetScript()
+		return nil
+	case songrequest.FieldStatus:
+		m.ResetStatus()
+		return nil
+	case songrequest.FieldQueueSeq:
+		m.ResetQueueSeq()
+		return nil
+	case songrequest.FieldPosition:
+		m.ResetPosition()
+		return nil
+	case songrequest.FieldVersion:
+		m.ResetVersion()
+		return nil
+	case songrequest.FieldPlayID:
+		m.ResetPlayID()
+		return nil
+	case songrequest.FieldAttempt:
+		m.ResetAttempt()
+		return nil
+	case songrequest.FieldLastError:
+		m.ResetLastError()
+		return nil
+	case songrequest.FieldReconcileStatus:
+		m.ResetReconcileStatus()
+		return nil
+	case songrequest.FieldCreatedAtMs:
+		m.ResetCreatedAtMs()
+		return nil
+	case songrequest.FieldExpiresAtMs:
+		m.ResetExpiresAtMs()
+		return nil
+	case songrequest.FieldStartedAtMs:
+		m.ResetStartedAtMs()
+		return nil
+	case songrequest.FieldTerminalAtMs:
+		m.ResetTerminalAtMs()
+		return nil
+	case songrequest.FieldTerminalReason:
+		m.ResetTerminalReason()
+		return nil
+	}
+	return fmt.Errorf("unknown SongRequest field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *SongRequestMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *SongRequestMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *SongRequestMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *SongRequestMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *SongRequestMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *SongRequestMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *SongRequestMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown SongRequest unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *SongRequestMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown SongRequest edge %s", name)
 }
 
 // ViduKeyMutation represents an operation that mutates the ViduKey nodes in the graph.

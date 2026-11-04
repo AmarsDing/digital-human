@@ -101,6 +101,20 @@ func (_c *DanmakuEventCreate) SetNillableSource(v *string) *DanmakuEventCreate {
 	return _c
 }
 
+// SetSourceEventID sets the "source_event_id" field.
+func (_c *DanmakuEventCreate) SetSourceEventID(v string) *DanmakuEventCreate {
+	_c.mutation.SetSourceEventID(v)
+	return _c
+}
+
+// SetNillableSourceEventID sets the "source_event_id" field if the given value is not nil.
+func (_c *DanmakuEventCreate) SetNillableSourceEventID(v *string) *DanmakuEventCreate {
+	if v != nil {
+		_c.SetSourceEventID(*v)
+	}
+	return _c
+}
+
 // SetDecision sets the "decision" field.
 func (_c *DanmakuEventCreate) SetDecision(v string) *DanmakuEventCreate {
 	_c.mutation.SetDecision(v)
@@ -111,6 +125,48 @@ func (_c *DanmakuEventCreate) SetDecision(v string) *DanmakuEventCreate {
 func (_c *DanmakuEventCreate) SetNillableDecision(v *string) *DanmakuEventCreate {
 	if v != nil {
 		_c.SetDecision(*v)
+	}
+	return _c
+}
+
+// SetOccurredAtMs sets the "occurred_at_ms" field.
+func (_c *DanmakuEventCreate) SetOccurredAtMs(v int64) *DanmakuEventCreate {
+	_c.mutation.SetOccurredAtMs(v)
+	return _c
+}
+
+// SetNillableOccurredAtMs sets the "occurred_at_ms" field if the given value is not nil.
+func (_c *DanmakuEventCreate) SetNillableOccurredAtMs(v *int64) *DanmakuEventCreate {
+	if v != nil {
+		_c.SetOccurredAtMs(*v)
+	}
+	return _c
+}
+
+// SetReceivedAtMs sets the "received_at_ms" field.
+func (_c *DanmakuEventCreate) SetReceivedAtMs(v int64) *DanmakuEventCreate {
+	_c.mutation.SetReceivedAtMs(v)
+	return _c
+}
+
+// SetNillableReceivedAtMs sets the "received_at_ms" field if the given value is not nil.
+func (_c *DanmakuEventCreate) SetNillableReceivedAtMs(v *int64) *DanmakuEventCreate {
+	if v != nil {
+		_c.SetReceivedAtMs(*v)
+	}
+	return _c
+}
+
+// SetExpiresAtMs sets the "expires_at_ms" field.
+func (_c *DanmakuEventCreate) SetExpiresAtMs(v int64) *DanmakuEventCreate {
+	_c.mutation.SetExpiresAtMs(v)
+	return _c
+}
+
+// SetNillableExpiresAtMs sets the "expires_at_ms" field if the given value is not nil.
+func (_c *DanmakuEventCreate) SetNillableExpiresAtMs(v *int64) *DanmakuEventCreate {
+	if v != nil {
+		_c.SetExpiresAtMs(*v)
 	}
 	return _c
 }
@@ -178,6 +234,18 @@ func (_c *DanmakuEventCreate) defaults() {
 		v := danmakuevent.DefaultDecision
 		_c.mutation.SetDecision(v)
 	}
+	if _, ok := _c.mutation.OccurredAtMs(); !ok {
+		v := danmakuevent.DefaultOccurredAtMs
+		_c.mutation.SetOccurredAtMs(v)
+	}
+	if _, ok := _c.mutation.ReceivedAtMs(); !ok {
+		v := danmakuevent.DefaultReceivedAtMs
+		_c.mutation.SetReceivedAtMs(v)
+	}
+	if _, ok := _c.mutation.ExpiresAtMs(); !ok {
+		v := danmakuevent.DefaultExpiresAtMs
+		_c.mutation.SetExpiresAtMs(v)
+	}
 	if _, ok := _c.mutation.CreatedAtMs(); !ok {
 		v := danmakuevent.DefaultCreatedAtMs
 		_c.mutation.SetCreatedAtMs(v)
@@ -197,6 +265,15 @@ func (_c *DanmakuEventCreate) check() error {
 	}
 	if _, ok := _c.mutation.Decision(); !ok {
 		return &ValidationError{Name: "decision", err: errors.New(`ent: missing required field "DanmakuEvent.decision"`)}
+	}
+	if _, ok := _c.mutation.OccurredAtMs(); !ok {
+		return &ValidationError{Name: "occurred_at_ms", err: errors.New(`ent: missing required field "DanmakuEvent.occurred_at_ms"`)}
+	}
+	if _, ok := _c.mutation.ReceivedAtMs(); !ok {
+		return &ValidationError{Name: "received_at_ms", err: errors.New(`ent: missing required field "DanmakuEvent.received_at_ms"`)}
+	}
+	if _, ok := _c.mutation.ExpiresAtMs(); !ok {
+		return &ValidationError{Name: "expires_at_ms", err: errors.New(`ent: missing required field "DanmakuEvent.expires_at_ms"`)}
 	}
 	if _, ok := _c.mutation.CreatedAtMs(); !ok {
 		return &ValidationError{Name: "created_at_ms", err: errors.New(`ent: missing required field "DanmakuEvent.created_at_ms"`)}
@@ -264,9 +341,25 @@ func (_c *DanmakuEventCreate) createSpec() (*DanmakuEvent, *sqlgraph.CreateSpec)
 		_spec.SetField(danmakuevent.FieldSource, field.TypeString, value)
 		_node.Source = value
 	}
+	if value, ok := _c.mutation.SourceEventID(); ok {
+		_spec.SetField(danmakuevent.FieldSourceEventID, field.TypeString, value)
+		_node.SourceEventID = value
+	}
 	if value, ok := _c.mutation.Decision(); ok {
 		_spec.SetField(danmakuevent.FieldDecision, field.TypeString, value)
 		_node.Decision = value
+	}
+	if value, ok := _c.mutation.OccurredAtMs(); ok {
+		_spec.SetField(danmakuevent.FieldOccurredAtMs, field.TypeInt64, value)
+		_node.OccurredAtMs = value
+	}
+	if value, ok := _c.mutation.ReceivedAtMs(); ok {
+		_spec.SetField(danmakuevent.FieldReceivedAtMs, field.TypeInt64, value)
+		_node.ReceivedAtMs = value
+	}
+	if value, ok := _c.mutation.ExpiresAtMs(); ok {
+		_spec.SetField(danmakuevent.FieldExpiresAtMs, field.TypeInt64, value)
+		_node.ExpiresAtMs = value
 	}
 	if value, ok := _c.mutation.CreatedAtMs(); ok {
 		_spec.SetField(danmakuevent.FieldCreatedAtMs, field.TypeInt64, value)

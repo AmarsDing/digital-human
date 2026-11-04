@@ -201,6 +201,18 @@ func (f SettingFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, err
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.SettingMutation", m)
 }
 
+// The SongRequestFunc type is an adapter to allow the use of ordinary
+// function as SongRequest mutator.
+type SongRequestFunc func(context.Context, *ent.SongRequestMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f SongRequestFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.SongRequestMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.SongRequestMutation", m)
+}
+
 // The ViduKeyFunc type is an adapter to allow the use of ordinary
 // function as ViduKey mutator.
 type ViduKeyFunc func(context.Context, *ent.ViduKeyMutation) (ent.Value, error)

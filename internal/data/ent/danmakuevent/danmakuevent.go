@@ -25,8 +25,16 @@ const (
 	FieldDiamond = "diamond"
 	// FieldSource holds the string denoting the source field in the database.
 	FieldSource = "source"
+	// FieldSourceEventID holds the string denoting the source_event_id field in the database.
+	FieldSourceEventID = "source_event_id"
 	// FieldDecision holds the string denoting the decision field in the database.
 	FieldDecision = "decision"
+	// FieldOccurredAtMs holds the string denoting the occurred_at_ms field in the database.
+	FieldOccurredAtMs = "occurred_at_ms"
+	// FieldReceivedAtMs holds the string denoting the received_at_ms field in the database.
+	FieldReceivedAtMs = "received_at_ms"
+	// FieldExpiresAtMs holds the string denoting the expires_at_ms field in the database.
+	FieldExpiresAtMs = "expires_at_ms"
 	// FieldCreatedAtMs holds the string denoting the created_at_ms field in the database.
 	FieldCreatedAtMs = "created_at_ms"
 	// Table holds the table name of the danmakuevent in the database.
@@ -43,7 +51,11 @@ var Columns = []string{
 	FieldText,
 	FieldDiamond,
 	FieldSource,
+	FieldSourceEventID,
 	FieldDecision,
+	FieldOccurredAtMs,
+	FieldReceivedAtMs,
+	FieldExpiresAtMs,
 	FieldCreatedAtMs,
 }
 
@@ -62,6 +74,12 @@ var (
 	DefaultDiamond int64
 	// DefaultDecision holds the default value on creation for the "decision" field.
 	DefaultDecision string
+	// DefaultOccurredAtMs holds the default value on creation for the "occurred_at_ms" field.
+	DefaultOccurredAtMs int64
+	// DefaultReceivedAtMs holds the default value on creation for the "received_at_ms" field.
+	DefaultReceivedAtMs int64
+	// DefaultExpiresAtMs holds the default value on creation for the "expires_at_ms" field.
+	DefaultExpiresAtMs int64
 	// DefaultCreatedAtMs holds the default value on creation for the "created_at_ms" field.
 	DefaultCreatedAtMs int64
 )
@@ -109,9 +127,29 @@ func BySource(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSource, opts...).ToFunc()
 }
 
+// BySourceEventID orders the results by the source_event_id field.
+func BySourceEventID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSourceEventID, opts...).ToFunc()
+}
+
 // ByDecision orders the results by the decision field.
 func ByDecision(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDecision, opts...).ToFunc()
+}
+
+// ByOccurredAtMs orders the results by the occurred_at_ms field.
+func ByOccurredAtMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOccurredAtMs, opts...).ToFunc()
+}
+
+// ByReceivedAtMs orders the results by the received_at_ms field.
+func ByReceivedAtMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldReceivedAtMs, opts...).ToFunc()
+}
+
+// ByExpiresAtMs orders the results by the expires_at_ms field.
+func ByExpiresAtMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldExpiresAtMs, opts...).ToFunc()
 }
 
 // ByCreatedAtMs orders the results by the created_at_ms field.

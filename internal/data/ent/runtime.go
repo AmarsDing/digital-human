@@ -20,6 +20,7 @@ import (
 	"github.com/teamwork/digital-human/internal/data/ent/schema"
 	"github.com/teamwork/digital-human/internal/data/ent/sessionevent"
 	"github.com/teamwork/digital-human/internal/data/ent/setting"
+	"github.com/teamwork/digital-human/internal/data/ent/songrequest"
 	"github.com/teamwork/digital-human/internal/data/ent/vidukey"
 )
 
@@ -158,11 +159,23 @@ func init() {
 	// danmakuevent.DefaultDiamond holds the default value on creation for the diamond field.
 	danmakuevent.DefaultDiamond = danmakueventDescDiamond.Default.(int64)
 	// danmakueventDescDecision is the schema descriptor for decision field.
-	danmakueventDescDecision := danmakueventFields[8].Descriptor()
+	danmakueventDescDecision := danmakueventFields[9].Descriptor()
 	// danmakuevent.DefaultDecision holds the default value on creation for the decision field.
 	danmakuevent.DefaultDecision = danmakueventDescDecision.Default.(string)
+	// danmakueventDescOccurredAtMs is the schema descriptor for occurred_at_ms field.
+	danmakueventDescOccurredAtMs := danmakueventFields[10].Descriptor()
+	// danmakuevent.DefaultOccurredAtMs holds the default value on creation for the occurred_at_ms field.
+	danmakuevent.DefaultOccurredAtMs = danmakueventDescOccurredAtMs.Default.(int64)
+	// danmakueventDescReceivedAtMs is the schema descriptor for received_at_ms field.
+	danmakueventDescReceivedAtMs := danmakueventFields[11].Descriptor()
+	// danmakuevent.DefaultReceivedAtMs holds the default value on creation for the received_at_ms field.
+	danmakuevent.DefaultReceivedAtMs = danmakueventDescReceivedAtMs.Default.(int64)
+	// danmakueventDescExpiresAtMs is the schema descriptor for expires_at_ms field.
+	danmakueventDescExpiresAtMs := danmakueventFields[12].Descriptor()
+	// danmakuevent.DefaultExpiresAtMs holds the default value on creation for the expires_at_ms field.
+	danmakuevent.DefaultExpiresAtMs = danmakueventDescExpiresAtMs.Default.(int64)
 	// danmakueventDescCreatedAtMs is the schema descriptor for created_at_ms field.
-	danmakueventDescCreatedAtMs := danmakueventFields[9].Descriptor()
+	danmakueventDescCreatedAtMs := danmakueventFields[13].Descriptor()
 	// danmakuevent.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
 	danmakuevent.DefaultCreatedAtMs = danmakueventDescCreatedAtMs.Default.(int64)
 	effectoutboxFields := schema.EffectOutbox{}.Fields()
@@ -347,6 +360,72 @@ func init() {
 	settingDescUpdatedAtMs := settingFields[2].Descriptor()
 	// setting.DefaultUpdatedAtMs holds the default value on creation for the updated_at_ms field.
 	setting.DefaultUpdatedAtMs = settingDescUpdatedAtMs.Default.(int64)
+	songrequestFields := schema.SongRequest{}.Fields()
+	_ = songrequestFields
+	// songrequestDescDecisionID is the schema descriptor for decision_id field.
+	songrequestDescDecisionID := songrequestFields[3].Descriptor()
+	// songrequest.DefaultDecisionID holds the default value on creation for the decision_id field.
+	songrequest.DefaultDecisionID = songrequestDescDecisionID.Default.(string)
+	// songrequestDescEffectIdempotencyKey is the schema descriptor for effect_idempotency_key field.
+	songrequestDescEffectIdempotencyKey := songrequestFields[4].Descriptor()
+	// songrequest.DefaultEffectIdempotencyKey holds the default value on creation for the effect_idempotency_key field.
+	songrequest.DefaultEffectIdempotencyKey = songrequestDescEffectIdempotencyKey.Default.(string)
+	// songrequestDescScript is the schema descriptor for script field.
+	songrequestDescScript := songrequestFields[7].Descriptor()
+	// songrequest.DefaultScript holds the default value on creation for the script field.
+	songrequest.DefaultScript = songrequestDescScript.Default.(string)
+	// songrequestDescStatus is the schema descriptor for status field.
+	songrequestDescStatus := songrequestFields[8].Descriptor()
+	// songrequest.DefaultStatus holds the default value on creation for the status field.
+	songrequest.DefaultStatus = songrequestDescStatus.Default.(string)
+	// songrequestDescQueueSeq is the schema descriptor for queue_seq field.
+	songrequestDescQueueSeq := songrequestFields[9].Descriptor()
+	// songrequest.DefaultQueueSeq holds the default value on creation for the queue_seq field.
+	songrequest.DefaultQueueSeq = songrequestDescQueueSeq.Default.(int64)
+	// songrequestDescPosition is the schema descriptor for position field.
+	songrequestDescPosition := songrequestFields[10].Descriptor()
+	// songrequest.DefaultPosition holds the default value on creation for the position field.
+	songrequest.DefaultPosition = songrequestDescPosition.Default.(int)
+	// songrequestDescVersion is the schema descriptor for version field.
+	songrequestDescVersion := songrequestFields[11].Descriptor()
+	// songrequest.DefaultVersion holds the default value on creation for the version field.
+	songrequest.DefaultVersion = songrequestDescVersion.Default.(int64)
+	// songrequestDescPlayID is the schema descriptor for play_id field.
+	songrequestDescPlayID := songrequestFields[12].Descriptor()
+	// songrequest.DefaultPlayID holds the default value on creation for the play_id field.
+	songrequest.DefaultPlayID = songrequestDescPlayID.Default.(string)
+	// songrequestDescAttempt is the schema descriptor for attempt field.
+	songrequestDescAttempt := songrequestFields[13].Descriptor()
+	// songrequest.DefaultAttempt holds the default value on creation for the attempt field.
+	songrequest.DefaultAttempt = songrequestDescAttempt.Default.(int)
+	// songrequestDescLastError is the schema descriptor for last_error field.
+	songrequestDescLastError := songrequestFields[14].Descriptor()
+	// songrequest.DefaultLastError holds the default value on creation for the last_error field.
+	songrequest.DefaultLastError = songrequestDescLastError.Default.(string)
+	// songrequestDescReconcileStatus is the schema descriptor for reconcile_status field.
+	songrequestDescReconcileStatus := songrequestFields[15].Descriptor()
+	// songrequest.DefaultReconcileStatus holds the default value on creation for the reconcile_status field.
+	songrequest.DefaultReconcileStatus = songrequestDescReconcileStatus.Default.(string)
+	// songrequestDescCreatedAtMs is the schema descriptor for created_at_ms field.
+	songrequestDescCreatedAtMs := songrequestFields[16].Descriptor()
+	// songrequest.DefaultCreatedAtMs holds the default value on creation for the created_at_ms field.
+	songrequest.DefaultCreatedAtMs = songrequestDescCreatedAtMs.Default.(int64)
+	// songrequestDescExpiresAtMs is the schema descriptor for expires_at_ms field.
+	songrequestDescExpiresAtMs := songrequestFields[17].Descriptor()
+	// songrequest.DefaultExpiresAtMs holds the default value on creation for the expires_at_ms field.
+	songrequest.DefaultExpiresAtMs = songrequestDescExpiresAtMs.Default.(int64)
+	// songrequestDescStartedAtMs is the schema descriptor for started_at_ms field.
+	songrequestDescStartedAtMs := songrequestFields[18].Descriptor()
+	// songrequest.DefaultStartedAtMs holds the default value on creation for the started_at_ms field.
+	songrequest.DefaultStartedAtMs = songrequestDescStartedAtMs.Default.(int64)
+	// songrequestDescTerminalAtMs is the schema descriptor for terminal_at_ms field.
+	songrequestDescTerminalAtMs := songrequestFields[19].Descriptor()
+	// songrequest.DefaultTerminalAtMs holds the default value on creation for the terminal_at_ms field.
+	songrequest.DefaultTerminalAtMs = songrequestDescTerminalAtMs.Default.(int64)
+	// songrequestDescTerminalReason is the schema descriptor for terminal_reason field.
+	songrequestDescTerminalReason := songrequestFields[20].Descriptor()
+	// songrequest.DefaultTerminalReason holds the default value on creation for the terminal_reason field.
+	songrequest.DefaultTerminalReason = songrequestDescTerminalReason.Default.(string)
 	vidukeyFields := schema.ViduKey{}.Fields()
 	_ = vidukeyFields
 	// vidukeyDescIsActive is the schema descriptor for is_active field.

@@ -30,6 +30,7 @@ import (
 	"github.com/teamwork/digital-human/internal/data/ent/recording"
 	"github.com/teamwork/digital-human/internal/data/ent/sessionevent"
 	"github.com/teamwork/digital-human/internal/data/ent/setting"
+	"github.com/teamwork/digital-human/internal/data/ent/songrequest"
 	"github.com/teamwork/digital-human/internal/data/ent/vidukey"
 )
 
@@ -70,6 +71,8 @@ type Client struct {
 	SessionEvent *SessionEventClient
 	// Setting is the client for interacting with the Setting builders.
 	Setting *SettingClient
+	// SongRequest is the client for interacting with the SongRequest builders.
+	SongRequest *SongRequestClient
 	// ViduKey is the client for interacting with the ViduKey builders.
 	ViduKey *ViduKeyClient
 }
@@ -99,6 +102,7 @@ func (c *Client) init() {
 	c.Recording = NewRecordingClient(c.config)
 	c.SessionEvent = NewSessionEventClient(c.config)
 	c.Setting = NewSettingClient(c.config)
+	c.SongRequest = NewSongRequestClient(c.config)
 	c.ViduKey = NewViduKeyClient(c.config)
 }
 
@@ -208,6 +212,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Recording:           NewRecordingClient(cfg),
 		SessionEvent:        NewSessionEventClient(cfg),
 		Setting:             NewSettingClient(cfg),
+		SongRequest:         NewSongRequestClient(cfg),
 		ViduKey:             NewViduKeyClient(cfg),
 	}, nil
 }
@@ -244,6 +249,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Recording:           NewRecordingClient(cfg),
 		SessionEvent:        NewSessionEventClient(cfg),
 		Setting:             NewSettingClient(cfg),
+		SongRequest:         NewSongRequestClient(cfg),
 		ViduKey:             NewViduKeyClient(cfg),
 	}, nil
 }
@@ -277,7 +283,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.ApplyJournal, c.Asset, c.AuditLog, c.CostLedger, c.DanmakuEvent,
 		c.EffectOutbox, c.IdemKey, c.InteractionDecision, c.LiveDraft, c.LiveSession,
 		c.Patron, c.Persona, c.PersonaRef, c.Recording, c.SessionEvent, c.Setting,
-		c.ViduKey,
+		c.SongRequest, c.ViduKey,
 	} {
 		n.Use(hooks...)
 	}
@@ -290,7 +296,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.ApplyJournal, c.Asset, c.AuditLog, c.CostLedger, c.DanmakuEvent,
 		c.EffectOutbox, c.IdemKey, c.InteractionDecision, c.LiveDraft, c.LiveSession,
 		c.Patron, c.Persona, c.PersonaRef, c.Recording, c.SessionEvent, c.Setting,
-		c.ViduKey,
+		c.SongRequest, c.ViduKey,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -331,6 +337,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.SessionEvent.mutate(ctx, m)
 	case *SettingMutation:
 		return c.Setting.mutate(ctx, m)
+	case *SongRequestMutation:
+		return c.SongRequest.mutate(ctx, m)
 	case *ViduKeyMutation:
 		return c.ViduKey.mutate(ctx, m)
 	default:
@@ -2466,6 +2474,139 @@ func (c *SettingClient) mutate(ctx context.Context, m *SettingMutation) (Value, 
 	}
 }
 
+// SongRequestClient is a client for the SongRequest schema.
+type SongRequestClient struct {
+	config
+}
+
+// NewSongRequestClient returns a client for the SongRequest from the given config.
+func NewSongRequestClient(c config) *SongRequestClient {
+	return &SongRequestClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `songrequest.Hooks(f(g(h())))`.
+func (c *SongRequestClient) Use(hooks ...Hook) {
+	c.hooks.SongRequest = append(c.hooks.SongRequest, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `songrequest.Intercept(f(g(h())))`.
+func (c *SongRequestClient) Intercept(interceptors ...Interceptor) {
+	c.inters.SongRequest = append(c.inters.SongRequest, interceptors...)
+}
+
+// Create returns a builder for creating a SongRequest entity.
+func (c *SongRequestClient) Create() *SongRequestCreate {
+	mutation := newSongRequestMutation(c.config, OpCreate)
+	return &SongRequestCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of SongRequest entities.
+func (c *SongRequestClient) CreateBulk(builders ...*SongRequestCreate) *SongRequestCreateBulk {
+	return &SongRequestCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *SongRequestClient) MapCreateBulk(slice any, setFunc func(*SongRequestCreate, int)) *SongRequestCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &SongRequestCreateBulk{err: fmt.Errorf("calling to SongRequestClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*SongRequestCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &SongRequestCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for SongRequest.
+func (c *SongRequestClient) Update() *SongRequestUpdate {
+	mutation := newSongRequestMutation(c.config, OpUpdate)
+	return &SongRequestUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *SongRequestClient) UpdateOne(_m *SongRequest) *SongRequestUpdateOne {
+	mutation := newSongRequestMutation(c.config, OpUpdateOne, withSongRequest(_m))
+	return &SongRequestUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *SongRequestClient) UpdateOneID(id string) *SongRequestUpdateOne {
+	mutation := newSongRequestMutation(c.config, OpUpdateOne, withSongRequestID(id))
+	return &SongRequestUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for SongRequest.
+func (c *SongRequestClient) Delete() *SongRequestDelete {
+	mutation := newSongRequestMutation(c.config, OpDelete)
+	return &SongRequestDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *SongRequestClient) DeleteOne(_m *SongRequest) *SongRequestDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *SongRequestClient) DeleteOneID(id string) *SongRequestDeleteOne {
+	builder := c.Delete().Where(songrequest.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &SongRequestDeleteOne{builder}
+}
+
+// Query returns a query builder for SongRequest.
+func (c *SongRequestClient) Query() *SongRequestQuery {
+	return &SongRequestQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeSongRequest},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a SongRequest entity by its id.
+func (c *SongRequestClient) Get(ctx context.Context, id string) (*SongRequest, error) {
+	return c.Query().Where(songrequest.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *SongRequestClient) GetX(ctx context.Context, id string) *SongRequest {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *SongRequestClient) Hooks() []Hook {
+	return c.hooks.SongRequest
+}
+
+// Interceptors returns the client interceptors.
+func (c *SongRequestClient) Interceptors() []Interceptor {
+	return c.inters.SongRequest
+}
+
+func (c *SongRequestClient) mutate(ctx context.Context, m *SongRequestMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&SongRequestCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&SongRequestUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&SongRequestUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&SongRequestDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown SongRequest mutation op: %q", m.Op())
+	}
+}
+
 // ViduKeyClient is a client for the ViduKey schema.
 type ViduKeyClient struct {
 	config
@@ -2604,11 +2745,11 @@ type (
 	hooks struct {
 		ApplyJournal, Asset, AuditLog, CostLedger, DanmakuEvent, EffectOutbox, IdemKey,
 		InteractionDecision, LiveDraft, LiveSession, Patron, Persona, PersonaRef,
-		Recording, SessionEvent, Setting, ViduKey []ent.Hook
+		Recording, SessionEvent, Setting, SongRequest, ViduKey []ent.Hook
 	}
 	inters struct {
 		ApplyJournal, Asset, AuditLog, CostLedger, DanmakuEvent, EffectOutbox, IdemKey,
 		InteractionDecision, LiveDraft, LiveSession, Patron, Persona, PersonaRef,
-		Recording, SessionEvent, Setting, ViduKey []ent.Interceptor
+		Recording, SessionEvent, Setting, SongRequest, ViduKey []ent.Interceptor
 	}
 )

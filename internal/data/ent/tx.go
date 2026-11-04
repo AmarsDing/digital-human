@@ -44,6 +44,8 @@ type Tx struct {
 	SessionEvent *SessionEventClient
 	// Setting is the client for interacting with the Setting builders.
 	Setting *SettingClient
+	// SongRequest is the client for interacting with the SongRequest builders.
+	SongRequest *SongRequestClient
 	// ViduKey is the client for interacting with the ViduKey builders.
 	ViduKey *ViduKeyClient
 
@@ -193,6 +195,7 @@ func (tx *Tx) init() {
 	tx.Recording = NewRecordingClient(tx.config)
 	tx.SessionEvent = NewSessionEventClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)
+	tx.SongRequest = NewSongRequestClient(tx.config)
 	tx.ViduKey = NewViduKeyClient(tx.config)
 }
 

@@ -95,7 +95,11 @@ func (DanmakuEvent) Fields() []ent.Field {
 		field.String("text").Optional(),
 		field.Int64("diamond").Default(0),
 		field.String("source").Optional(),
-		field.String("decision").Default(""), // t0 | t2 | confirm | blocked | dropped
+		field.String("source_event_id").Optional(),
+		field.String("decision").Default(""), // t0 | t2 | confirm | blocked | dropped | rules
+		field.Int64("occurred_at_ms").Default(0),
+		field.Int64("received_at_ms").Default(0),
+		field.Int64("expires_at_ms").Default(0),
 		field.Int64("created_at_ms").Default(0),
 	}
 }
@@ -103,6 +107,7 @@ func (DanmakuEvent) Fields() []ent.Field {
 func (DanmakuEvent) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("session_id", "created_at_ms"),
+		index.Fields("source", "source_event_id").Unique(),
 	}
 }
 

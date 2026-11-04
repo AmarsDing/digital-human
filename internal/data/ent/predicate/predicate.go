@@ -54,5 +54,8 @@ type SessionEvent func(*sql.Selector)
 // Setting is the predicate function for setting builders.
 type Setting func(*sql.Selector)
 
+// SongRequest is the predicate function for songrequest builders.
+type SongRequest func(*sql.Selector)
+
 // ViduKey is the predicate function for vidukey builders.
 type ViduKey func(*sql.Selector)
