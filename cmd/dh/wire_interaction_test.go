@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/chat"
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/interaction"
+	"github.com/teamwork/digital-human/internal/biz/joke"
 	"github.com/teamwork/digital-human/internal/biz/song"
 	"github.com/teamwork/digital-human/internal/data/ent/enttest"
 	"github.com/teamwork/digital-human/internal/data/repo"
@@ -65,6 +68,55 @@ func TestInteractionRuntimeRecoversPersistentOrphanChat(t *testing.T) {
 	}
 }
 
+func TestWireInteractionRulesTriggersJokeWithoutChat(t *testing.T) {
+	store := interaction.NewMemoryStore()
+	svc := interaction.NewService(store)
+	dispatcher, err := interaction.NewDispatcher(store, time.Minute, time.Minute, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix := &interactionRuntime{svc: svc, disp: dispatcher}
+	dm := danmaku.NewService(danmaku.ModeAuto)
+	chatter := &ruleTestChatter{}
+	speaker := &ruleTestSpeaker{}
+	library := filepath.Join(t.TempDir(), "jokes.yaml")
+	if err := os.WriteFile(library, []byte(`jokes:
+  - id: wire-original
+    text: 集成原创段子
+    keywords: [讲个笑话]
+    category: 搞笑
+    source: 项目组原创
+    license: 项目内部使用授权
+    enabled: true
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jokes := joke.NewService(joke.Options{Enabled: true, LibraryPath: library})
+	wireInteractionRules(dm, ix, chatter, speaker, speaker, nil, interaction.RulePolicy{
+		RuleVersion: "rules-v1", Revision: "rev-1", LLMAvailable: true, Jokes: jokes,
+	}, func() (string, bool) { return "s1", true })
+
+	first := dm.IngestEvent(context.Background(), danmaku.Envelope{
+		Kind: "chat", UserID: "u1", Text: "讲个笑话", Source: "test", SourceEventID: "joke-source-1",
+	})
+	if !first.OK {
+		t.Fatalf("首次段子弹幕失败: %+v", first)
+	}
+	if len(chatter.texts) != 0 || len(speaker.texts) != 1 || speaker.texts[0] != "集成原创段子" {
+		t.Fatalf("段子必须走独立出口且不得进入 LLM: chatter=%v speaker=%v", chatter.texts, speaker.texts)
+	}
+	second := dm.IngestEvent(context.Background(), danmaku.Envelope{
+		Kind: "chat", UserID: "u2", Text: "再讲个笑话", Source: "test", SourceEventID: "joke-source-2",
+	})
+	if !second.OK || len(speaker.texts) != 1 {
+		t.Fatalf("同场同段子不得重复: result=%+v speaker=%v", second, speaker.texts)
+	}
+	effects, err := store.ListEffects(context.Background(), "")
+	if err != nil || len(effects) != 1 || effects[0].EffectType != interaction.EffectTypeJoke || effects[0].Status != interaction.EffectSucceeded {
+		t.Fatalf("joke effect 闭环: effects=%+v err=%v", effects, err)
+	}
+}
+
 func TestAppRecoverSongRequestsMarksPlayingUnknown(t *testing.T) {
 	ctx := context.Background()
 	store := song.NewMemoryRequestStore(song.QueuePolicy{}, time.Now)
@@ -97,7 +149,7 @@ func TestWireInteractionRulesConsumesStableChatOnce(t *testing.T) {
 	dm := danmaku.NewService(danmaku.ModeAuto)
 	chatter := &ruleTestChatter{}
 	speaker := &ruleTestSpeaker{}
-	wireInteractionRules(dm, ix, chatter, speaker, nil, interaction.RulePolicy{
+	wireInteractionRules(dm, ix, chatter, speaker, nil, nil, interaction.RulePolicy{
 		RuleVersion: "rules-v1", Revision: "rev-1", LLMAvailable: true,
 	}, func() (string, bool) { return "s1", true })
 

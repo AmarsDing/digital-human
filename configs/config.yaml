@@ -32,6 +32,11 @@ content_gate:
   allow_review: false
   circuit_breaker_threshold: 3
 
+# 本地原创/已授权段子；只响应弹幕关键词，不联网抓取、不自动轮播。
+joke:
+  enabled: true
+  library_path: "configs/jokes.yaml"
+
 security:
   # local: 仅允许 loopback 访问（默认）。lan: 必须配置 admin_token_sha256。
   # collector: 弹幕采集器走 HMAC，其余走 Bearer。

@@ -31,6 +31,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/gift"
 	"github.com/teamwork/digital-human/internal/biz/interaction"
+	"github.com/teamwork/digital-human/internal/biz/joke"
 	"github.com/teamwork/digital-human/internal/biz/koubo"
 	"github.com/teamwork/digital-human/internal/biz/live"
 	"github.com/teamwork/digital-human/internal/biz/media"
@@ -496,6 +497,14 @@ func provideDanmakuWorker(
 	return w
 }
 
+// jokeSpeaker 固定 mode=joke，确保统一 Gate 与审计可区分段子出站。
+type jokeSpeaker struct{ m *live.Manager }
+
+func (s jokeSpeaker) Say(ctx context.Context, text string) error {
+	_, err := s.m.Say(ctx, text, "joke")
+	return err
+}
+
 // giftSpeaker 把 live.Manager.Say 适配为 gift/patron 的 Speaker 出口（mode 区分来源）。
 type giftSpeaker struct{ m *live.Manager }
 
@@ -860,7 +869,12 @@ func providePanelRuntime(
 	song.RegisterInteractionHandler(ix.disp, songRequests, songScheduler)
 	sched.SetSongPlaying(func() bool { return songs.Status().Playing })
 
-	// 规则优先：点歌/动作先判定，普通聊天才进入 LLM；动作出口按 dev/real 如实装配。
+	// 规则优先：点歌/动作先判定；授权段子让位歌曲与打字聊天，普通聊天最后进入 LLM。
+	jokes := joke.NewService(joke.Options{
+		Enabled: cfg.Joke.Enabled, LibraryPath: cfg.Joke.LibraryPath,
+		SongPlaying: func() bool { return songs.Status().Playing },
+		ChatActive:  voiceCoordinator.TextChatActive,
+	})
 	files, _ := songLib.List()
 	ruleSongs := make(map[string]string, len(files)*2)
 	fileNames := make([]string, 0, len(files))
@@ -869,11 +883,12 @@ func providePanelRuntime(
 		ruleSongs[file.Name] = file.Name
 		ruleSongs[strings.TrimSuffix(file.Name, filepath.Ext(file.Name))] = file.Name
 	}
-	wireInteractionRules(dm, ix, chatMgr, chatSpeaker{m: mgr}, sched, interaction.RulePolicy{
+	wireInteractionRules(dm, ix, chatMgr, chatSpeaker{m: mgr}, jokeSpeaker{m: mgr}, sched, interaction.RulePolicy{
 		RuleVersion:  "danmaku-rules-v1",
 		Revision:     interaction.SourceKey("danmaku-rules", strings.Join(fileNames, "\x00")),
 		LLMAvailable: settingStr(st, context.Background(), "llm", "api_key") != "",
 		Songs:        ruleSongs,
+		Jokes:        jokes,
 	}, func() (string, bool) {
 		snap := mgr.Snapshot()
 		return snap.SessionID, snap.Phase == live.PhaseLive || snap.Phase == live.PhaseStarting
@@ -1176,6 +1191,7 @@ func wireInteractionRules(
 	ix *interactionRuntime,
 	chatter interaction.ChatChatter,
 	speaker interaction.ChatSpeaker,
+	jokeSpeaker interaction.ChatSpeaker,
 	actions interaction.ActionCommander,
 	policy interaction.RulePolicy,
 	session func() (string, bool),
@@ -1183,6 +1199,9 @@ func wireInteractionRules(
 	engine := interaction.NewRuleEngine(ix.svc, policy, nil)
 	ix.rules.Store(engine)
 	interaction.RegisterChatReplyHandler(ix.disp, chatter, speaker)
+	if policy.Jokes != nil {
+		interaction.RegisterJokeHandler(ix.disp, jokeSpeaker)
+	}
 	interaction.RegisterActionHandler(ix.disp, actions)
 	dm.SetRuleTap(func(ctx context.Context, _ string, ev danmaku.TapEvent) error {
 		sessionID, ok := session()

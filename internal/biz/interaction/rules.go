@@ -11,10 +11,12 @@ const (
 	IntentChatReply   = "chat_reply"
 	IntentAction      = "action"
 	IntentSongRequest = "song_request"
+	IntentJoke        = "joke"
 
 	EffectTypeChatReply   = "chat_reply"
 	EffectTypeAction      = "action"
 	EffectTypeSongRequest = "song_request"
+	EffectTypeJoke        = "joke"
 )
 
 // ActionMapping 把观众触发词映射到已审核的真实动作指令。
@@ -26,6 +28,11 @@ type ActionMapping struct {
 	CapabilityStatus string
 }
 
+// JokeMatcher 由本地授权段子库实现；matched=true 时不得再落入普通聊天。
+type JokeMatcher interface {
+	Reserve(sessionID, text string) (id, jokeText, reason string, matched bool)
+}
+
 // RulePolicy 是场次冻结的确定性互动策略。
 type RulePolicy struct {
 	RuleVersion          string
@@ -33,6 +40,7 @@ type RulePolicy struct {
 	LLMAvailable         bool
 	Songs                map[string]string
 	Actions              []ActionMapping
+	Jokes                JokeMatcher
 	UserInterval         time.Duration
 	UserPerMinute        int
 	ActionUserCooldown   time.Duration
@@ -190,6 +198,31 @@ func (r *RuleEngine) decisionLocked(ev RuleEvent) DecisionInput {
 			PayloadSafe: payload,
 		}}
 		return in
+	}
+
+	if r.policy.Jokes != nil {
+		id, jokeText, reason, matched := r.policy.Jokes.Reserve(ev.SessionID, text)
+		if matched {
+			in.Intent = IntentJoke
+			in.ReasonCode = "joke_rule_matched"
+			if reason != "" {
+				in.Outcome = DecideSkipped
+				in.ReasonCode = reason
+				return in
+			}
+			if r.severeLagLocked() {
+				in.Outcome = DecideDegraded
+				in.ReasonCode = "playback_lag"
+				return in
+			}
+			payload := map[string]any{"joke_id": id, "text": jokeText}
+			in.PayloadSafe = payload
+			in.Effects = []EffectInput{{
+				EffectType: EffectTypeJoke, TargetID: "speech", Seq: 1,
+				PayloadSafe: payload,
+			}}
+			return in
+		}
 	}
 
 	in.Intent = IntentChatReply

@@ -41,6 +41,24 @@ func RegisterChatReplyHandler(d *Dispatcher, chatter ChatChatter, speaker ChatSp
 	})
 }
 
+// RegisterJokeHandler 将段子 effect 接到专用 Speaker；装配层固定 Manager.Say(..., "joke")。
+func RegisterJokeHandler(d *Dispatcher, speaker ChatSpeaker) {
+	d.RegisterHandler(EffectTypeJoke, func(ctx context.Context, eff Effect) (string, error) {
+		if speaker == nil {
+			return "", errors.New("interaction: joke speaker is not wired")
+		}
+		id, _ := eff.PayloadSafe["joke_id"].(string)
+		text, _ := eff.PayloadSafe["text"].(string)
+		if strings.TrimSpace(id) == "" || strings.TrimSpace(text) == "" {
+			return "", errors.New("interaction: joke payload missing id or text")
+		}
+		if err := speaker.Say(ctx, text); err != nil {
+			return "", err
+		}
+		return "joke:" + id, nil
+	})
+}
+
 // RegisterActionHandler 将白名单动作 effect 接到现有 Scheduler 的 auto 入口。
 func RegisterActionHandler(d *Dispatcher, scheduler ActionCommander) {
 	d.RegisterHandler(EffectTypeAction, func(ctx context.Context, eff Effect) (string, error) {

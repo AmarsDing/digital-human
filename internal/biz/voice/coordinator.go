@@ -558,6 +558,13 @@ func (c *Coordinator) interruptVoiceFor(ctx context.Context, sessionID string, e
 	}
 }
 
+// TextChatActive 向低优先级段子仲裁暴露真实打字聊天回合状态。
+func (c *Coordinator) TextChatActive(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.textActive[sessionID] != nil
+}
+
 // ChatText 将运营文本对话纳入同一场次所有权和按场次记忆；语音活动期拒绝抢占。
 func (c *Coordinator) ChatText(ctx context.Context, text string) (string, error) {
 	snap := c.speaker.Snapshot()

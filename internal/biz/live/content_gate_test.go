@@ -69,6 +69,33 @@ func assertOriginalAbsentFromTranscripts(t *testing.T, sink *MemorySink, origina
 	}
 }
 
+type jokeAuditRecorder struct{ records []contentgate.AuditRecord }
+
+func (r *jokeAuditRecorder) RecordContentDecision(_ context.Context, record contentgate.AuditRecord) error {
+	r.records = append(r.records, record)
+	return nil
+}
+
+func TestContentGateJokeUsesStaticTemplateAndOutletAudit(t *testing.T) {
+	m, ctrl, sink := newLiveContentGateManager(t)
+	recorder := &jokeAuditRecorder{}
+	path := filepath.Join(t.TempDir(), "content_gate.yaml")
+	if err := os.WriteFile(path, []byte("layers:\n  vulgar:\n    decision: block\n    words: [低俗词]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.SetContentGate(contentgate.New(contentgate.Options{Enabled: true, RulesPath: path, Recorder: recorder}))
+	if _, err := m.Say(context.Background(), "这是低俗词", "joke"); err != nil {
+		t.Fatal(err)
+	}
+	if said := ctrl.said(); len(said) != 1 || said[0] != contentgate.SafeSpokenTemplate {
+		t.Fatalf("违禁段子只能合成 Gate 静态模板: %v", said)
+	}
+	assertOriginalAbsentFromTranscripts(t, sink, "低俗词")
+	if len(recorder.records) != 1 || recorder.records[0].Outlet != "joke" {
+		t.Fatalf("段子终检审计 outlet 必须为 joke: %+v", recorder.records)
+	}
+}
+
 func TestContentGateVulgarSpeaksOnlyStaticTemplate(t *testing.T) {
 	m, ctrl, sink := newLiveContentGateManager(t)
 	const original = "这是低俗词"

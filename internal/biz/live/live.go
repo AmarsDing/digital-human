@@ -923,7 +923,11 @@ func (m *Manager) sayOne(ctx context.Context, text, mode string) (string, error)
 
 	decision := contentgate.Decision{State: contentgate.StateAllow, Disposition: contentgate.DispositionAllow, Text: text}
 	if gate != nil {
-		decision = gate.Check(ctx, contentgate.Input{Outlet: "live.say", SessionID: sessionID, Text: text})
+		outlet := "live.say"
+		if mode == "joke" {
+			outlet = "joke"
+		}
+		decision = gate.Check(ctx, contentgate.Input{Outlet: outlet, SessionID: sessionID, Text: text})
 	}
 	return m.sayDecision(ctx, sessionID, epoch, decision, mode)
 }

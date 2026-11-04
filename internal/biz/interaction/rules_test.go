@@ -142,6 +142,58 @@ func TestOrphanDecisionInputReusesRulesWithoutWriting(t *testing.T) {
 	}
 }
 
+type ruleJokeMatcher struct {
+	id, text, reason string
+	matched          bool
+	calls            int
+}
+
+func (m *ruleJokeMatcher) Reserve(_, _ string) (string, string, string, bool) {
+	m.calls++
+	return m.id, m.text, m.reason, m.matched
+}
+
+func TestRuleEngineSongPrecedesJoke(t *testing.T) {
+	engine, _, _ := testRuleEngine()
+	matcher := &ruleJokeMatcher{id: "j1", text: "段子", matched: true}
+	engine.policy.Songs["笑话之歌"] = "joke-song.mp3"
+	engine.policy.Jokes = matcher
+	d, effects, err := engine.Handle(context.Background(), ruleEvent("src-song-before-joke", "u1", "点歌 笑话之歌"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Intent != IntentSongRequest || len(effects) != 1 || effects[0].EffectType != EffectTypeSongRequest || matcher.calls != 0 {
+		t.Fatalf("点歌必须先于段子: d=%+v effects=%+v joke calls=%d", d, effects, matcher.calls)
+	}
+}
+
+func TestRuleEngineKeywordCreatesJokeEffectInsteadOfChat(t *testing.T) {
+	engine, _, _ := testRuleEngine()
+	engine.policy.Jokes = &ruleJokeMatcher{id: "j1", text: "授权段子", matched: true}
+	d, effects, err := engine.Handle(context.Background(), ruleEvent("src-joke", "u1", "讲个笑话"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Intent != IntentJoke || d.Decision != DecideExecute || len(effects) != 1 || effects[0].EffectType != EffectTypeJoke {
+		t.Fatalf("关键词应产生独立段子 effect: d=%+v effects=%+v", d, effects)
+	}
+	if effects[0].PayloadSafe["joke_id"] != "j1" || effects[0].PayloadSafe["text"] != "授权段子" {
+		t.Fatalf("段子 effect 载荷: %+v", effects[0].PayloadSafe)
+	}
+}
+
+func TestRuleEngineSuppressedJokeDoesNotFallBackToChat(t *testing.T) {
+	engine, _, _ := testRuleEngine()
+	engine.policy.Jokes = &ruleJokeMatcher{id: "j1", reason: "chat_active", matched: true}
+	d, effects, err := engine.Handle(context.Background(), ruleEvent("src-joke-busy", "u1", "讲个笑话"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Intent != IntentJoke || d.Decision != DecideSkipped || d.ReasonCode != "chat_active" || len(effects) != 0 {
+		t.Fatalf("被仲裁抑制的段子不得转入 LLM 聊天: d=%+v effects=%+v", d, effects)
+	}
+}
+
 func TestRuleEngineSameSourceKeepsFrozenDecision(t *testing.T) {
 	engine, st, _ := testRuleEngine()
 	ev := ruleEvent("src-frozen", "u1", "点歌 晴天")

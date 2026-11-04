@@ -85,6 +85,29 @@ func TestChatReplyEffectUsesChatManagerAndSpeaker(t *testing.T) {
 	}
 }
 
+func TestJokeEffectUsesDedicatedSpeaker(t *testing.T) {
+	st := NewMemoryStore()
+	disp, err := NewDispatcher(st, time.Second, time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	speaker := &replySpeaker{}
+	RegisterJokeHandler(disp, speaker)
+	created := decideHandlerEffect(t, st, "src-joke-effect", EffectTypeJoke, map[string]any{
+		"joke_id": "j1", "text": "授权段子",
+	})
+	if ok, err := disp.DispatchOnce(context.Background()); err != nil || !ok {
+		t.Fatalf("dispatch joke: ok=%v err=%v", ok, err)
+	}
+	if !reflect.DeepEqual(speaker.texts, []string{"授权段子"}) {
+		t.Fatalf("段子必须经专用 Speaker 出口: %+v", speaker.texts)
+	}
+	got, _ := st.GetEffect(created.ID)
+	if got.Status != EffectSucceeded || got.DownstreamReceiptID != "joke:j1" {
+		t.Fatalf("joke effect 回执: %+v", got)
+	}
+}
+
 func TestActionEffectUsesExistingScheduler(t *testing.T) {
 	st := NewMemoryStore()
 	disp, err := NewDispatcher(st, time.Second, time.Second, nil)

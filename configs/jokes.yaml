@@ -1,0 +1,25 @@
+# 默认仅含数字人项目组原创示例；新增条目必须填写真实来源与授权说明。
+jokes:
+  - id: original-forgetful-opening
+    text: "我刚才准备了一个关于记性差的笑话，可惜讲到这儿，开头让我忘了。"
+    keywords: ["讲个笑话", "来个段子"]
+    category: "搞笑"
+    source: "数字人项目组原创（2026-11-05）"
+    license: "数字人项目组授权随本仓库代码使用"
+    enabled: true
+
+  - id: original-forgot-lines
+    text: "我的记性很适合直播，每次忘词，都像是临时安排了一次互动。"
+    keywords: ["忘词", "自嘲一下"]
+    category: "自嘲"
+    source: "数字人项目组原创（2026-11-05）"
+    license: "数字人项目组授权随本仓库代码使用"
+    enabled: true
+
+  - id: original-warm-up
+    text: "你们负责把气氛炒热，我负责把刚才那句帅气的话再说一遍；没记住的话，就当是隐藏彩蛋。"
+    keywords: ["互动一下", "活跃气氛"]
+    category: "互动"
+    source: "数字人项目组原创（2026-11-05）"
+    license: "数字人项目组授权随本仓库代码使用"
+    enabled: true

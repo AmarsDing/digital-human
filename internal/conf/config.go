@@ -29,6 +29,13 @@ type Config struct {
 	Live        Live        `yaml:"live"`
 	Voice       Voice       `yaml:"voice"`
 	ContentGate ContentGate `yaml:"content_gate"`
+	Joke        Joke        `yaml:"joke"`
+}
+
+// Joke 配置本地授权段子库；只允许弹幕显式触发，不包含自动轮播。
+type Joke struct {
+	Enabled     bool   `yaml:"enabled"`
+	LibraryPath string `yaml:"library_path"`
 }
 
 // ContentGate 配置唯一内容终检入口；词表和正则放在独立 YAML，便于运营更新与审计。
@@ -319,6 +326,7 @@ func defaults() *Config {
 		ContentGate: ContentGate{
 			Enabled: true, RulesPath: "configs/content_gate.yaml", CircuitBreakerThreshold: 3,
 		},
+		Joke: Joke{Enabled: true, LibraryPath: "configs/jokes.yaml"},
 		Voice: Voice{
 			ASR: VoiceASR{
 				Provider: "sherpa", FakeText: "dev 模拟识别", AllowLocalSidecar: true, AllowCloud: false,
@@ -404,6 +412,9 @@ func (c *Config) Validate() error {
 		if c.ContentGate.CircuitBreakerThreshold <= 0 {
 			return fmt.Errorf("content_gate.circuit_breaker_threshold 必须大于 0")
 		}
+	}
+	if c.Joke.Enabled && strings.TrimSpace(c.Joke.LibraryPath) == "" {
+		return fmt.Errorf("joke.library_path 不能为空")
 	}
 	if c.Voice.RetainAudio {
 		return fmt.Errorf("voice.retain_audio=true 尚未实现保存/回看链路；必须显式保持 false")

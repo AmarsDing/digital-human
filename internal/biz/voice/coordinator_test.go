@@ -706,6 +706,16 @@ func TestCancelledVoiceTurnDuringSayDoesNotPublishSpeaking(t *testing.T) {
 	}
 }
 
+func TestTextChatActiveReportsOnlyCurrentSession(t *testing.T) {
+	c := &Coordinator{textActive: map[string]*textTurn{"s1": {}}}
+	if !c.TextChatActive("s1") {
+		t.Fatal("进行中的打字聊天必须对段子仲裁可见")
+	}
+	if c.TextChatActive("s2") {
+		t.Fatal("其他场次不得误判为打字聊天活动")
+	}
+}
+
 func waitForVoiceTest(t *testing.T, condition func() bool, message string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
