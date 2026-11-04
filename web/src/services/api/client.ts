@@ -121,6 +121,21 @@ export function classifyApiError(err: unknown): { code: string; message: string 
         return { code: err.code, message: '来源未被允许，请检查部署域名配置' }
       case 'ticket_invalid_or_used':
         return { code: err.code, message: 'WebSocket 票据已失效，正在重新连接' }
+      case 'profile_changed':
+        return { code: err.code, message: '预检后数字人档案或版本已变化，请前往档案页确认改动后重新预检' }
+      case 'preflight_expired':
+        return { code: err.code, message: '开播预检凭证已过期，请重新预检后再开播' }
+      case 'preflight_required':
+        return {
+          code: err.code,
+          message: err.message.includes('档案或版本已变化')
+            ? err.message
+            : '开播预检凭证缺失、未知、过期或已消费，请重新预检后再开播'
+        }
+      case 'draft_required':
+        return { code: err.code, message: 'public-live 必须先选择并提交草稿，再携带草稿 ID 与版本重新预检；不能使用空草稿开播' }
+      case 'mode_not_allowed':
+        return { code: err.code, message: '服务端未允许当前开播模式，请检查后端开播配置；前端不会切换模式重试' }
       // 数字人档案（G 批 M2/M4）错误码归一。
       case 'persona_not_found':
         return { code: err.code, message: '所选数字人档案不存在或已删除，请到档案页重新选择' }

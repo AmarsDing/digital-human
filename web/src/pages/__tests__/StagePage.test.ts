@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, shallowMount } from '@vue/test-utils'
+import { flushPromises, mount, shallowMount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 const h = vi.hoisted(() => ({
@@ -30,6 +30,10 @@ import StagePage from '../StagePage.vue'
 import VideoStage from '../../components/stage/VideoStage.vue'
 import { useLiveStore } from '../../stores/live'
 import { useAvatarsStore } from '../../stores/avatars'
+import { useUiPrefs } from '../../stores/uiPrefs'
+import PanelDock from '../../components/stage/PanelDock.vue'
+import PanelShell from '../../components/panels/PanelShell.vue'
+import NtConfirmDialog from '../../components/ui/NtConfirmDialog.vue'
 
 function activeAvatar(revision: number) {
   return { avatars: [{ persona_id: 'p1', is_active: true, revision }], total: 1, storage: 'sqlite' }
@@ -38,6 +42,61 @@ function activeAvatar(revision: number) {
 function offlineFetch(): Promise<Response> {
   return Promise.resolve({ ok: false, status: 503, text: async () => '{}' } as Response)
 }
+
+describe('StagePage 双模式与单工作区', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn(offlineFetch))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('旧浮层偏好的话也只渲染一个工作区，复盘使用独立路由', async () => {
+    const prefs = useUiPrefs()
+    prefs.panels.voice.open = true
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    expect(w.findComponent(PanelDock).exists()).toBe(true)
+    expect(w.findAllComponents(PanelShell)).toHaveLength(0)
+    const sessions = w.find('[data-testid="sessions-link"]')
+    expect(sessions.exists()).toBe(true)
+    await sessions.trigger('click')
+    expect(h.push).toHaveBeenCalledWith('/sessions')
+    w.unmount()
+  })
+
+  it('直播中显示冻结的当场模式，准备态显示下一场配置口径', async () => {
+    const live = useLiveStore()
+    live.status = { phase: 'live' } as never
+    const w = shallowMount(StagePage)
+    await flushPromises()
+    expect(w.find('.stage-mode').text()).toContain('直播中')
+    expect(w.find('.stage-mode').text()).toContain('本场已冻结')
+    w.unmount()
+  })
+})
+
+describe('PanelDock 工作区 Tabs', () => {
+  it('方向键只移动焦点，Enter 才激活目标面板', async () => {
+    const w = mount(PanelDock, {
+      attachTo: document.body,
+      props: { active: 'voice', pendingCount: 0, rightOpen: true }
+    })
+    const tabs = w.findAll('[role="tab"]')
+    expect(tabs.length).toBe(6)
+    await tabs[0].trigger('focus')
+    await tabs[0].trigger('keydown', { key: 'ArrowRight' })
+    expect(w.emitted('select')).toBeUndefined()
+    expect(document.activeElement).toBe(tabs[1].element)
+    await tabs[1].trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('select')).toEqual([['command']])
+    w.unmount()
+  })
+})
 
 describe('StagePage 统一 preflight 开播入口', () => {
   beforeEach(() => {
@@ -66,12 +125,30 @@ describe('StagePage 统一 preflight 开播入口', () => {
     await flushPromises()
 
     expect(start).toHaveBeenCalledWith(
-      { personaId: 'p1', draftId: '', expectedRevision: 0 },
+      { personaId: 'p1' },
       expect.any(Function)
     )
     expect(recheck).toBeTypeOf('function')
     expect(await recheck!()).toBe(true)
     expect(h.listAvatars).toHaveBeenCalledTimes(2)
+    w.unmount()
+  })
+
+  it('预检缺字段时把具体字段错误传给开播 UI', async () => {
+    h.listAvatars.mockResolvedValue(activeAvatar(7))
+    const live = useLiveStore()
+    vi.spyOn(live, 'start').mockImplementation(async () => {
+      live.errorCode = 'preflight_contract_missing'
+      live.error = '开播预检缺少字段：personaId、revision'
+      return false
+    })
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    w.findComponent(VideoStage).vm.$emit('start')
+    await flushPromises()
+
+    expect(w.findComponent(VideoStage).props('error')).toContain('personaId、revision')
     w.unmount()
   })
 
@@ -91,6 +168,102 @@ describe('StagePage 统一 preflight 开播入口', () => {
 
     expect(recheck).toBeTypeOf('function')
     expect(await recheck!()).toBe(false)
+    w.unmount()
+  })
+
+  it('清空字幕使用危险确认并在请求期间防重入', async () => {
+    const live = useLiveStore()
+    let release: () => void = () => undefined
+    const clear = vi.spyOn(live, 'clearTranscripts').mockImplementation(async () => {
+      live.busy = true
+      await new Promise<void>((resolve) => { release = resolve })
+      live.busy = false
+      return true
+    })
+    const w = shallowMount(StagePage)
+    await flushPromises()
+    const dialog = w.findAllComponents(NtConfirmDialog).find((d) => d.props('title') === '清空字幕')!
+
+    expect(dialog.props('dangerous')).toBe(true)
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(dialog.props('busy')).toBe(true)
+    dialog.vm.$emit('confirm')
+    expect(clear).toHaveBeenCalledTimes(1)
+    release()
+    await flushPromises()
+    expect(dialog.props('open')).toBe(false)
+    w.unmount()
+  })
+
+  it('profile_changed 引导前往档案页确认改动', async () => {
+    const live = useLiveStore()
+    const w = shallowMount(StagePage)
+    await flushPromises()
+    // 避开挂载时离线 load 的错误覆盖，模拟 Start 之后写入的拒绝状态。
+    live.errorCode = 'profile_changed'
+    live.error = '预检后数字人档案或版本已变化，请前往档案页确认改动后重新预检'
+    await flushPromises()
+
+    const guide = w.find('.guide-banner')
+    expect(guide.text()).toContain('确认改动')
+    await guide.get('button').trigger('click')
+    expect(h.push).toHaveBeenCalledWith('/avatars')
+    w.unmount()
+  })
+
+  it('preflight_expired 提供重新预检动作并重新进入统一 start', async () => {
+    h.listAvatars.mockResolvedValue(activeAvatar(7))
+    const live = useLiveStore()
+    live.errorCode = 'preflight_expired'
+    live.error = '开播预检凭证已过期，请重新预检后再开播'
+    const start = vi.spyOn(live, 'start').mockResolvedValue(true)
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    const retry = w.findAll('button').find((b) => b.text() === '重新预检并开播')
+    expect(retry).toBeDefined()
+    await retry!.trigger('click')
+    await flushPromises()
+    expect(start).toHaveBeenCalledWith(
+      { personaId: 'p1' },
+      expect.any(Function)
+    )
+    expect(h.push).not.toHaveBeenCalledWith('/avatars')
+    w.unmount()
+  })
+
+  it('preflight_required 提供重新预检动作并作废旧预检', async () => {
+    h.listAvatars.mockResolvedValue(activeAvatar(7))
+    const live = useLiveStore()
+    live.errorCode = 'preflight_required'
+    live.error = '开播预检凭证缺失、未知、过期或已消费，请重新预检后再开播'
+    const start = vi.spyOn(live, 'start').mockResolvedValue(true)
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    const retry = w.findAll('button').find((b) => b.text() === '重新预检并开播')
+    expect(retry).toBeDefined()
+    await retry!.trigger('click')
+    await flushPromises()
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(start).toHaveBeenCalledWith({ personaId: 'p1' }, expect.any(Function))
+    w.unmount()
+  })
+
+  it('draft_required 引导先选择并提交草稿，不用空草稿自动重试', async () => {
+    const live = useLiveStore()
+    live.errorCode = 'draft_required'
+    live.error = 'public-live 必须先选择并提交草稿，再携带草稿 ID 与版本重新预检；不能使用空草稿开播'
+    const start = vi.spyOn(live, 'start').mockResolvedValue(true)
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    const guide = w.find('.guide-banner')
+    expect(guide.text()).toContain('选择并提交草稿')
+    expect(guide.text()).toContain('草稿列表接口')
+    expect(w.findAll('button').some((b) => b.text() === '重新预检并开播')).toBe(false)
+    expect(start).not.toHaveBeenCalled()
     w.unmount()
   })
 

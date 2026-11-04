@@ -17,6 +17,7 @@ vi.mock('../../services/api/live', () => ({
 }))
 
 import { getLiveStatus, preflightLive, startLive } from '../../services/api/live'
+import { ApiError } from '../../services/api/client'
 import { useLiveStore } from '../live'
 
 const statusMock = vi.mocked(getLiveStatus)
@@ -27,10 +28,12 @@ function readyPreflight() {
   return {
     checkId: 'check-1',
     preflightToken: 'pft-1',
+    personaId: 'p1',
+    revision: 7,
     ready: true,
     mode: 'public-live',
-    draftId: '',
-    draftRevision: 0,
+    draftId: 'draft-1',
+    draftRevision: 3,
     inputRevisions: { avatar: 7 },
     resultDigest: 'sha256:server-bound',
     observedAtMs: Date.now(),
@@ -76,7 +79,7 @@ describe('live store 严格 preflight 开播', () => {
     expect(store.busy).toBe(false)
   })
 
-  it('默认 public-live，按 preflight → 选择复核 → start 顺序透传同一绑定', async () => {
+  it('按 preflight → 选择复核 → start 顺序透传同一绑定，不回传响应 mode', async () => {
     const calls: string[] = []
     preflightMock.mockImplementation(async () => {
       calls.push('preflight')
@@ -92,44 +95,114 @@ describe('live store 严格 preflight 开播', () => {
     })
     const store = useLiveStore()
     const ok = await store.start(
-      { personaId: 'p1', avatarId: 'a1', greeting: 'hello', draftId: '', expectedRevision: 0 },
+      { personaId: 'p1', avatarId: 'a1', greeting: 'hello', draftId: 'draft-1', expectedRevision: 3 },
       guard
     )
 
     expect(ok).toBe(true)
     expect(calls).toEqual(['preflight', 'guard', 'start'])
-    expect(preflightMock).toHaveBeenCalledWith({
-      mode: 'public-live', personaId: 'p1', draftId: '', expectedRevision: 0
-    })
+    expect(preflightMock).toHaveBeenCalledWith({ personaId: 'p1', draftId: 'draft-1', expectedRevision: 3 })
     expect(startMock).toHaveBeenCalledWith({
       personaId: 'p1', avatarId: 'a1', greeting: 'hello', sessionId: '',
-      mode: 'public-live', draftId: '', expectedRevision: 0, preflightToken: 'pft-1'
+      draftId: 'draft-1', revision: 7, expectedRevision: 3,
+      resultDigest: 'sha256:server-bound', preflightToken: 'pft-1'
     })
-    // digest 由服务端 token 存证绑定；Start 契约没有该字段，禁止伪造透传。
-    expect(startMock.mock.calls[0][0]).not.toHaveProperty('resultDigest')
   })
 
-  it('显式 local-preview 原样用于预检和 Start，不从 public 失败自动降级', async () => {
-    preflightMock.mockResolvedValue({ ...readyPreflight(), mode: 'local-preview' } as never)
+  it.each([
+    { field: 'personaId', patch: { personaId: '' } },
+    { field: 'draftId', patch: { draftId: '' } },
+    { field: 'draftRevision', patch: { draftRevision: 0 } },
+    { field: 'revision', patch: { revision: undefined } },
+    { field: 'resultDigest', patch: { resultDigest: '' } },
+    { field: 'preflightToken', patch: { preflightToken: '' } }
+  ])('preflight 缺 $field 时显式阻断，不用空值或 0 调 Start', async ({ field, patch }) => {
+    preflightMock.mockResolvedValue({ ...readyPreflight(), ...patch } as never)
+    const store = useLiveStore()
+    const ok = await store.start({ personaId: 'p1', expectedRevision: 3 })
+
+    expect(ok).toBe(false)
+    expect(startMock).not.toHaveBeenCalled()
+    expect(store.errorCode).toBe('preflight_contract_missing')
+    expect(store.error).toContain(field)
+  })
+
+  it('public-live 缺 personaId 必须阻断 Start', async () => {
+    preflightMock.mockResolvedValue({ ...readyPreflight(), personaId: '', mode: 'public-live' } as never)
+    const store = useLiveStore()
+    const ok = await store.start()
+
+    expect(ok).toBe(false)
+    expect(startMock).not.toHaveBeenCalled()
+    expect(store.errorCode).toBe('preflight_contract_missing')
+    expect(store.error).toContain('personaId')
+  })
+
+  it('local-preview 缺 personaId 允许 Start，其余绑定字段原样透传', async () => {
+    preflightMock.mockResolvedValue({ ...readyPreflight(), personaId: '', draftId: '', draftRevision: 0, mode: 'local-preview' } as never)
     startMock.mockResolvedValue({ sessionId: 's1', phase: 'live', liveId: 'l1', mode: 'local-preview' } as never)
     const store = useLiveStore()
-    await store.start({ mode: 'local-preview' })
+    const ok = await store.start()
 
-    expect(preflightMock).toHaveBeenCalledWith(expect.objectContaining({ mode: 'local-preview' }))
-    expect(startMock).toHaveBeenCalledWith(expect.objectContaining({ mode: 'local-preview' }))
-    expect(preflightMock).toHaveBeenCalledTimes(1)
-    expect(startMock).toHaveBeenCalledTimes(1)
+    expect(ok).toBe(true)
+    expect(startMock).toHaveBeenCalledWith(expect.objectContaining({
+      personaId: '',
+      draftId: '',
+      expectedRevision: 0,
+      resultDigest: 'sha256:server-bound',
+      preflightToken: 'pft-1'
+    }))
+    expect(startMock.mock.calls[0][0]).not.toHaveProperty('mode')
   })
 
-  it('生产构建仅在显式 VITE_LIVE_MODE=local-preview 时使用本地预览', async () => {
-    vi.stubEnv('DEV', false)
+  it('VITE_LIVE_MODE 不能自行声明预览态，校验只读 preflight 响应 mode', async () => {
     vi.stubEnv('VITE_LIVE_MODE', 'local-preview')
-    preflightMock.mockResolvedValue({ ...readyPreflight(), mode: 'local-preview' } as never)
+    preflightMock.mockResolvedValue({ ...readyPreflight(), personaId: '', mode: 'public-live' } as never)
     const store = useLiveStore()
-    await store.start()
+    const ok = await store.start()
 
-    expect(preflightMock).toHaveBeenCalledWith(expect.objectContaining({ mode: 'local-preview' }))
-    expect(startMock).toHaveBeenCalledWith(expect.objectContaining({ mode: 'local-preview' }))
+    expect(ok).toBe(false)
+    expect(preflightMock).toHaveBeenCalledWith({ personaId: '', draftId: '', expectedRevision: 0 })
+    expect(preflightMock.mock.calls[0][0]).not.toHaveProperty('mode')
+    expect(startMock).not.toHaveBeenCalled()
+    expect(store.error).toContain('personaId')
+  })
+
+  it('mode_not_allowed 显示服务端模式拒绝原因且不换 mode 重试', async () => {
+    preflightMock.mockRejectedValue(new ApiError(409, 'mode_not_allowed', '开播失败'))
+    const store = useLiveStore()
+    const ok = await store.start()
+
+    expect(ok).toBe(false)
+    expect(store.errorCode).toBe('mode_not_allowed')
+    expect(store.error).toBe('服务端未允许当前开播模式，请检查后端开播配置；前端不会切换模式重试')
+    expect(store.error).not.toBe('开播失败')
+    expect(preflightMock).toHaveBeenCalledTimes(1)
+    expect(startMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      status: 409,
+      code: 'draft_required',
+      message: 'public-live 必须先选择并提交草稿，再携带草稿 ID 与版本重新预检；不能使用空草稿开播'
+    },
+    {
+      status: 428,
+      code: 'preflight_required',
+      message: '开播预检凭证缺失、未知、过期或已消费，请重新预检后再开播'
+    }
+  ])('Preflight 返回 $status/$code 时专属阻断且不自动重试', async ({ status, code, message }) => {
+    preflightMock.mockRejectedValue(new ApiError(status, code, '开播失败'))
+    const store = useLiveStore()
+    const ok = await store.start()
+
+    expect(ok).toBe(false)
+    expect(store.errorCode).toBe(code)
+    expect(store.error).toBe(message)
+    expect(store.error).not.toBe('开播失败')
+    expect(preflightMock).toHaveBeenCalledTimes(1)
+    expect(startMock).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -166,8 +239,8 @@ describe('live store 严格 preflight 开播', () => {
     {
       name: 'missing token',
       patch: { preflightToken: '' },
-      code: 'preflight_required',
-      messages: ['凭证']
+      code: 'preflight_contract_missing',
+      messages: ['preflightToken']
     }
   ])('$name 时只有 preflight，不创建半开播状态', async ({ patch, code, messages }) => {
     preflightMock.mockResolvedValue({ ...readyPreflight(), ...patch } as never)
@@ -211,6 +284,34 @@ describe('live store 严格 preflight 开播', () => {
 
     expect(ok).toBe(false)
     expect(preflightMock).toHaveBeenCalledTimes(1)
+    expect(startMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    {
+      status: 409,
+      code: 'profile_changed',
+      message: '预检后数字人档案或版本已变化，请前往档案页确认改动后重新预检'
+    },
+    {
+      status: 428,
+      code: 'preflight_expired',
+      message: '开播预检凭证已过期，请重新预检后再开播'
+    },
+    {
+      status: 428,
+      code: 'preflight_required',
+      message: '开播预检凭证缺失、未知、过期或已消费，请重新预检后再开播'
+    }
+  ])('Start 返回 $status/$code 时展示专属恢复文案', async ({ status, code, message }) => {
+    startMock.mockRejectedValue(new ApiError(status, code, '开播失败'))
+    const store = useLiveStore()
+    const ok = await store.start({ personaId: 'p1', expectedRevision: 3 })
+
+    expect(ok).toBe(false)
+    expect(store.errorCode).toBe(code)
+    expect(store.error).toBe(message)
+    expect(store.error).not.toBe('开播失败')
     expect(startMock).toHaveBeenCalledTimes(1)
   })
 })

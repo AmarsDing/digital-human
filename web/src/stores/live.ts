@@ -13,7 +13,7 @@ import {
   stopLive
 } from '../services/api/live'
 import { ApiError, classifyApiError } from '../services/api/client'
-import type { LiveMode, LivePreflightResult } from '../services/api/live'
+import type { LivePreflightResult } from '../services/api/live'
 import type { LiveStatus, WireEvent } from '../services/api/types'
 
 let loadVersion = 0
@@ -24,19 +24,27 @@ interface StartInput {
   personaId?: string
   avatarId?: string
   greeting?: string
-  mode?: LiveMode
   draftId?: string
   expectedRevision?: number
 }
 
 type SelectionGuard = () => boolean | Promise<boolean>
 
-function configuredMode(): LiveMode {
-  return import.meta.env.VITE_LIVE_MODE === 'local-preview' ? 'local-preview' : 'public-live'
+function requirePreflightBinding(result: LivePreflightResult): void {
+  const missing: string[] = []
+  if (result.mode === 'public-live' && !result.personaId) missing.push('personaId')
+  if (result.mode === 'public-live' && !result.draftId) missing.push('draftId')
+  if (result.mode === 'public-live' && !result.draftRevision) missing.push('draftRevision')
+  if (result.revision === undefined) missing.push('revision')
+  if (!result.resultDigest) missing.push('resultDigest')
+  if (!result.preflightToken) missing.push('preflightToken')
+  // public-live 必须绑定 persona/draft；local-preview 允许两者为空，其余绑定字段两种模式均不可缺失。
+  if (missing.length) {
+    throw new ApiError(428, 'preflight_contract_missing', `开播预检缺少字段：${missing.join('、')}，已阻断开播`)
+  }
 }
 
 function requireUnexpiredToken(result: LivePreflightResult): void {
-  if (!result.preflightToken) throw new ApiError(428, 'preflight_required', '开播预检未返回有效凭证，请重新预检')
   if (result.expiresAtMs <= Date.now()) throw new ApiError(428, 'preflight_required', '开播预检凭证已过期，请重新预检')
 }
 
@@ -105,15 +113,14 @@ export const useLiveStore = defineStore('live', {
     async start(input: StartInput = {}, selectionGuard?: SelectionGuard): Promise<boolean> {
       if (startFlight) return startFlight
       startFlight = this.stableAction(async () => {
-        const mode = input.mode ?? configuredMode()
         const draftId = input.draftId ?? ''
         const expectedRevision = input.expectedRevision ?? 0
         const preflight = await preflightLive({
-          mode,
           personaId: input.personaId ?? '',
           draftId,
           expectedRevision
         })
+        requirePreflightBinding(preflight)
         const blocked = preflight.checks.filter((c) => c.status === 'fail' || c.status === 'unknown' || c.status === 'running')
         if (!preflight.ready || blocked.length) {
           const details = blocked.map((c) => `${c.code}=${c.status}${c.detail ? `：${c.detail}` : ''}`).join('；')
@@ -125,13 +132,14 @@ export const useLiveStore = defineStore('live', {
         }
         requireUnexpiredToken(preflight)
         await startLive({
-          personaId: input.personaId,
+          personaId: preflight.personaId,
           avatarId: input.avatarId,
           greeting: input.greeting,
           sessionId: this.status?.sessionId ?? '',
-          mode,
-          draftId,
-          expectedRevision,
+          draftId: preflight.draftId,
+          revision: preflight.revision!,
+          expectedRevision: preflight.draftRevision,
+          resultDigest: preflight.resultDigest,
           preflightToken: preflight.preflightToken
         })
       }).finally(() => {

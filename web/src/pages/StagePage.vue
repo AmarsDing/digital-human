@@ -6,21 +6,19 @@ import ComposerBar from '../components/stage/ComposerBar.vue'
 import RightRail from '../components/stage/RightRail.vue'
 import StatsBar from '../components/stage/StatsBar.vue'
 import PanelDock from '../components/stage/PanelDock.vue'
-import PanelShell from '../components/panels/PanelShell.vue'
 import VoicePanel from '../components/panels/VoicePanel.vue'
 import CommandPanel from '../components/panels/CommandPanel.vue'
 import DanmakuPanel from '../components/panels/DanmakuPanel.vue'
 import KouboPanel from '../components/panels/KouboPanel.vue'
 import RefsPanel from '../components/panels/RefsPanel.vue'
 import SongsPanel from '../components/panels/SongsPanel.vue'
-import ArchivePanel from '../components/panels/ArchivePanel.vue'
 import SettingsDrawer from '../components/settings/SettingsDrawer.vue'
 import NtConfirmDialog from '../components/ui/NtConfirmDialog.vue'
 import { useLiveStore } from '../stores/live'
 import { useEventsStore } from '../stores/events'
 import { useTranscriptStore } from '../stores/transcript'
 import { useSettingsStore } from '../stores/settings'
-import { useUiPrefs, type PanelId } from '../stores/uiPrefs'
+import { useUiPrefs } from '../stores/uiPrefs'
 import { useAuthStore } from '../stores/auth'
 import { useStopControlStore } from '../stores/stopControl'
 import { usePlatformStore } from '../stores/platform'
@@ -261,7 +259,8 @@ function statsReset(): void {
   prefs.resetStatsPos()
 }
 
-const deckStyle = computed(() => ({ '--rail-w': rightOpen.value ? `${prefs.rightW}px` : '0px' }))
+const deckStyle = computed(() => ({ '--rail-w': `${prefs.rightW}px` }))
+const stageMode = computed(() => (['starting', 'live', 'stopping'].includes(live.phase) ? 'live' : 'prepare'))
 
 // 事件按序消费：accept 只入队，这里 drain 后逐条派发，批量回放不丢中间事件。
 watch(
@@ -356,10 +355,6 @@ function onVisible(): void {
   }
 }
 
-function togglePanel(id: PanelId): void {
-  prefs.togglePanel(id)
-}
-
 async function start(): Promise<void> {
   // G 批 M4：开播链路带 persona_id——读取当前 active 档案（v3 §1.2 唯一真相源）；
   // 无 active 档案时回落旧路径（settings 会话值），保持兼容。
@@ -371,7 +366,7 @@ async function start(): Promise<void> {
     if (selected) {
       const personaId = selected.persona_id
       const revision = selected.revision
-      await live.start({ personaId, draftId: '', expectedRevision: 0 }, async () => {
+      await live.start({ personaId }, async () => {
         const current = await listAvatars(1, 100)
         const active = current.avatars.find((a) => a.is_active)
         return active?.persona_id === personaId && active.revision === revision
@@ -414,7 +409,13 @@ const personaGuide = computed(() => {
     case 'persona_not_found':
     case 'avatar_not_synced':
     case 'voice_not_found':
+    case 'profile_changed':
       return 'jump'
+    case 'preflight_expired':
+    case 'preflight_required':
+      return 'repreflight'
+    case 'draft_required':
+      return 'draft'
     case 'avatar_expired':
       return 'resync'
     default:
@@ -434,9 +435,11 @@ function confirmClearTranscript(): void {
   confirmClear.value = true
 }
 
-function doClearTranscript(): void {
+async function doClearTranscript(): Promise<void> {
+  if (live.busy) return
+  const ok = await live.clearTranscripts()
+  if (!ok) return
   confirmClear.value = false
-  void live.clearTranscripts()
   transcript.clear()
 }
 </script>
@@ -472,6 +475,7 @@ function doClearTranscript(): void {
           <button v-if="canFetchRecord" type="button" class="tool" :disabled="recBusy" @click="doFetchRecord">拉取录播</button>
         </div>
         <button type="button" class="tool" @click="router.push('/avatars')">数字人档案</button>
+        <button type="button" class="tool" data-testid="sessions-link" @click="router.push('/sessions')">场次复盘</button>
         <button type="button" class="tool" @click="router.push('/platform')">平台接入</button>
         <button type="button" class="tool" @click="router.push('/settings')">全部设置</button>
         <button type="button" class="tool" @click="drawerOpen = true">快捷设置</button>
@@ -496,6 +500,10 @@ function doClearTranscript(): void {
     <div v-if="personaGuide" class="guide-banner" role="alert">
       <span>{{ live.error }}</span>
       <button v-if="personaGuide === 'jump'" type="button" @click="router.push('/avatars')">前往档案页</button>
+      <button v-else-if="personaGuide === 'repreflight'" type="button" :disabled="live.busy" @click="start">
+        重新预检并开播
+      </button>
+      <span v-else-if="personaGuide === 'draft'">当前后端未提供草稿列表接口；请先在内容包中选择并提交草稿，再返回直播台。</span>
       <template v-else>
         <button type="button" :disabled="resyncBusy || live.busy" @click="resyncAndStart">
           {{ resyncBusy ? '同步中…' : '重新同步并开播' }}
@@ -504,9 +512,12 @@ function doClearTranscript(): void {
       </template>
     </div>
 
-    <PanelDock :open="Object.fromEntries(Object.entries(prefs.panels).map(([k, v]) => [k, v.open])) as Record<PanelId, boolean>" :right-open="rightOpen" @toggle="togglePanel" @toggle-right="rightOpen = !rightOpen" />
+    <div class="stage-mode" :data-mode="stageMode" aria-live="polite">
+      <strong>{{ stageMode === 'live' ? '直播中' : '准备' }}</strong>
+      <span>{{ stageMode === 'live' ? '本场已冻结；形象、人设与音色修改仅作用于下一场' : '配置与开播预检仅作用于下一场' }}</span>
+    </div>
 
-    <main class="deck" :class="{ 'deck--no-rail': !rightOpen }" :style="deckStyle">
+    <main class="deck" :style="deckStyle">
       <div class="deck__stage">
         <VideoStage
           :phase="live.phase"
@@ -531,116 +542,49 @@ function doClearTranscript(): void {
           @rtc-state="rtcState = $event"
         />
 
-        <PanelShell
-          v-if="prefs.panels.voice.open"
-          title="声音"
-          :x="prefs.panels.voice.x"
-          :y="prefs.panels.voice.y"
-          :collapsed="prefs.panels.voice.collapsed"
-          @close="prefs.togglePanel('voice')"
-          @move="(x, y) => prefs.movePanel('voice', x, y)"
-          @toggle-collapse="prefs.toggleCollapse('voice')"
+      </div>
+
+      <section class="workspace deck__rail" aria-label="直播单工作区">
+        <PanelDock
+          :active="prefs.activeWorkspaceTab"
+          :pending-count="danmakuRt.pendingCount"
+          :right-open="rightOpen"
+          @select="prefs.setActiveWorkspaceTab"
+          @toggle-right="rightOpen = !rightOpen"
+        />
+        <div
+          :id="`workspace-panel-${prefs.activeWorkspaceTab}`"
+          class="workspace__panel"
+          role="tabpanel"
+          :aria-labelledby="`workspace-tab-${prefs.activeWorkspaceTab}`"
         >
           <VoicePanel
+            v-if="prefs.activeWorkspaceTab === 'voice'"
             :voice-id="String(settings.groupById('voice')?.values.voice_id ?? '')"
-            @select="settings.setField('voice', 'voice_id', $event)"
+            :live-mode="stageMode === 'live'"
           />
-        </PanelShell>
-
-        <PanelShell
-          v-if="prefs.panels.command.open"
-          title="动作"
-          :x="prefs.panels.command.x"
-          :y="prefs.panels.command.y"
-          :collapsed="prefs.panels.command.collapsed"
-          @close="prefs.togglePanel('command')"
-          @move="(x, y) => prefs.movePanel('command', x, y)"
-          @toggle-collapse="prefs.toggleCollapse('command')"
-        >
           <CommandPanel
+            v-else-if="prefs.activeWorkspaceTab === 'command'"
             :busy="live.busy"
             @stop-actions="live.stopCurrentActions()"
             @clear-actions="live.clearAllActions()"
           />
-        </PanelShell>
-
-        <PanelShell
-          v-if="prefs.panels.danmaku.open"
-          title="弹幕"
-          :x="prefs.panels.danmaku.x"
-          :y="prefs.panels.danmaku.y"
-          :collapsed="prefs.panels.danmaku.collapsed"
-          @close="prefs.togglePanel('danmaku')"
-          @move="(x, y) => prefs.movePanel('danmaku', x, y)"
-          @toggle-collapse="prefs.toggleCollapse('danmaku')"
-        >
-          <DanmakuPanel />
-        </PanelShell>
-
-        <PanelShell
-          v-if="prefs.panels.koubo.open"
-          title="口播"
-          :x="prefs.panels.koubo.x"
-          :y="prefs.panels.koubo.y"
-          :collapsed="prefs.panels.koubo.collapsed"
-          @close="prefs.togglePanel('koubo')"
-          @move="(x, y) => prefs.movePanel('koubo', x, y)"
-          @toggle-collapse="prefs.toggleCollapse('koubo')"
-        >
-          <KouboPanel />
-        </PanelShell>
-
-        <PanelShell
-          v-if="prefs.panels.refs.open"
-          title="参考图"
-          :x="prefs.panels.refs.x"
-          :y="prefs.panels.refs.y"
-          :collapsed="prefs.panels.refs.collapsed"
-          @close="prefs.togglePanel('refs')"
-          @move="(x, y) => prefs.movePanel('refs', x, y)"
-          @toggle-collapse="prefs.toggleCollapse('refs')"
-        >
-          <RefsPanel />
-        </PanelShell>
-
-        <PanelShell
-          v-if="prefs.panels.songs.open"
-          title="歌曲"
-          :x="prefs.panels.songs.x"
-          :y="prefs.panels.songs.y"
-          :collapsed="prefs.panels.songs.collapsed"
-          @close="prefs.togglePanel('songs')"
-          @move="(x, y) => prefs.movePanel('songs', x, y)"
-          @toggle-collapse="prefs.toggleCollapse('songs')"
-        >
-          <SongsPanel />
-        </PanelShell>
-
-        <PanelShell
-          v-if="prefs.panels.archive.open"
-          title="复盘 · 成本"
-          :x="prefs.panels.archive.x"
-          :y="prefs.panels.archive.y"
-          :width="400"
-          :collapsed="prefs.panels.archive.collapsed"
-          @close="prefs.togglePanel('archive')"
-          @move="(x, y) => prefs.movePanel('archive', x, y)"
-          @toggle-collapse="prefs.toggleCollapse('archive')"
-        >
-          <ArchivePanel />
-        </PanelShell>
-      </div>
-
-      <RightRail
-        v-if="rightOpen"
-        class="deck__rail"
-        :lines="transcript.lines"
-        :events="events.events"
-        :fresh-ms="events.fresh"
-        :protocol="events.mode"
-        :show-events="captionCfg.showEvents"
-        @clear-transcript="confirmClearTranscript"
-      />
+          <DanmakuPanel v-else-if="prefs.activeWorkspaceTab === 'danmaku'" />
+          <KouboPanel v-else-if="prefs.activeWorkspaceTab === 'koubo'" />
+          <RefsPanel v-else-if="prefs.activeWorkspaceTab === 'refs'" />
+          <SongsPanel v-else />
+        </div>
+        <RightRail
+          v-if="rightOpen"
+          class="workspace__transcript"
+          :lines="transcript.lines"
+          :events="events.events"
+          :fresh-ms="events.fresh"
+          :protocol="events.mode"
+          :show-events="captionCfg.showEvents"
+          @clear-transcript="confirmClearTranscript"
+        />
+      </section>
     </main>
 
     <ComposerBar
@@ -692,6 +636,9 @@ function doClearTranscript(): void {
       title="清空字幕"
       message="将清空当前场次全部字幕记录，且不可恢复。确定继续？"
       confirm-text="清空"
+      dangerous
+      :busy="live.busy"
+      :error="live.error"
       @confirm="doClearTranscript"
       @cancel="confirmClear = false"
     />
@@ -704,6 +651,7 @@ function doClearTranscript(): void {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  height: 100%;
   min-height: 100%;
   padding: 12px 16px 16px;
   background: var(--nt-space-bg);
@@ -757,7 +705,7 @@ function doClearTranscript(): void {
 }
 .token button,
 .tool {
-  height: 28px;
+  min-height: 44px;
   padding: 0 10px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);
@@ -808,6 +756,7 @@ function doClearTranscript(): void {
   gap: 10px;
   min-height: 0;
   flex: 1;
+  overflow: auto;
 }
 .deck--no-rail {
   grid-template-columns: minmax(0, 1fr);
@@ -822,6 +771,40 @@ function doClearTranscript(): void {
   min-width: 0;
   min-height: 0;
 }
+.stage-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--nt-border-1);
+  border-radius: var(--nt-radius-m);
+  background: var(--nt-data-raised);
+  color: var(--nt-text-2);
+  font-size: var(--nt-fs-caption);
+}
+.stage-mode strong {
+  color: var(--nt-accent);
+}
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workspace__panel {
+  flex: 1;
+  min-height: 220px;
+  max-height: 460px;
+  overflow: auto;
+  padding: var(--nt-pad-panel);
+  border: 1px solid var(--nt-border-1);
+  border-radius: var(--nt-radius-l);
+  background: var(--nt-data-bg);
+}
+.workspace__transcript {
+  flex: 1;
+  min-height: 180px;
+}
 
 /* 中屏：右栏压缩到 300px，舞台仍保留最小可用高度。 */
 @media (max-width: 1279px) {
@@ -834,19 +817,71 @@ function doClearTranscript(): void {
 @media (max-width: 1023px) {
   .deck:not(.deck--no-rail) {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(380px, 1fr) minmax(150px, 220px);
+    grid-template-rows: minmax(280px, 1fr) auto;
   }
   .deck__stage {
-    min-height: 380px;
+    min-height: 280px;
+  }
+  .workspace__panel {
+    max-height: 320px;
   }
 }
 
 @media (max-width: 767px) {
+  .page {
+    padding: 8px;
+  }
+  .page__head {
+    align-items: flex-start;
+  }
+  .page__tools {
+    justify-content: flex-start;
+    width: 100%;
+  }
+  .token {
+    width: 100%;
+  }
   .token input {
-    width: 140px;
+    flex: 1;
+    width: auto;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .record-ctl {
+    flex-wrap: wrap;
   }
   .page__stats {
     overflow-x: auto;
+  }
+}
+
+@media (max-width: 359px) {
+  .page {
+    gap: 6px;
+  }
+  .page__brand strong {
+    font-size: var(--nt-fs-panel);
+  }
+  .stage-mode {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+  }
+  .deck:not(.deck--no-rail) {
+    grid-template-rows: minmax(156px, 1fr) auto;
+  }
+  .deck__stage {
+    min-height: 156px;
+  }
+  .page__stats-bar :deep(.stats) {
+    overflow-x: auto;
+  }
+  .page__stats-bar :deep(.stats__item) {
+    flex: 0 0 72px;
+  }
+  .page__stats-bar :deep(.stats__hint) {
+    display: none;
   }
 }
 .deck__stage > :first-child {
@@ -862,6 +897,10 @@ function doClearTranscript(): void {
 .page__composer,
 .page__stats {
   flex: none;
+}
+.page__composer {
+  position: relative;
+  z-index: 5;
 }
 /* F48：统计条拖动把手 + 浮动位 */
 .page__stats {

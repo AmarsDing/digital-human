@@ -41,6 +41,8 @@ export interface LivePreflightCheck {
 export interface LivePreflightResult {
   checkId: string
   preflightToken: string
+  personaId: string
+  revision?: number
   ready: boolean
   mode: LiveMode
   draftId: string
@@ -55,6 +57,8 @@ export interface LivePreflightResult {
 interface LivePreflightWire {
   check_id?: string
   preflight_token?: string
+  persona_id?: string
+  revision?: number | string
   ready?: boolean
   mode: LiveMode
   draft_id?: string
@@ -75,7 +79,6 @@ interface LivePreflightWire {
 }
 
 export async function preflightLive(input: {
-  mode: LiveMode
   personaId?: string
   draftId?: string
   expectedRevision?: number
@@ -83,7 +86,6 @@ export async function preflightLive(input: {
   const r = await apiRequest<LivePreflightWire>('/api/v1/live/preflight', {
     method: 'POST',
     body: {
-      mode: input.mode,
       persona_id: input.personaId ?? '',
       draft_id: input.draftId ?? '',
       expected_revision: input.expectedRevision ?? 0
@@ -92,6 +94,8 @@ export async function preflightLive(input: {
   return {
     checkId: r.check_id ?? '',
     preflightToken: r.preflight_token ?? '',
+    personaId: r.persona_id ?? '',
+    revision: toOptionalNumber(r.revision),
     ready: Boolean(r.ready),
     mode: r.mode,
     draftId: r.draft_id ?? '',
@@ -117,9 +121,10 @@ export interface StartLiveInput {
   avatarId?: string
   greeting?: string
   sessionId?: string
-  mode: LiveMode
   draftId: string
+  revision: number
   expectedRevision: number
+  resultDigest: string
   preflightToken: string
 }
 
@@ -127,7 +132,6 @@ export async function startLive(
   input: StartLiveInput
 ): Promise<{ sessionId: string; phase: string; liveId: string; mode: LiveMode }> {
   const { sessionId, ...rest } = input
-  // result_digest 不进 Start：服务端以 preflight_token 存证绑定 digest，proto 无对应消费字段。
   return apiRequest('/api/v1/live/start', {
     method: 'POST',
     body: { ...rest, idempotencyKey: idemFor(sessionId ?? '', 'live.start') }
@@ -195,6 +199,12 @@ export async function getRtcToken(sessionId: string): Promise<RtcToken> {
   const q = new URLSearchParams({ session_id: sessionId })
   const r = await apiRequest<RtcTokenWire>(`/api/v1/live/rtc-token?${q.toString()}`)
   return normalizeRtcToken(r)
+}
+
+function toOptionalNumber(v: number | string | undefined): number | undefined {
+  if (v === undefined || v === '') return undefined
+  const n = Number(v)
+  return Number.isFinite(n) ? n : undefined
 }
 
 function toNumber(v: number | string | undefined, fallback = 0): number {
