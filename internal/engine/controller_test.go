@@ -53,6 +53,8 @@ type fakeWS struct {
 	bin    int
 	ping   int
 
+	authorization string
+
 	type11        int             // type11 prompt_operation 帧数（G3-1）
 	lastType11Raw json.RawMessage // 最近一帧 type11 的 payload
 
@@ -65,6 +67,9 @@ func newFakeWS(t *testing.T) *fakeWS {
 	f := &fakeWS{}
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.authorization = r.Header.Get("Authorization")
+		f.mu.Unlock()
 		c, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -156,6 +161,12 @@ func (f *fakeWS) countType9() int {
 	return f.type9
 }
 
+func (f *fakeWS) authorizationHeader() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.authorization
+}
+
 // type11Stats 返回 type11 帧数与最近一帧 payload（G3-1 断言用）。
 func (f *fakeWS) type11Stats() (int, json.RawMessage) {
 	f.mu.Lock()
@@ -168,7 +179,7 @@ func fakeViduHTTP(t *testing.T) *vidu.Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"live_id":"live-1"}`))
+		_, _ = w.Write([]byte(`{"live":{"id":"live-1"}}`))
 	}))
 	t.Cleanup(srv.Close)
 	return vidu.NewClient(vidu.Options{APIKey: "k", BaseURL: srv.URL})
@@ -466,6 +477,18 @@ func TestControllerSayRespectsActiveSong(t *testing.T) {
 	}
 }
 
+func TestControllerStartAuthenticatesWebSocket(t *testing.T) {
+	ws := newFakeWS(t)
+	ctl := newTestController(t, ws, stubTTS{wav: audio.WavBytes(audio.TonePCM(100))}, nil)
+	if _, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-ws-auth"}); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer ctl.Stop(context.Background(), "done")
+	if got := ws.authorizationHeader(); got != "Token k" {
+		t.Fatalf("websocket Authorization=%q want Token k", got)
+	}
+}
+
 func TestControllerConnInitNotReadyRetries(t *testing.T) {
 	ws := newFakeWS(t)
 	ws.notReadyBeforeAck = 2
@@ -752,7 +775,7 @@ func TestStartBuildsCreateBodyFromOpts(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"live_id":"live-body"}`))
+		_, _ = w.Write([]byte(`{"live":{"id":"live-body"}}`))
 	}))
 	t.Cleanup(srv.Close)
 	ctl := newTestController(t, ws, stubTTS{wav: audio.WavBytes(audio.TonePCM(100))}, func(cfg *ViduConfig) {
@@ -779,14 +802,41 @@ func TestStartBuildsCreateBodyFromOpts(t *testing.T) {
 		t.Fatalf("image_uri 与 avatar_id 二选一: %v", gotBody)
 	}
 	act, _ := gotBody["action"].(map[string]any)
-	if act["library_id"] != "lib-1" {
+	if act["enabled"] != true || act["library_id"] != "lib-1" {
 		t.Fatalf("action 段: %v", gotBody)
 	}
-	if gotBody["enable_recording"] != true {
-		t.Fatalf("enable_recording: %v", gotBody)
+	managed, _ := gotBody["managed_rtc"].(map[string]any)
+	if managed == nil || managed["enable_recording"] != true {
+		t.Fatalf("managed_rtc.enable_recording: %v", gotBody)
+	}
+	if _, has := gotBody["enable_recording"]; has {
+		t.Fatalf("enable_recording 不得放在顶层: %v", gotBody)
+	}
+	if _, has := gotBody["session_id"]; has {
+		t.Fatalf("session_id 不是官方建场字段: %v", gotBody)
 	}
 	if _, has := gotBody["ref_image_uris"]; has {
 		t.Fatalf("参考图不进建场 body: %v", gotBody)
+	}
+}
+
+func TestStartReadsNestedLiveID(t *testing.T) {
+	ws := newFakeWS(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"live":{"id":"live-nested","status":"waiting"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	ctl := newTestController(t, ws, stubTTS{wav: audio.WavBytes(audio.TonePCM(100))}, func(cfg *ViduConfig) {
+		cfg.Client = vidu.NewClient(vidu.Options{APIKey: "k", BaseURL: srv.URL})
+	})
+	liveID, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-nested"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ctl.Stop(context.Background(), "done")
+	if liveID != "live-nested" {
+		t.Fatalf("live_id=%q want live-nested", liveID)
 	}
 }
 
@@ -812,7 +862,7 @@ func TestStartActionForbiddenDegradesOnce(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"live_id":"live-degraded"}`))
+		_, _ = w.Write([]byte(`{"live":{"id":"live-degraded"}}`))
 	}))
 	t.Cleanup(srv.Close)
 	ctl := newTestController(t, ws, stubTTS{wav: audio.WavBytes(audio.TonePCM(100))}, func(cfg *ViduConfig) {

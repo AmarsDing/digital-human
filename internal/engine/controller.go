@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -58,7 +59,7 @@ type ViduConfig struct {
 	Voice           string
 	Logger          *slog.Logger
 
-	// RecordingEnabled 建场时带 enable_recording=true（装配默认）；
+	// RecordingEnabled 建场时带 managed_rtc.enable_recording=true（装配默认）；
 	// 场级 StartOpts.RecordingEnabled 为 true 时同样开启，两者任一成立即带。
 	RecordingEnabled bool
 
@@ -268,9 +269,9 @@ func (c *ViduController) currentSig() *vidu.Signaling {
 }
 
 // Start 建场 → 连信令 → conn_init → 起看门狗；返回真实 liveID。
-// 建场 body 由 opts 构造（v3 §3.1/§4）：model + image_uri|avatar_id（URI 优先，
-// 蓝本 engine.py:258-270）+ 可选 action 段；RefImageURIs 不进建场 body
-// （会话运行中经 prompt_operation 推送，属 M5）；opts.VoiceID 落入当前场状态。
+// 建场 body 由 opts 构造：model + managed_rtc + image_uri|avatar_id（URI 优先）
+// + 可选 action 段；RefImageURIs 不进建场 body（会话运行中经 prompt_operation
+// 推送，属 M5）；opts.VoiceID 落入当前场状态。
 func (c *ViduController) Start(ctx context.Context, opts live.StartOpts) (string, error) {
 	c.mu.Lock()
 	if c.phase == "live" {
@@ -283,18 +284,19 @@ func (c *ViduController) Start(ctx context.Context, opts live.StartOpts) (string
 	if model == "" {
 		model = "vidu-s2"
 	}
-	body := map[string]any{"session_id": opts.SessionID, "model": model}
+	body := map[string]any{
+		"model": model,
+		"managed_rtc": map[string]any{
+			"enable_recording": c.cfg.RecordingEnabled || opts.RecordingEnabled,
+		},
+	}
 	if opts.ViduImageURI != "" {
 		body["image_uri"] = opts.ViduImageURI
 	} else if opts.ViduAvatarID != "" {
 		body["avatar_id"] = opts.ViduAvatarID
 	}
 	if opts.ActionLibraryID != "" {
-		// action 段格式对齐蓝本动作库建场参数（字段名待真机核验，H 系假设）。
-		body["action"] = map[string]any{"library_id": opts.ActionLibraryID}
-	}
-	if c.cfg.RecordingEnabled || opts.RecordingEnabled {
-		body["enable_recording"] = true
+		body["action"] = map[string]any{"enabled": true, "library_id": opts.ActionLibraryID}
 	}
 	resp, err := c.cfg.Client.CreateSession(ctx, body)
 	degraded := false
@@ -316,12 +318,10 @@ func (c *ViduController) Start(ctx context.Context, opts live.StartOpts) (string
 			return "", err
 		}
 	}
-	liveID, _ := resp["live_id"].(string)
+	liveInfo, _ := resp["live"].(map[string]any)
+	liveID, _ := liveInfo["id"].(string)
 	if liveID == "" {
-		liveID, _ = resp["id"].(string)
-	}
-	if liveID == "" {
-		return "", fmt.Errorf("engine: create session 返回缺少 live_id: %v", resp)
+		return "", errors.New("engine: create session 返回缺少 live.id")
 	}
 
 	sig, err := c.dial(ctx, liveID)
@@ -358,6 +358,11 @@ func (c *ViduController) Start(ctx context.Context, opts live.StartOpts) (string
 // dial 建立一条信令连接并完成 conn_init。
 func (c *ViduController) dial(ctx context.Context, liveID string) (*vidu.Signaling, error) {
 	opt := c.cfg.WS
+	opt.Header = opt.Header.Clone()
+	if opt.Header == nil {
+		opt.Header = make(http.Header)
+	}
+	opt.Header.Set("Authorization", "Token "+c.cfg.Client.APIKey())
 	opt.OnPong = func(t time.Time) { c.lastPongMs.Store(t.UnixMilli()) }
 	sig := vidu.NewSignaling(liveID, "", opt)
 	if err := sig.Connect(ctx); err != nil {

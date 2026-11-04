@@ -9,9 +9,32 @@ import (
 	"testing"
 	"time"
 
+	"github.com/teamwork/digital-human/internal/biz/capability"
 	"github.com/teamwork/digital-human/internal/biz/media"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 )
+
+func TestPlaybackSourceUsesSharedEnum(t *testing.T) {
+	lib := media.NewLibrary(t.TempDir())
+	for _, tc := range []struct {
+		name   string
+		dec    media.Decoder
+		player media.Player
+		want   capability.Status
+	}{
+		{name: "real", dec: &media.FfmpegDecoder{}, player: &media.FfmpegPlayer{}, want: capability.Real},
+		{name: "fake", dec: media.FakeDecoder{}, player: media.NewFakePlayer(), want: capability.Fake},
+		{name: "unconfigured", dec: media.UnavailableDecoder{}, player: media.UnavailablePlayer{}, want: capability.Unconfigured},
+		{name: "unknown", dec: media.FakeDecoder{}, player: newGatePlayer(), want: capability.Unknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := NewService(lib, tc.dec, tc.player, nil, nil)
+			if got := svc.Status().Source; got != tc.want {
+				t.Fatalf("source=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestPlayAndStop(t *testing.T) {
 	dir := t.TempDir()
@@ -41,6 +64,29 @@ func TestPlayAndStop(t *testing.T) {
 	}
 	if svc.Status().Playing {
 		t.Fatal("stop failed")
+	}
+}
+
+func TestPlayDoesNotPreemptCurrentSong(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.wav", "b.wav"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	player := media.NewFakePlayer()
+	player.SetDelay(200 * time.Millisecond)
+	svc := NewService(media.NewLibrary(dir), media.FakeDecoder{}, player, nil, func() bool { return true })
+	first, err := svc.Play(context.Background(), "a.wav", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Stop(context.Background())
+	if _, err := svc.Play(context.Background(), "b.wav", ""); err != ErrBusy {
+		t.Fatalf("播放中不得抢占: %v", err)
+	}
+	if got := svc.Status(); !got.Playing || got.File != first.File || got.Epoch != first.Epoch {
+		t.Fatalf("当前曲状态被第二次 Play 改写: %+v", got)
 	}
 }
 
