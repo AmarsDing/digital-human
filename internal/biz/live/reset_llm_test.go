@@ -36,18 +36,23 @@ func TestResetLlmClearsChatMemory(t *testing.T) {
 	if err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)
 	}
-	// 模拟弹幕/口播链路以场次 id 为 key 攒了 2 轮记忆。
+	// 模拟弹幕与操作员口播分别以场次 id 和 operator key 各攒 2 轮记忆。
 	sink := func(context.Context, string) error { return nil }
 	for i := 0; i < 2; i++ {
 		if _, err := chatMgr.Chat(ctx, sid, "hi", sink); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := chatMgr.Chat(ctx, sid+":operator", "voice", sink); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if n := m.ResetLlm(ctx); n != 2 {
-		t.Fatalf("reset turns = %d, want 2", n)
+	if n := m.ResetLlm(ctx); n != 4 {
+		t.Fatalf("reset turns = %d, want 4", n)
 	}
-	if n := chatMgr.ResetHistory(sid); n != 0 {
-		t.Fatalf("记忆未清空, 残留 %d 轮", n)
+	for _, key := range []string{sid, sid + ":operator"} {
+		if n := chatMgr.ResetHistory(key); n != 0 {
+			t.Fatalf("记忆 %q 未清空, 残留 %d 轮", key, n)
+		}
 	}
 }
 

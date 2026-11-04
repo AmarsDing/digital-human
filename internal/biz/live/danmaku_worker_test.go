@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/teamwork/digital-human/pkg/eventbus"
 )
@@ -65,5 +66,66 @@ func TestDanmakuWorkerNilSafe(t *testing.T) {
 	}
 	if ok, _, err := m.Stop(context.Background(), "manual"); err != nil || !ok {
 		t.Fatalf("stop err=%v", err)
+	}
+}
+
+type blockingStopController struct {
+	stopStarted chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func (c *blockingStopController) Start(context.Context, StartOpts) (string, error) {
+	return "live-blocking-stop", nil
+}
+func (c *blockingStopController) Stop(context.Context, string) error {
+	close(c.stopStarted)
+	<-c.release
+	return nil
+}
+func (c *blockingStopController) Say(context.Context, string, string) (string, error) {
+	return "u", nil
+}
+func (c *blockingStopController) unblock() { c.releaseOnce.Do(func() { close(c.release) }) }
+
+type earlyStopWorker struct {
+	early chan struct{}
+	once  sync.Once
+}
+
+func (w *earlyStopWorker) OnSessionStart(context.Context, string) {}
+func (w *earlyStopWorker) OnSessionStop(context.Context, string)  {}
+func (w *earlyStopWorker) OnSessionStopping(context.Context, string) {
+	w.once.Do(func() { close(w.early) })
+}
+
+func TestSessionStoppingHookRunsBeforeEngineStop(t *testing.T) {
+	ctrl := &blockingStopController{stopStarted: make(chan struct{}), release: make(chan struct{})}
+	defer ctrl.unblock()
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	worker := &earlyStopWorker{early: make(chan struct{})}
+	m.AddSessionHook(worker)
+	if _, phase, _, err := m.Start(context.Background(), "p", "a", ""); err != nil || phase != PhaseLive {
+		t.Fatalf("start: phase=%s err=%v", phase, err)
+	}
+	stopped := make(chan error, 1)
+	go func() {
+		_, _, err := m.Stop(context.Background(), "manual")
+		stopped <- err
+	}()
+	<-ctrl.stopStarted
+	select {
+	case <-worker.early:
+	default:
+		t.Fatal("voice/text cancellation hook did not run before blocking engine Stop")
+	}
+	ctrl.unblock()
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not finish")
 	}
 }

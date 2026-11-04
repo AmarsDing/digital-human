@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -67,6 +68,28 @@ func TestSayWholeTextWhenCaptionDisabled(t *testing.T) {
 	got := ctrl.said()
 	if len(got) != 1 || got[0] != "大家好，欢迎来到直播间。今天播三个小时！" {
 		t.Fatalf("整段投喂: %v", got)
+	}
+}
+
+func TestSayCanDisableTranscriptPersistencePerTurn(t *testing.T) {
+	ctrl := &sayRecorder{FakeController: NewFakeController(quietLogger())}
+	sink := NewMemorySink(64)
+	m := newPreviewBasicManager(eventbus.New(64), sink, ctrl)
+	m.SetCaptionSplitFn(func() bool { return false })
+	if _, phase, _, err := m.Start(context.Background(), "p", "", ""); err != nil || phase != PhaseLive {
+		t.Fatalf("start: phase=%s err=%v", phase, err)
+	}
+	ctx := WithTranscriptPersistence(context.Background(), false)
+	if _, err := m.Say(ctx, "不保留这句话", "chat"); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Snapshot().Transcript; len(got) != 0 {
+		t.Fatalf("transcript should not be retained: %v", got)
+	}
+	for _, event := range sink.All() {
+		if strings.HasPrefix(event.Type, "transcript.") {
+			t.Fatalf("transcript event should not be published: %+v", event)
+		}
 	}
 }
 
