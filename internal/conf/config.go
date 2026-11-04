@@ -26,8 +26,17 @@ type Config struct {
 	Collector Collector `yaml:"collector"`
 	Health    Health    `yaml:"health"`
 	// Live 深化方案 v2 §7.6 严格 Start 配置。
-	Live  Live  `yaml:"live"`
-	Voice Voice `yaml:"voice"`
+	Live        Live        `yaml:"live"`
+	Voice       Voice       `yaml:"voice"`
+	ContentGate ContentGate `yaml:"content_gate"`
+}
+
+// ContentGate 配置唯一内容终检入口；词表和正则放在独立 YAML，便于运营更新与审计。
+type ContentGate struct {
+	Enabled                 bool   `yaml:"enabled"`
+	RulesPath               string `yaml:"rules_path"`
+	AllowReview             bool   `yaml:"allow_review"`
+	CircuitBreakerThreshold int    `yaml:"circuit_breaker_threshold"`
 }
 
 // Voice 冻结语音阶段一策略。真实 sherpa 缺文件/许可确认时保持 unconfigured；
@@ -307,6 +316,9 @@ func defaults() *Config {
 		Log:       Log{Level: "info", Format: "json"},
 		Stream:    Stream{Source: "synthetic", StageURL: "http://127.0.0.1:8795/stage"},
 		Collector: Collector{},
+		ContentGate: ContentGate{
+			Enabled: true, RulesPath: "configs/content_gate.yaml", CircuitBreakerThreshold: 3,
+		},
 		Voice: Voice{
 			ASR: VoiceASR{
 				Provider: "sherpa", FakeText: "dev 模拟识别", AllowLocalSidecar: true, AllowCloud: false,
@@ -384,6 +396,14 @@ func (c *Config) Validate() error {
 	case "sherpa", "fake", "cloud":
 	default:
 		return fmt.Errorf("unknown voice.asr.provider %q（仅支持 sherpa|fake|cloud）", c.Voice.ASR.Provider)
+	}
+	if c.ContentGate.Enabled {
+		if strings.TrimSpace(c.ContentGate.RulesPath) == "" {
+			return fmt.Errorf("content_gate.rules_path 不能为空")
+		}
+		if c.ContentGate.CircuitBreakerThreshold <= 0 {
+			return fmt.Errorf("content_gate.circuit_breaker_threshold 必须大于 0")
+		}
 	}
 	if c.Voice.RetainAudio {
 		return fmt.Errorf("voice.retain_audio=true 尚未实现保存/回看链路；必须显式保持 false")

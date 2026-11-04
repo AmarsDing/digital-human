@@ -18,16 +18,18 @@ import (
 	"time"
 
 	"github.com/teamwork/digital-human/internal/biz/capability"
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 	"github.com/teamwork/digital-human/internal/biz/media"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 )
 
 var (
-	ErrNotLive   = errors.New("未开播")
-	ErrNotFound  = errors.New("歌曲不存在")
-	ErrBusy      = errors.New("正在播放其他歌曲")
-	ErrStopped   = errors.New("歌曲已停止")
-	ErrEmptyName = errors.New("file_name 为空")
+	ErrNotLive        = errors.New("未开播")
+	ErrNotFound       = errors.New("歌曲不存在")
+	ErrBusy           = errors.New("正在播放其他歌曲")
+	ErrStopped        = errors.New("歌曲已停止")
+	ErrEmptyName      = errors.New("file_name 为空")
+	ErrContentBlocked = errors.New("内容终检未通过")
 )
 
 type State struct {
@@ -43,11 +45,14 @@ type State struct {
 }
 
 type Service struct {
-	lib    *media.Library
-	dec    media.Decoder
-	player media.Player
-	bus    *eventbus.Bus
-	isLive func() bool
+	lib         *media.Library
+	dec         media.Decoder
+	player      media.Player
+	bus         *eventbus.Bus
+	isLive      func() bool
+	contentGate *contentgate.Gate
+	handler     contentgate.DecisionHandler
+	sessionID   func() string
 
 	dispatchMu sync.Mutex
 	mu         sync.Mutex
@@ -70,6 +75,39 @@ func (s *Service) SetLive(fn func() bool) {
 	s.mu.Lock()
 	s.isLive = fn
 	s.mu.Unlock()
+}
+
+// SetContentGate 在解码、song.playing 与 Player 前终检标题、脚本和歌词。
+func (s *Service) SetContentGate(g *contentgate.Gate, handler contentgate.DecisionHandler, sessionID func() string) {
+	s.mu.Lock()
+	s.contentGate, s.handler, s.sessionID = g, handler, sessionID
+	s.mu.Unlock()
+}
+
+func (s *Service) checkContent(ctx context.Context, text string) contentgate.Decision {
+	s.mu.Lock()
+	gate, sessionFn := s.contentGate, s.sessionID
+	s.mu.Unlock()
+	if gate == nil {
+		return contentgate.Decision{State: contentgate.StateAllow, Disposition: contentgate.DispositionAllow, Text: text}
+	}
+	sessionID := ""
+	if sessionFn != nil {
+		sessionID = sessionFn()
+	}
+	return gate.Check(ctx, contentgate.Input{Outlet: "song.start", SessionID: sessionID, Text: text})
+}
+
+func (s *Service) handleBlocked(ctx context.Context, decision contentgate.Decision) error {
+	s.mu.Lock()
+	handler := s.handler
+	s.mu.Unlock()
+	if handler != nil {
+		if err := handler.HandleContentDecision(ctx, decision); err != nil {
+			return err
+		}
+	}
+	return ErrContentBlocked
 }
 
 func (s *Service) List() ([]media.File, error) { return s.lib.List() }
@@ -158,11 +196,15 @@ func (s *Service) start(ctx context.Context, name, script string, onDone func(er
 	if err != nil {
 		return State{}, ErrNotFound
 	}
+	lines, source := readLyrics(path, script)
+	decision := s.checkContent(ctx, name+"\n"+script+"\n"+strings.Join(lines, "\n"))
+	if decision.Disposition != contentgate.DispositionAllow {
+		return State{}, s.handleBlocked(ctx, decision)
+	}
 	pcm, err := s.decodePCM(ctx, path)
 	if err != nil {
 		return State{}, err
 	}
-	lines, source := readLyrics(path, script)
 
 	s.mu.Lock()
 	if s.state.Playing || s.cancel != nil {

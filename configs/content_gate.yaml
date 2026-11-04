@@ -1,0 +1,26 @@
+# 六层本地词表与正则。语义级违规、反讽、谐音变体和预录制音频不在其保证范围内。
+layers:
+  political:
+    decision: block
+    words: [颠覆国家, 分裂国家, 反动宣传]
+    patterns: []
+  contraband:
+    decision: block
+    words: [买卖毒品, 买卖枪支, 制作炸药, 走私军火]
+    patterns: []
+  vulgar:
+    decision: block
+    words: [淫秽表演, 色情服务, 露骨描写]
+    patterns: []
+  harassment:
+    decision: block
+    words: [人身攻击, 辱骂他人, 网络暴力]
+    patterns: []
+  medical:
+    decision: block
+    words: [包治百病, 根治癌症, 百分百治愈, 祖传神药]
+    patterns: ['保证治愈', '治愈率\s*100\s*%']
+  financial:
+    decision: block
+    words: [保本保息, 稳赚不赔, 无风险高收益]
+    patterns: ['保本收益\s*[0-9]+\s*%', ' guaranteed returns?']

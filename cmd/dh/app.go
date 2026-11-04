@@ -34,6 +34,7 @@ type App struct {
 	Contentpkg *contentpkg.Service
 	// SongScheduler 启动恢复崩溃中的点歌请求；playing 只转 unknown，不自动重播。
 	SongScheduler *song.Scheduler
+	panel         *panelRuntime
 }
 
 func (a *App) Run() error {

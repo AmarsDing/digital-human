@@ -19,6 +19,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/capability"
 	"github.com/teamwork/digital-human/internal/biz/chat"
 	"github.com/teamwork/digital-human/internal/biz/choreo"
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 	"github.com/teamwork/digital-human/internal/biz/contentpkg"
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/gift"
@@ -97,7 +98,9 @@ func InitApp(cfgPath string, version2 VersionInfo) (*App, func(), error) {
 	billingService := provideBilling(data)
 	creditsPoller := provideCreditsPoller(config, mainRealDeps, billingService, bus, logger)
 	publisher := providePublisher(config, bus, logger)
-	liveManager := provideManager(config, bus, eventSink, controller, sessionStore, store, avatarService, recorder, creditsPoller, manager, publisher, service)
+	auditService := provideAudit(data)
+	gate := provideContentGate(config, auditService)
+	liveManager := provideManager(config, bus, eventSink, controller, sessionStore, store, avatarService, recorder, creditsPoller, manager, publisher, service, gate)
 	coordinator := provideVoiceCoordinator(recognizer, voiceConfig, manager, liveManager, bus)
 	danmakuService := provideDanmaku(data)
 	imageService := provideAvatarImages(switchableAvatarStore)
@@ -111,7 +114,7 @@ func InitApp(cfgPath string, version2 VersionInfo) (*App, func(), error) {
 	}
 	patronService := provideGiftPatrons(data, danmakuService, service, liveManager, bus, logger, mainInteractionRuntime)
 	switchableSongRequestStore := provideSongRequests(data, logger)
-	mainPanelRuntime := providePanelRuntime(bus, service, danmakuService, sessionStore, liveManager, config, mainRealDeps, controller, billingService, personaService, avatarService, switchableAvatarStore, imageService, syncService, manager, coordinator, client, vidukeysService, recorder, patronService, mainInteractionRuntime, switchableSongRequestStore)
+	mainPanelRuntime := providePanelRuntime(bus, service, danmakuService, sessionStore, liveManager, config, mainRealDeps, controller, billingService, personaService, avatarService, switchableAvatarStore, imageService, syncService, manager, coordinator, client, vidukeysService, recorder, patronService, mainInteractionRuntime, switchableSongRequestStore, gate)
 	capabilitySource := provideCapabilities(config, mainPanelRuntime, publisher, sessionStore, data)
 	statusService := provideVoiceStatus(recognizer, voiceConfig, service, capabilitySource, liveManager)
 	issuer := provideRTCIssuer(config)
@@ -119,7 +122,6 @@ func InitApp(cfgPath string, version2 VersionInfo) (*App, func(), error) {
 	serviceDanmakuService := provideDanmakuService(danmakuService)
 	settingsService := provideSettingsService(service)
 	health := provideHealth(version2, config, data, liveManager, capabilitySource)
-	auditService := provideAudit(data)
 	streamService := provideStreamService(publisher)
 	tracker := provideCollectorTracker(config)
 	collectorService := provideCollectorService(tracker)
@@ -252,6 +254,14 @@ func provideAudit(d *data.Data) *audit.Service {
 	sw := repo.NewSwitchableAuditSink(auditMemoryBridge{mem: mem})
 	d.SetOnDBReady(sw.SetEnt)
 	return audit.NewService(auditSinkBridge{sw: sw})
+}
+
+func provideContentGate(cfg *conf.Config, audits *audit.Service) *contentgate.Gate {
+	return contentgate.New(contentgate.Options{
+		Enabled: cfg.ContentGate.Enabled, RulesPath: cfg.ContentGate.RulesPath,
+		AllowReview: cfg.ContentGate.AllowReview, CircuitBreakerThreshold: cfg.ContentGate.CircuitBreakerThreshold,
+		Recorder: audits,
+	})
 }
 
 // provideSessionStore 启动时用内存场次存储兜底；PG 运行期就绪后切换为 Ent。
@@ -414,8 +424,10 @@ func provideManager(
 	chatMgr *chat.Manager,
 	pub *publish.Publisher,
 	st *settings.Service,
+	gate *contentgate.Gate,
 ) *live.Manager {
 	m := live.NewManagerWithStores(bus, sink, ctrl, sessions, idem, resolver)
+	m.SetContentGate(gate)
 	m.SetModePolicy(modePolicyFromConfig(cfg))
 	if recorder != nil {
 		m.SetRecorder(recorder)
@@ -742,6 +754,7 @@ type panelRuntime struct {
 	remote         action.Remote
 	actionProbe    func(context.Context) error
 	synth          tts2.Synth
+	contentGate    *contentgate.Gate
 	contentStorage []contentpkg.StorageProbe
 }
 
@@ -768,8 +781,10 @@ func providePanelRuntime(
 	patrons *patron.Service,
 	ix *interactionRuntime,
 	songRequests *repo.SwitchableSongRequestStore,
+	gate *contentgate.Gate,
 ) *panelRuntime {
 	isLive := func() bool { return mgr.Snapshot().Phase == live.PhaseLive }
+	sessionIDFn := func() string { return mgr.Snapshot().SessionID }
 
 	audioLib := media.NewLibrary(filepath.Join("storage", "audio"))
 	songLib := media.NewLibrary(filepath.Join("storage", "songs"))
@@ -839,6 +854,7 @@ func providePanelRuntime(
 	}
 
 	sched := action.NewScheduler(sender, bus, action.DefaultConfig())
+	sched.SetContentGate(gate, sessionIDFn)
 
 	sched.SetVIP(func(user string) bool {
 		if dm.IsVIP(user) {
@@ -853,6 +869,7 @@ func providePanelRuntime(
 	sched.SetPauseChoreo(func(d time.Duration) { chor.Pause(d) })
 
 	songs := song.NewService(songLib, dec, player, bus, isLive)
+	songs.SetContentGate(gate, mgr, sessionIDFn)
 	songScheduler := song.NewScheduler(songRequests, songs, time.Now)
 	song.RegisterInteractionHandler(ix.disp, songRequests, songScheduler)
 	sched.SetSongPlaying(func() bool { return songs.Status().Playing })
@@ -881,6 +898,7 @@ func providePanelRuntime(
 		return err
 	}
 	kou := koubo.NewService(koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")), synth, player, actionGen, filepath.Join("storage", "koubo"), isLive)
+	kou.SetContentGate(gate, mgr, sessionIDFn)
 	kou.SetSynthParamsFn(func() (string, float64) {
 		ctx := context.Background()
 		return settingStr(st, ctx, "voice", "voice_id"), settingFloat(st, ctx, "voice", "speed")
@@ -913,6 +931,7 @@ func providePanelRuntime(
 		remote:         remote,
 		actionProbe:    actionProbe,
 		synth:          synth,
+		contentGate:    gate,
 		deps: server.PanelDeps{
 			TTS:          tts2.NewService(audioLib, synth, st),
 			Actions:      actions,
@@ -1016,7 +1035,7 @@ func provideHTTPServer(
 }
 
 func provideApp(s *http.Server, d *data.Data, logger *slog.Logger, m *live.Manager, dmWorker *danmaku.Worker, ix *interactionRuntime, pkgs *contentpkg.Service, rt *panelRuntime) *App {
-	return &App{Server: s, Data: d, Logger: logger, Manager: m, DanmakuWorker: dmWorker, Interaction: ix, Contentpkg: pkgs, SongScheduler: rt.songScheduler}
+	return &App{Server: s, Data: d, Logger: logger, Manager: m, DanmakuWorker: dmWorker, Interaction: ix, Contentpkg: pkgs, SongScheduler: rt.songScheduler, panel: rt}
 }
 
 // providePublisher DZ 批：stream.enabled=false 时返回 nil（路由不注册，前端按 404/unconfigured
@@ -1277,6 +1296,15 @@ func provideCapabilities(
 	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
+		mx["content_gate"] = capability.Unconfigured
+		if rt != nil && rt.contentGate != nil {
+			switch rt.contentGate.Capability() {
+			case contentgate.CapabilityReal:
+				mx["content_gate"] = capability.Real
+			case contentgate.CapabilityUnknown:
+				mx["content_gate"] = capability.Unknown
+			}
+		}
 		remoteState := capability.Unconfigured
 		if rt != nil {
 			switch rt.remote.(type) {

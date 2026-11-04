@@ -49,16 +49,18 @@ type FakeSynth struct {
 	mu     sync.Mutex
 	active int
 	seq    int64
+	texts  []string
 }
 
 func NewFakeSynth() *FakeSynth { return &FakeSynth{MS: 160} }
 
 func (s *FakeSynth) Name() string { return "fake-omnivoice" }
 
-func (s *FakeSynth) Synth(ctx context.Context, _ string, _ string) ([]byte, error) {
+func (s *FakeSynth) Synth(ctx context.Context, text, _ string) ([]byte, error) {
 	s.mu.Lock()
 	s.active++
 	s.seq++
+	s.texts = append(s.texts, text)
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -84,6 +86,13 @@ func (s *FakeSynth) Snapshot() (active int, calls int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.active, s.seq
+}
+
+// Texts 返回 fake 合成器实际收到的文本副本，供 dev 装配验证核对。
+func (s *FakeSynth) Texts() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.texts...)
 }
 
 // UnavailableSynth real 模式缺 OmniVoice 地址时的 fail-closed 合成器：

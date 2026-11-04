@@ -25,6 +25,13 @@ health:
   # true 恢复旧行为：依赖未齐 /healthz 返回 503。
   require_dependencies: false
 
+# 所有文字上屏、合成、缓存播放与动作下发前的统一终检；显式 enabled=false 才关闭。
+content_gate:
+  enabled: true
+  rules_path: "configs/content_gate.yaml"
+  allow_review: false
+  circuit_breaker_threshold: 3
+
 security:
   # local: 仅允许 loopback 访问（默认）。lan: 必须配置 admin_token_sha256。
   # collector: 弹幕采集器走 HMAC，其余走 Bearer。

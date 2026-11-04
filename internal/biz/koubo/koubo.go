@@ -16,15 +16,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 	"github.com/teamwork/digital-human/internal/biz/media"
 	"github.com/teamwork/digital-human/pkg/audio"
 )
 
 var (
-	ErrNotLive      = errors.New("未开播")
-	ErrNoSelection  = errors.New("该段还没有选中音频")
-	ErrSegmentGone  = errors.New("段落不存在")
-	ErrInvalidSplit = errors.New("切分点无效")
+	ErrNotLive        = errors.New("未开播")
+	ErrNoSelection    = errors.New("该段还没有选中音频")
+	ErrSegmentGone    = errors.New("段落不存在")
+	ErrInvalidSplit   = errors.New("切分点无效")
+	ErrContentBlocked = errors.New("内容终检未通过")
 )
 
 type SynthParams struct {
@@ -195,6 +197,9 @@ type Service struct {
 	actions     ActionGen
 	dir         string
 	isLive      func() bool
+	contentGate *contentgate.Gate
+	handler     contentgate.DecisionHandler
+	sessionID   func() string
 
 	job        Job
 	playCancel context.CancelFunc
@@ -243,6 +248,37 @@ func (s *Service) SetLive(fn func() bool) {
 	s.mu.Lock()
 	s.isLive = fn
 	s.mu.Unlock()
+}
+
+// SetContentGate 注入合成与缓存播放终检；静默处置复用直播安全提示和话题切换。
+func (s *Service) SetContentGate(g *contentgate.Gate, handler contentgate.DecisionHandler, sessionID func() string) {
+	s.mu.Lock()
+	s.contentGate, s.handler, s.sessionID = g, handler, sessionID
+	s.mu.Unlock()
+}
+
+func (s *Service) checkContent(ctx context.Context, outlet, text string) contentgate.Decision {
+	s.mu.Lock()
+	gate, sessionFn := s.contentGate, s.sessionID
+	s.mu.Unlock()
+	if gate == nil {
+		return contentgate.Decision{State: contentgate.StateAllow, Disposition: contentgate.DispositionAllow, Text: text}
+	}
+	sessionID := ""
+	if sessionFn != nil {
+		sessionID = sessionFn()
+	}
+	return gate.Check(ctx, contentgate.Input{Outlet: outlet, SessionID: sessionID, Text: text})
+}
+
+func (s *Service) handleSilent(ctx context.Context, decision contentgate.Decision) error {
+	s.mu.Lock()
+	handler := s.handler
+	s.mu.Unlock()
+	if handler != nil {
+		return handler.HandleContentDecision(ctx, decision)
+	}
+	return nil
 }
 
 func (s *Service) SetSynthParamsFn(fn func() (voice string, speed float64)) {
@@ -457,6 +493,15 @@ func (s *Service) TTS(ctx context.Context, id string) (State, error) {
 }
 
 func (s *Service) synthesize(ctx context.Context, segID, text string) (string, Take, error) {
+	decision := s.checkContent(ctx, "koubo.tts", text)
+	if decision.Disposition == contentgate.DispositionSilent {
+		return "", Take{}, ErrContentBlocked
+	}
+	return s.synthesizeText(ctx, segID, decision.Text)
+}
+
+// synthesizeText 只接收 allow 原文或静态模板，避免安全模板二次终检导致重复计数。
+func (s *Service) synthesizeText(ctx context.Context, segID, text string) (string, Take, error) {
 	s.synthMu.Lock()
 	defer s.synthMu.Unlock()
 
@@ -659,8 +704,21 @@ func (s *Service) Play(ctx context.Context, id string) error {
 	}
 	take := seg.Takes[*seg.Selected]
 	path := filepath.Join(s.dir, filepath.Base(take.File))
+	text := seg.Text
 	s.mu.Unlock()
-	if err := s.player.Play(ctx, path, seg.Text); err != nil {
+	decision := s.checkContent(ctx, "koubo.play", text)
+	if decision.Disposition == contentgate.DispositionSilent {
+		return s.handleSilent(ctx, decision)
+	}
+	if decision.Disposition == contentgate.DispositionSpeakTemplate {
+		_, safeTake, err := s.synthesizeText(ctx, seg.ID+"_safe", decision.Text)
+		if err != nil {
+			return err
+		}
+		path = filepath.Join(s.dir, filepath.Base(safeTake.File))
+	}
+	text = decision.Text
+	if err := s.player.Play(ctx, path, text); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -729,6 +787,21 @@ func (s *Service) PlayAll(ctx context.Context, gapMs int) (int, error) {
 		if s.Stopped() {
 			break
 		}
+		decision := s.checkContent(pctx, "koubo.play_all", it.text)
+		if decision.Disposition == contentgate.DispositionSilent {
+			if err := s.handleSilent(pctx, decision); err != nil {
+				return played, err
+			}
+			continue
+		}
+		if decision.Disposition == contentgate.DispositionSpeakTemplate {
+			_, safeTake, err := s.synthesizeText(pctx, it.id+"_safe", decision.Text)
+			if err != nil {
+				return played, err
+			}
+			it.path = filepath.Join(s.dir, filepath.Base(safeTake.File))
+		}
+		it.text = decision.Text
 		s.setPlaying(it.id)
 		if err := s.player.Play(pctx, it.path, it.text); err != nil {
 			return played, err

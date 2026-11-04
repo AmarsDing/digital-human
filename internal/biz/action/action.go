@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/teamwork/digital-human/internal/biz/capability"
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 )
 
@@ -260,6 +261,8 @@ type Scheduler struct {
 	vip         func(user string) bool
 	pauseChoreo func(time.Duration)
 	stopCurrent func(ctx context.Context)
+	contentGate *contentgate.Gate
+	sessionID   func() string
 }
 
 func NewScheduler(sender Sender, bus *eventbus.Bus, cfg Config) *Scheduler {
@@ -272,6 +275,13 @@ func NewScheduler(sender Sender, bus *eventbus.Bus, cfg Config) *Scheduler {
 func (s *Scheduler) SetSongPlaying(fn func() bool)         { s.songPlaying = fn }
 func (s *Scheduler) SetVIP(fn func(string) bool)           { s.vip = fn }
 func (s *Scheduler) SetPauseChoreo(fn func(time.Duration)) { s.pauseChoreo = fn }
+
+// SetContentGate 注入动作最终出站点；命中只抑制，不发替代动作或伪造 sent 事件。
+func (s *Scheduler) SetContentGate(g *contentgate.Gate, sessionID func() string) {
+	s.mu.Lock()
+	s.contentGate, s.sessionID = g, sessionID
+	s.mu.Unlock()
+}
 
 // SetStopCurrent 注入“中断当前动作语音”的副作用（如停引擎当前动作音频）。
 func (s *Scheduler) SetStopCurrent(fn func(ctx context.Context)) { s.stopCurrent = fn }
@@ -410,6 +420,19 @@ func (s *Scheduler) SendCommand(ctx context.Context, text string) error {
 
 // SendDirect 立即发送（编排/贵宾/手动直发共用），更新冷却基准。
 func (s *Scheduler) SendDirect(ctx context.Context, text, source string) error {
+	s.mu.Lock()
+	gate, sessionFn := s.contentGate, s.sessionID
+	s.mu.Unlock()
+	if gate != nil {
+		sessionID := ""
+		if sessionFn != nil {
+			sessionID = sessionFn()
+		}
+		decision := gate.Check(ctx, contentgate.Input{Outlet: "action.send", SessionID: sessionID, Text: text})
+		if decision.Disposition != contentgate.DispositionAllow {
+			return nil
+		}
+	}
 	if s.sender == nil {
 		return errors.New("动作发送通道未就绪")
 	}

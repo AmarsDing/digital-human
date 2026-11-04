@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,9 +107,30 @@ func NewHTTPServer(
 		srv.Handle("/api/v1/collector/heartbeat", collectorTracker.HeartbeatHandler(cfg.Security.CollectorSecret))
 		srv.Handle("/api/v1/collector/status", http.HandlerFunc(collectorTracker.StatusHandler))
 	}
+	registerContentGateAuditRoutes(srv, auditSvc)
 	registerPanelRoutes(srv, panels)
 	registerPreflightRoute(srv, preflight)
 	return srv
+}
+
+func registerContentGateAuditRoutes(srv *khttp.Server, svc *audit.Service) {
+	r := srv.Route("/")
+	r.GET("/api/v1/content-gate/audits", func(c khttp.Context) error {
+		limit, _ := strconv.Atoi(c.Request().URL.Query().Get("limit"))
+		rows, err := svc.ListContentDecisions(c.Request().Context(), limit)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]any{"error": "audit_list_failed"})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"items": rows})
+	})
+	r.GET("/api/v1/content-gate/audits/export", func(c khttp.Context) error {
+		rows, err := svc.ListContentDecisions(c.Request().Context(), 200)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]any{"error": "audit_export_failed"})
+		}
+		c.Response().Header().Set("Content-Disposition", `attachment; filename="content-gate-audit.json"`)
+		return c.JSON(http.StatusOK, rows)
+	})
 }
 
 // streamServiceAdapter 适配 DZ 批命名差异：publish.StreamService 实现的方法名是 SetTarget，

@@ -26,6 +26,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/capability"
 	"github.com/teamwork/digital-human/internal/biz/chat"
 	"github.com/teamwork/digital-human/internal/biz/choreo"
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 	"github.com/teamwork/digital-human/internal/biz/contentpkg"
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/gift"
@@ -67,6 +68,7 @@ func InitApp(cfgPath string, version VersionInfo) (*App, func(), error) {
 		provideBus,
 		provideSink,
 		provideAudit,
+		provideContentGate,
 		provideSessionStore,
 		provideIdempotency,
 		provideBilling,
@@ -234,6 +236,14 @@ func provideAudit(d *data.Data) *audit.Service {
 	return audit.NewService(auditSinkBridge{sw: sw})
 }
 
+func provideContentGate(cfg *conf.Config, audits *audit.Service) *contentgate.Gate {
+	return contentgate.New(contentgate.Options{
+		Enabled: cfg.ContentGate.Enabled, RulesPath: cfg.ContentGate.RulesPath,
+		AllowReview: cfg.ContentGate.AllowReview, CircuitBreakerThreshold: cfg.ContentGate.CircuitBreakerThreshold,
+		Recorder: audits,
+	})
+}
+
 // provideSessionStore 启动时用内存场次存储兜底；PG 运行期就绪后切换为 Ent。
 func provideSessionStore(d *data.Data) live.SessionStore {
 	sw := repo.NewSwitchableSessionStore(live.NewMemorySessionStore())
@@ -394,8 +404,10 @@ func provideManager(
 	chatMgr *chat.Manager,
 	pub *publish.Publisher,
 	st *settings.Service,
+	gate *contentgate.Gate,
 ) *live.Manager {
 	m := live.NewManagerWithStores(bus, sink, ctrl, sessions, idem, resolver)
+	m.SetContentGate(gate)
 	m.SetModePolicy(modePolicyFromConfig(cfg))
 	if recorder != nil {
 		m.SetRecorder(recorder)
@@ -726,6 +738,7 @@ type panelRuntime struct {
 	remote         action.Remote
 	actionProbe    func(context.Context) error
 	synth          tts.Synth
+	contentGate    *contentgate.Gate
 	contentStorage []contentpkg.StorageProbe
 }
 
@@ -752,8 +765,10 @@ func providePanelRuntime(
 	patrons *patron.Service,
 	ix *interactionRuntime,
 	songRequests *repo.SwitchableSongRequestStore,
+	gate *contentgate.Gate,
 ) *panelRuntime {
 	isLive := func() bool { return mgr.Snapshot().Phase == live.PhaseLive }
+	sessionIDFn := func() string { return mgr.Snapshot().SessionID }
 
 	audioLib := media.NewLibrary(filepath.Join("storage", "audio"))
 	songLib := media.NewLibrary(filepath.Join("storage", "songs"))
@@ -824,6 +839,7 @@ func providePanelRuntime(
 	}
 
 	sched := action.NewScheduler(sender, bus, action.DefaultConfig())
+	sched.SetContentGate(gate, sessionIDFn)
 	// F26：贵宾判定首次生产接线——弹幕 Ingest 的 vip 标记登记进本场贵宾名单。
 	// F29：贵宾名单（patrons）同为 VIP 判定来源之一（nick/uid 命中即贵宾）。
 	sched.SetVIP(func(user string) bool {
@@ -839,6 +855,7 @@ func providePanelRuntime(
 	sched.SetPauseChoreo(func(d time.Duration) { chor.Pause(d) })
 
 	songs := song.NewService(songLib, dec, player, bus, isLive)
+	songs.SetContentGate(gate, mgr, sessionIDFn)
 	songScheduler := song.NewScheduler(songRequests, songs, time.Now)
 	song.RegisterInteractionHandler(ix.disp, songRequests, songScheduler)
 	sched.SetSongPlaying(func() bool { return songs.Status().Playing })
@@ -871,6 +888,7 @@ func providePanelRuntime(
 		koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")),
 		synth, player, actionGen, filepath.Join("storage", "koubo"), isLive,
 	)
+	kou.SetContentGate(gate, mgr, sessionIDFn)
 	kou.SetSynthParamsFn(func() (string, float64) {
 		ctx := context.Background()
 		return settingStr(st, ctx, "voice", "voice_id"), settingFloat(st, ctx, "voice", "speed")
@@ -907,6 +925,7 @@ func providePanelRuntime(
 		remote:         remote,
 		actionProbe:    actionProbe,
 		synth:          synth,
+		contentGate:    gate,
 		deps: server.PanelDeps{
 			TTS:          tts.NewService(audioLib, synth, st),
 			Actions:      actions,
@@ -1014,7 +1033,7 @@ func provideHTTPServer(
 }
 
 func provideApp(s *khttp.Server, d *data.Data, logger *slog.Logger, m *live.Manager, dmWorker *danmaku.Worker, ix *interactionRuntime, pkgs *contentpkg.Service, rt *panelRuntime) *App {
-	return &App{Server: s, Data: d, Logger: logger, Manager: m, DanmakuWorker: dmWorker, Interaction: ix, Contentpkg: pkgs, SongScheduler: rt.songScheduler}
+	return &App{Server: s, Data: d, Logger: logger, Manager: m, DanmakuWorker: dmWorker, Interaction: ix, Contentpkg: pkgs, SongScheduler: rt.songScheduler, panel: rt}
 }
 
 // providePublisher DZ 批：stream.enabled=false 时返回 nil（路由不注册，前端按 404/unconfigured
@@ -1277,6 +1296,15 @@ func provideCapabilities(
 	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
+		mx["content_gate"] = capability.Unconfigured
+		if rt != nil && rt.contentGate != nil {
+			switch rt.contentGate.Capability() {
+			case contentgate.CapabilityReal:
+				mx["content_gate"] = capability.Real
+			case contentgate.CapabilityUnknown:
+				mx["content_gate"] = capability.Unknown
+			}
+		}
 		remoteState := capability.Unconfigured
 		if rt != nil {
 			switch rt.remote.(type) {

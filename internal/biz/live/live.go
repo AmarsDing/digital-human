@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/teamwork/digital-human/internal/biz/avatar"
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 	"github.com/teamwork/digital-human/internal/biz/refs"
 	"github.com/teamwork/digital-human/internal/llm"
 	"github.com/teamwork/digital-human/internal/publish"
@@ -145,6 +146,14 @@ type Manager struct {
 	recordingFlag func() bool
 	// greetingAudioFile 配置文件存在时优先于文本，播放失败不得回退 TTS。
 	greetingAudioFile func() string
+	contentGate       *contentgate.Gate
+}
+
+// SetContentGate 注入统一内容终检；nil 仅用于未装配的测试或显式禁用场景。
+func (m *Manager) SetContentGate(g *contentgate.Gate) {
+	m.mu.Lock()
+	m.contentGate = g
+	m.mu.Unlock()
 }
 
 // SetPushGate 注入推流前置检查依赖（DZ 批）。allowUnpushed 仅本地预览调试用。
@@ -567,7 +576,11 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 	m.session = s
 	m.phase = PhaseStarting
 	phase = m.phase
+	gate := m.contentGate
 	m.mu.Unlock()
+	if gate != nil {
+		gate.ResetSession(s.id)
+	}
 	m.persist(ctx, s, PhaseStarting)
 
 	m.publish(ctx, "live.start_requested", map[string]any{"persona_id": personaID, "avatar_id": avatarID, "mode": string(mode)})
@@ -901,14 +914,59 @@ func splitSentences(text string) []string {
 	return out
 }
 
-// sayOne 单句口播：先发 partial 让字幕立即上屏，TTS 返回后再发 final。
+// sayOne 单句口播：终检先于 partial 与 TTS；后续只使用判定返回的原文或静态安全文本。
 func (m *Manager) sayOne(ctx context.Context, text, mode string) (string, error) {
 	m.mu.Lock()
 	sessionID, epoch := m.session.id, m.session.epoch
-	index := len(m.session.transcript)
+	gate := m.contentGate
 	m.mu.Unlock()
 
+	decision := contentgate.Decision{State: contentgate.StateAllow, Disposition: contentgate.DispositionAllow, Text: text}
+	if gate != nil {
+		decision = gate.Check(ctx, contentgate.Input{Outlet: "live.say", SessionID: sessionID, Text: text})
+	}
+	return m.sayDecision(ctx, sessionID, epoch, decision, mode)
+}
+
+// HandleContentDecision 让口播工程与歌曲在非 allow 时复用同一安全出屏链路，且不重复计数。
+func (m *Manager) HandleContentDecision(ctx context.Context, decision contentgate.Decision) error {
+	m.mu.Lock()
+	if m.phase != PhaseLive || m.session == nil {
+		m.mu.Unlock()
+		return errors.New("not live")
+	}
+	sessionID, epoch := m.session.id, m.session.epoch
+	m.mu.Unlock()
+	_, err := m.sayDecision(ctx, sessionID, epoch, decision, "safety")
+	return err
+}
+
+func (m *Manager) sayDecision(ctx context.Context, sessionID string, epoch int64, decision contentgate.Decision, mode string) (string, error) {
+	m.mu.Lock()
+	index := len(m.session.transcript)
+	m.mu.Unlock()
+	text := decision.Text
 	persistText := transcriptPersistence(ctx)
+	if decision.Disposition == contentgate.DispositionSilent {
+		if persistText {
+			m.publishFor(ctx, sessionID, epoch, eventcontract.TranscriptPartial, map[string]any{
+				eventcontract.FieldText: text, eventcontract.FieldIndex: index, eventcontract.FieldMode: mode,
+			})
+			m.mu.Lock()
+			if m.session != nil && m.session.id == sessionID {
+				m.session.transcript = append(m.session.transcript, text)
+				index = len(m.session.transcript) - 1
+			}
+			m.mu.Unlock()
+			m.publishFor(ctx, sessionID, epoch, eventcontract.TranscriptFinal, map[string]any{
+				eventcontract.FieldText: text, eventcontract.FieldUtteranceID: "", eventcontract.FieldIndex: index,
+			})
+		}
+		if decision.SwitchTopic {
+			m.ResetLlm(ctx)
+		}
+		return "", nil
+	}
 	if persistText {
 		m.publishFor(ctx, sessionID, epoch, eventcontract.TranscriptPartial, map[string]any{
 			eventcontract.FieldText: text, eventcontract.FieldIndex: index, eventcontract.FieldMode: mode,

@@ -34,6 +34,7 @@ async function checkVidu(): Promise<void> {
   finally { checkingVidu.value = false }
 }
 const status = (name: string) => ({ real: '已验证', fake: '开发模拟', unconfigured: '未配置', unknown: '待验证' }[capabilities.value[name]] || '待验证')
+const contentGateStatus = computed(() => ({ real: '已启用', fake: '开发模拟', unconfigured: '未启用', unknown: '配置异常' }[capabilities.value.content_gate] || '配置异常'))
 const provider = computed(() => baseUrl.value.startsWith('https://api.openai.com/') ? 'OpenAI' : baseUrl.value.startsWith('https://api.deepseek.com') ? 'DeepSeek' : '兼容服务')
 async function load(): Promise<void> {
   busy.value = true; error.value = ''
@@ -112,6 +113,11 @@ onMounted(() => void load())
           <p>现有链路使用已配置的语音识别、文本对话和 TTS。音色在数字人档案中选择。</p>
           <p>OpenAI GPT-Live / Realtime：尚未接入本项目的实时音频通道，暂不可切换。接入后仍需视频引擎驱动数字人画面。</p>
           <NtButton type="button" @click="router.push('/avatars')">管理形象与音色</NtButton>
+        </section>
+        <section class="models-card">
+          <h2>内容终检</h2>
+          <p data-testid="content-gate-status">当前状态：{{ contentGateStatus }}</p>
+          <p>已启用表示词表加载成功；未启用表示配置已显式关闭；配置异常表示词表加载或编译失败，此时内容按保守静默处置。</p>
         </section>
       </div>
       <div class="models-actions"><NtButton variant="primary" type="submit" :disabled="busy || !groups.length">{{ busy ? '处理中…' : '保存模型配置' }}</NtButton><NtButton type="button" :disabled="busy" @click="load">重新读取配置</NtButton></div>

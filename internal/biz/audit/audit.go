@@ -4,10 +4,13 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 )
 
 // Entry 一条审计记录；字段与 AuditLog 表对齐。
@@ -96,4 +99,55 @@ func (s *Service) List(ctx context.Context, limit int) ([]Entry, error) {
 		return nil, nil
 	}
 	return s.sink.List(ctx, limit)
+}
+
+// ContentDecision 是内容终检审计的公开只读视图，不包含文本字段。
+type ContentDecision struct {
+	ID          string `json:"id"`
+	TsMs        int64  `json:"ts_ms"`
+	Outlet      string `json:"outlet"`
+	Category    string `json:"category"`
+	Disposition string `json:"disposition"`
+}
+
+type contentDecisionMetadata struct {
+	Category    string `json:"category"`
+	Disposition string `json:"disposition"`
+}
+
+// RecordContentDecision 复用现有 AuditLog 字段，Target 仅保存层级与处置的 JSON 元数据。
+func (s *Service) RecordContentDecision(ctx context.Context, record contentgate.AuditRecord) error {
+	metadata, _ := json.Marshal(contentDecisionMetadata{Category: record.Category, Disposition: string(record.Disposition)})
+	return s.Record(ctx, Entry{
+		Actor: "content_gate", Route: record.Outlet, Action: "content_gate", Target: string(metadata),
+	})
+}
+
+// ListContentDecisions 只返回内容终检审计，兼容既有内存与 Ent Sink，不新增原文持久化字段。
+func (s *Service) ListContentDecisions(ctx context.Context, limit int) ([]ContentDecision, error) {
+	entries, err := s.List(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+	out := make([]ContentDecision, 0, limit)
+	for _, entry := range entries {
+		if entry.Action != "content_gate" {
+			continue
+		}
+		var metadata contentDecisionMetadata
+		if json.Unmarshal([]byte(entry.Target), &metadata) != nil {
+			continue
+		}
+		out = append(out, ContentDecision{
+			ID: entry.ID, TsMs: entry.TsMs, Outlet: entry.Route,
+			Category: metadata.Category, Disposition: metadata.Disposition,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
