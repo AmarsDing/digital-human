@@ -119,6 +119,8 @@ type Config struct {
 	MaxRetries  int
 	// NoFrameTimeout：stage 源超过该时长无帧视为白屏/断流 → degraded。
 	NoFrameTimeout time.Duration
+	// AudioTimeout：收到过 RTC PCM 后，持续无新帧则显式降级；未收到前不据此声称已通。
+	AudioTimeout time.Duration
 	// Logf 日志回调（调用方保证审计安全；本包保证调用处不传入 key）。
 	Logf func(format string, args ...any)
 	// OnEvent 状态事件回调（主实施线接 eventbus）。
@@ -147,6 +149,9 @@ func (c *Config) withDefaults() {
 	if c.NoFrameTimeout <= 0 {
 		c.NoFrameTimeout = 8 * time.Second
 	}
+	if c.AudioTimeout <= 0 {
+		c.AudioTimeout = 8 * time.Second
+	}
 }
 
 // Publisher 推流执行器。
@@ -160,8 +165,10 @@ type Publisher struct {
 	runID  int64
 	wg     sync.WaitGroup
 
-	// dialRTMP / startFFmpeg 为可替换接缝（测试注入 fake）。
-	dialRTMP func(rawURL, key string, timeout time.Duration) (rtmpConn, error)
+	// dialRTMP / startStageCapture 为可替换接缝（测试注入 fake）。
+	dialRTMP          func(rawURL, key string, timeout time.Duration) (rtmpConn, error)
+	startStageCapture func(context.Context, CaptureConfig) (*StageCapture, error)
+	pcm               *PCMBridge
 }
 
 // rtmpConn 抽象 RTMPClient 便于测试替换。
@@ -177,7 +184,7 @@ func NewPublisher(cfg Config, store TargetStore) *Publisher {
 	if store == nil {
 		store = &chainStore{mem: &MemTargetStore{}, env: EnvTargetStore{}}
 	}
-	p := &Publisher{cfg: cfg, store: store}
+	p := &Publisher{cfg: cfg, store: store, pcm: NewPCMBridge(), startStageCapture: StartStageCapture}
 	p.m = newMachine(cfg.Platform, cfg.OnEvent)
 	p.dialRTMP = func(u, k string, t time.Duration) (rtmpConn, error) {
 		return DialRTMP(u, k, t)
@@ -194,6 +201,9 @@ func (p *Publisher) logf(format string, args ...any) {
 
 // Status 返回快照。
 func (p *Publisher) Status() Status { return p.m.snapshot() }
+
+// PCMBridge 是公开采集页的唯一音频入口；统计不构成云端送达证据。
+func (p *Publisher) PCMBridge() *PCMBridge { return p.pcm }
 
 // SetTarget 更新推流目标（写入内存层；env 已配置时报错提示改 env）。
 func (p *Publisher) SetTarget(t Target) (string, error) {
@@ -326,6 +336,18 @@ func (p *Publisher) runOnce(ctx context.Context, id int64, t Target) error {
 	defer rc.Close()
 
 	d := &FFmpegDriver{Bin: p.cfg.FFmpegBin, PrependArgs: p.cfg.FFmpegPrepend}
+	var audioTimeout <-chan error
+	if p.cfg.Source == SourceStage {
+		bridgeCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		audioInput, err := p.pcm.Start(bridgeCtx)
+		if err != nil {
+			return err
+		}
+		defer p.pcm.Close()
+		d.AudioInput = audioInput
+		audioTimeout = p.watchPCM(bridgeCtx)
+	}
 	if err := d.Start(p.cfg.Source, p.cfg.Encoder); err != nil {
 		return err
 	}
@@ -338,7 +360,7 @@ func (p *Publisher) runOnce(ctx context.Context, id int64, t Target) error {
 	if p.cfg.Source == SourceStage {
 		capCtx, c := context.WithCancel(ctx)
 		capCancel = c
-		sc, err := StartStageCapture(capCtx, p.cfg.Stage)
+		sc, err := p.startStageCapture(capCtx, p.cfg.Stage)
 		if err != nil {
 			d.Kill()
 			return err
@@ -407,6 +429,8 @@ func (p *Publisher) runOnce(ctx context.Context, id int64, t Target) error {
 		return fmt.Errorf("publish: ffmpeg 退出: %v", err)
 	case err := <-forwardErr:
 		return err
+	case err := <-audioTimeout:
+		return err
 	case <-firstMediaTimer.C:
 		return &Error{Code: "publish_first_media_timeout", Message: "推流已连接，但未收到媒体数据，请检查采集源和编码器"}
 	case <-firstMedia:
@@ -423,7 +447,37 @@ func (p *Publisher) runOnce(ctx context.Context, id int64, t Target) error {
 		return fmt.Errorf("publish: ffmpeg 退出: %v", err)
 	case err := <-forwardErr:
 		return err
+	case err := <-audioTimeout:
+		return err
 	}
+}
+
+// watchPCM 只在本次连接收到过真实 WS PCM 后启用超时；未收到时不制造“音频已通”假象。
+func (p *Publisher) watchPCM(ctx context.Context) <-chan error {
+	result := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(20 * time.Millisecond)
+		defer ticker.Stop()
+		last := p.pcm.Stats().LastPCMAt
+		seen := false
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				current := p.pcm.Stats().LastPCMAt
+				if current.After(last) {
+					last = current
+					seen = true
+				}
+				if seen && now.Sub(last) >= p.cfg.AudioTimeout {
+					result <- &Error{Code: "publish_audio_pcm_timeout", Message: "RTC PCM 已中断，请检查公开采集页与 Vidu 远端音轨"}
+					return
+				}
+			}
+		}
+	}()
+	return result
 }
 
 // feedFrames 把采集帧喂给 ffmpeg stdin；NoFrameTimeout 无帧则杀 ffmpeg 触发重连。

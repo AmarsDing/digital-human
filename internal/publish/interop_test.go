@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,7 @@ type mtxProcess struct {
 func startMediaMTX(t *testing.T, bin, conf string) *mtxProcess {
 	t.Helper()
 	cmd := exec.Command(bin, conf)
+	cmd.Dir = filepath.Dir(conf) // 自动证书等运行产物只能落在外部配置目录。
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {

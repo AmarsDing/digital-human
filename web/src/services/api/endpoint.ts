@@ -16,3 +16,9 @@ export function wsVoiceUrl(sessionId: string, clientId: string): string {
   const query = `session_id=${encodeURIComponent(sessionId)}&client_id=${encodeURIComponent(clientId)}`
   return `${proto}//${window.location.host}${apiPath(`/ws/v1/voice?${query}`)}`
 }
+
+export function wsRtcAudioUrl(sessionId: string, epoch: number): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const query = `session_id=${encodeURIComponent(sessionId)}&epoch=${epoch}`
+  return `${proto}//${window.location.host}${apiPath(`/ws/v1/rtc-audio?${query}`)}`
+}

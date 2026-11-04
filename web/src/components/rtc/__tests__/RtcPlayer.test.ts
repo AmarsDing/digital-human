@@ -23,7 +23,8 @@ function fakeAdapter(): RtcAdapter {
     join: vi.fn(async () => {}),
     leave: vi.fn(async () => {}),
     mute: vi.fn(),
-    destroy: vi.fn()
+    destroy: vi.fn(),
+    onRemoteAudio: vi.fn()
   }
 }
 

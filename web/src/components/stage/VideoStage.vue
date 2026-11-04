@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import RtcPlayer from '../rtc/RtcPlayer.vue'
-import type { RtcCreds } from '../rtc/types'
+import type { RtcAudioCaptureConfig, RtcCreds } from '../rtc/types'
 import type { LivePreflightResult } from '../../services/api/live'
 import { phaseLabel as phaseText } from '../../utils/labels'
 import LiveStageBadge from './LiveStageBadge.vue'
@@ -12,6 +12,7 @@ const props = defineProps<{
   liveId: string
   durationS: number
   creds: RtcCreds | null
+  audioCapture?: RtcAudioCaptureConfig
   rtcNotice?: string
   wsState: string
   lagMs: number
@@ -76,7 +77,7 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
         :elapsed-seconds="durationS"
         :data-phase="phase"
       />
-      <RtcPlayer :creds="creds" @state="emit('rtc-state', $event)" />
+      <RtcPlayer :creds="creds" :audio-capture="audioCapture" @state="emit('rtc-state', $event)" />
       <div
         v-if="captionsEnabled && caption"
         class="stage__caption"

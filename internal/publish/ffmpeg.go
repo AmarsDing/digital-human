@@ -66,6 +66,8 @@ type FFmpegDriver struct {
 	Bin string
 	// PrependArgs 插入在 Bin 与真实参数之间（测试用 helper 进程注入）。
 	PrependArgs []string
+	// AudioInput 是 SourceStage 的 RTC 远端 PCM loopback 地址；禁止传原始 TTS/歌曲 PCM。
+	AudioInput string
 
 	stdin  io.WriteCloser // SourceStage 时喂 JPEG 帧
 	stdout io.ReadCloser  // FLV 输出
@@ -86,13 +88,13 @@ func (d *FFmpegDriver) buildArgs(kind SourceKind, ec EncoderConfig) []string {
 			"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100")
 		mapArgs = []string{"-map", "0:v", "-map", "1:a"}
 	case SourceStage:
-		// JPEG 帧从 stdin 喂入；静音音轨由 lavfi 生成（RTC 音频接入为待真机项，
-		// 见设计文档 §3：当前主假设为 Vidu 下行自带音频、由浏览器内混音采集）。
+		// 输入 0 保留 JPEG 舞台；输入 1 只接浏览器 RTC 远端音轨的 PCM bridge。
+		// 不混入原始 TTS/歌曲 PCM，避免本地双声；未实证 Vidu 下行前仍是 audio_delivery=unknown。
 		args = append(args,
-			"-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
 			"-f", "image2pipe", "-framerate", strconv.Itoa(ec.FPS),
-			"-vcodec", "mjpeg", "-i", "pipe:0")
-		mapArgs = []string{"-map", "1:v", "-map", "0:a"}
+			"-analyzeduration", "0", "-probesize", "32", "-vcodec", "mjpeg", "-i", "pipe:0",
+			"-f", "s16le", "-ar", "48000", "-ac", "1", "-i", d.AudioInput)
+		mapArgs = []string{"-map", "0:v", "-map", "1:a"}
 	}
 	// 统一缩放到输出分辨率（分辨率变化由 scale+pad 吸收），软编默认。
 	vf := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,"+
@@ -111,8 +113,19 @@ func (d *FFmpegDriver) buildArgs(kind SourceKind, ec EncoderConfig) []string {
 	return args
 }
 
+// validateSource 在启动前固定输入合同，避免 PCM bridge 缺失时退回静音源。
+func (d *FFmpegDriver) validateSource(kind SourceKind) error {
+	if kind == SourceStage && d.AudioInput == "" {
+		return errors.New("publish: SourceStage 缺少 RTC PCM bridge 地址")
+	}
+	return nil
+}
+
 // Start 启动 ffmpeg。kind=SourceStage 时调用方经 Stdin() 喂 JPEG 帧。
 func (d *FFmpegDriver) Start(kind SourceKind, ec EncoderConfig) error {
+	if err := d.validateSource(kind); err != nil {
+		return err
+	}
 	bin := d.Bin
 	if bin == "" {
 		bin = "ffmpeg"

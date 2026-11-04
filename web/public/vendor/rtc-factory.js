@@ -20,7 +20,8 @@
       },
       leave: function () { return Promise.resolve() },
       mute: function () {},
-      destroy: function () {}
+      destroy: function () {},
+      onRemoteAudio: function () {}
     }
   }
 
@@ -30,6 +31,8 @@
     if (!AliRtcEngine) return unavailable('artc')
     var engine = null
     var videoEl = null
+    var audioHandler = function () {}
+    var exposedStream = null
 
     function bindView(uid) {
       if (!engine || !videoEl) return
@@ -40,9 +43,16 @@
         var p = videoEl.play()
         if (p && typeof p.catch === 'function') p.catch(function () { /* 自动播放被拦由上层提示 */ })
       } catch (e) { /* jsdom 等环境无 play */ }
+      // 只暴露 SDK 已绑定到远端 video 的真实 MediaStream；绝不请求麦克风或系统回录。
+      var stream = videoEl.srcObject
+      if (stream && stream !== exposedStream && typeof stream.getAudioTracks === 'function' && stream.getAudioTracks().length) {
+        exposedStream = stream
+        audioHandler({ kind: 'stream', stream: stream })
+      }
     }
 
     return {
+      onRemoteAudio: function (handler) { audioHandler = handler },
       join: async function (creds, video) {
         videoEl = video
         var supported = { support: true }
@@ -84,6 +94,7 @@
         var e = engine
         engine = null
         videoEl = null
+        exposedStream = null
         if (e) {
           try { await e.leaveChannel() } catch (err) { /* 离会失败不阻断本地清理 */ }
         }
@@ -102,8 +113,10 @@
     if (!TRTC) return unavailable('trtc')
     var client = null
     var videoEl = null
+    var audioHandler = function () {}
 
     return {
+      onRemoteAudio: function (handler) { audioHandler = handler },
       join: async function (creds, video) {
         videoEl = video
         client = TRTC.create()
@@ -118,6 +131,17 @@
             var p = videoEl.play()
             if (p && typeof p.catch === 'function') p.catch(function () { /* 上层提示 */ })
           } catch (err) { /* 订阅失败由状态轮询兜底 */ }
+        })
+        client.on(TRTC.EVENT.REMOTE_AUDIO_AVAILABLE, async function (e) {
+          try {
+            await client.startRemoteAudio({ userId: e.userId })
+            await client.callExperimentalAPI('enableAudioFrameEvent', {
+              enable: true, userId: e.userId, sampleRate: 48000, channelCount: 1
+            })
+          } catch (err) { /* 远端音频未实证；不得回退到麦克风或系统回录 */ }
+        })
+        client.on(TRTC.EVENT.AUDIO_FRAME, function (e) {
+          if (e && e.data) audioHandler({ kind: 'samples', samples: e.data })
         })
         await client.enterRoom({
           strRoomId: creds.roomId,

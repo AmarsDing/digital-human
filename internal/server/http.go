@@ -95,6 +95,7 @@ func NewHTTPServer(
 	// DZ 批：推流与采集状态接口；未装配（nil）时不注册，前端按 404/unconfigured 处理。
 	if streamSvc != nil {
 		streamv1.RegisterStreamServiceHTTPServer(srv, streamServiceAdapter{streamSvc})
+		registerRTCAudioRoute(srv, cfg, tickets, streamSvc.PCMBridge())
 	}
 	if collectorSvc != nil {
 		collectorv1.RegisterCollectorServiceHTTPServer(srv, collectorSvc)
@@ -137,6 +138,7 @@ func serverFiltersWithNonces(cfg *conf.Config, logger *slog.Logger, tickets Tick
 
 const wsEventsPath = "/ws/v1/events"
 const wsVoicePath = "/ws/v1/voice"
+const wsRTCAudioPath = "/ws/v1/rtc-audio"
 
 // timeoutFilter 只给非 WS 路由加短超时；事件/语音 WS 保留请求原始 context，
 // 由 handler 监听 Done（客户端断开才结束），不会被 15s 定时器掐断。
@@ -147,7 +149,8 @@ func timeoutFilter(d time.Duration) khttp.FilterFunc {
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == wsEventsPath || strings.HasPrefix(r.URL.Path, wsEventsPath+"/") ||
-				r.URL.Path == wsVoicePath || strings.HasPrefix(r.URL.Path, wsVoicePath+"/") {
+				r.URL.Path == wsVoicePath || strings.HasPrefix(r.URL.Path, wsVoicePath+"/") ||
+				r.URL.Path == wsRTCAudioPath || strings.HasPrefix(r.URL.Path, wsRTCAudioPath+"/") {
 				next.ServeHTTP(w, r)
 				return
 			}

@@ -23,6 +23,9 @@ func NewStreamService(pub *Publisher) *StreamService {
 	return &StreamService{pub: pub, idem: map[string]string{}}
 }
 
+// PCMBridge 返回公开 RTC 采集页的唯一 PCM 入口，不暴露原始 TTS/歌曲 PCM。
+func (s *StreamService) PCMBridge() *PCMBridge { return s.pub.PCMBridge() }
+
 // SetTarget 实现接口。
 func (s *StreamService) SetTarget(_ context.Context, req *streamv1.SetPushTargetRequest) (*streamv1.SetPushTargetReply, error) {
 	// req.StreamKey 只进 TargetStore，不进任何日志

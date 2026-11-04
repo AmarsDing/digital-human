@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { createRtcAdapter, RtcSdkMissingError } from './adapter'
-import type { RtcAdapter, RtcCreds, RtcState } from './types'
+import { Float32PCMEncoder, RemoteAudioCapture } from './RemoteAudioCapture'
+import { RtcAudioSocket } from './RtcAudioSocket'
+import type { RtcAdapter, RtcAudioCaptureConfig, RtcCreds, RtcRemoteAudio, RtcState } from './types'
 
-const props = defineProps<{ creds: RtcCreds | null }>()
+const props = defineProps<{ creds: RtcCreds | null; audioCapture?: RtcAudioCaptureConfig }>()
 const emit = defineEmits<{
   (e: 'state', v: RtcState): void
   (e: 'error', message: string): void
@@ -19,6 +21,9 @@ const remainS = ref(0)
 /** G30：最后一次成功渲染的视频帧（dataURL），收播/断流时铺底防黑屏。 */
 const lastFrame = ref('')
 let adapter: RtcAdapter | null = null
+let audioSocket: RtcAudioSocket | null = null
+let remoteCapture: RemoteAudioCapture | null = null
+let pcmEncoder = new Float32PCMEncoder()
 let timer: ReturnType<typeof setInterval> | null = null
 
 const alive = computed(() => state.value === 'joined')
@@ -45,6 +50,38 @@ function captureLastFrame(): void {
   }
 }
 
+async function startAudioCapture(owner: RtcAdapter): Promise<void> {
+  const config = props.audioCapture
+  if (!config) return
+  const socket = new RtcAudioSocket()
+  audioSocket = socket
+  pcmEncoder = new Float32PCMEncoder()
+  await socket.connect(config.sessionId, config.epoch)
+  owner.onRemoteAudio((audio: RtcRemoteAudio) => {
+    if (adapter !== owner || audioSocket !== socket) return
+    if (audio.kind === 'samples') {
+      for (const frame of pcmEncoder.push(audio.samples)) socket.send(frame)
+      return
+    }
+    const next = new RemoteAudioCapture()
+    const previous = remoteCapture
+    remoteCapture = next
+    if (previous) void previous.stop()
+    void next.start(audio.stream, (frame) => {
+      if (remoteCapture === next && audioSocket === socket) socket.send(frame)
+    }).catch((err) => emit('error', `RTC 远端音轨采集失败：${String(err)}`))
+  })
+}
+
+async function stopAudioCapture(): Promise<void> {
+  const socket = audioSocket
+  const capture = remoteCapture
+  audioSocket = null
+  remoteCapture = null
+  socket?.close()
+  if (capture) await capture.stop()
+}
+
 async function join(): Promise<void> {
   if (adapter) captureLastFrame() // G30：旧流拆除前先截住最后一帧
   await leave()
@@ -60,6 +97,7 @@ async function join(): Promise<void> {
     adapter = createRtcAdapter(creds.provider)
     const el = video.value
     if (!el) throw new Error('video 元素未就绪')
+    await startAudioCapture(adapter)
     await adapter.join(creds, el)
     el.muted = muted.value
     lastFrame.value = '' // 新流就绪，清掉旧帧
@@ -74,6 +112,7 @@ async function join(): Promise<void> {
 
 async function leave(): Promise<void> {
   stopCountdown()
+  await stopAudioCapture()
   if (adapter) {
     try {
       await adapter.leave()
@@ -126,7 +165,7 @@ function stopCountdown(): void {
 }
 
 watch(
-  () => props.creds,
+  [() => props.creds, () => props.audioCapture],
   () => void join(),
   { immediate: true, deep: true }
 )

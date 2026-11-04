@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import VideoStage from '../components/stage/VideoStage.vue'
 import PreflightDialog from '../components/stage/PreflightDialog.vue'
 import { usePreparationStore } from '../stores/preparation'
@@ -37,6 +37,7 @@ import { createVisibilityPolling } from '../utils/polling'
 import { registerStageHotkeys } from '../utils/hotkeys'
 
 const router = useRouter()
+const route = useRoute()
 const preparation = usePreparationStore()
 const preflightOpen = ref(false)
 const preflightBusy = ref(false)
@@ -58,6 +59,11 @@ const tokenInput = ref('')
 const rtcState = ref('')
 const ledger = ref<Ledger | null>(null)
 const creds = ref<RtcCreds | null>(null)
+const rtcAudioCapture = computed(() => {
+  const sessionId = live.status?.sessionId
+  if (!route.meta.rtcAudioCapture || !sessionId) return undefined
+  return { sessionId, epoch: live.status?.feed?.epoch ?? 0 }
+})
 const rtcMode = ref<'unknown' | 'unconfigured' | 'managed'>('unknown')
 const rtcNotice = ref('')
 const composerRef = ref<InstanceType<typeof ComposerBar> | null>(null)
@@ -548,6 +554,7 @@ async function doClearTranscript(): Promise<void> {
           :live-id="live.status?.liveId || ''"
           :duration-s="live.durationS"
           :creds="creds"
+          :audio-capture="rtcAudioCapture"
           :rtc-notice="rtcNotice"
           :ws-state="events.mode === 'ws' ? '在线' : events.mode === 'poll' ? '轮询' : '离线'"
           :lag-ms="live.lagMs"

@@ -23,7 +23,7 @@ vi.mock('../../utils/hotkeys', () => ({
 
 vi.mock('vue-router', async () => {
   const actual = await vi.importActual<typeof import('vue-router')>('vue-router')
-  return { ...actual, useRouter: () => ({ push: h.push }) }
+  return { ...actual, useRouter: () => ({ push: h.push }), useRoute: () => ({ meta: {} }) }
 })
 
 import StagePage from '../StagePage.vue'

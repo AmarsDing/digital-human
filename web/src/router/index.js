@@ -14,6 +14,8 @@ export default createRouter({
     { path: '/prepare', component: PreparePage },
     { path: '/models', component: ModelsPage },
     { path: '/', component: StagePage },
+    // 无头公开采集页：仅此路由允许把 RTC 远端音轨送入 PCM bridge。
+    { path: '/stage', component: StagePage, meta: { rtcAudioCapture: true } },
     { path: '/settings', component: SettingsPage },
     { path: '/platform', component: PlatformPage },
     { path: '/avatars', component: AvatarsPage },
