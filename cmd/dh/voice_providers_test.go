@@ -70,8 +70,45 @@ func TestRealTTSCapabilityUsesOmniVoiceHealth(t *testing.T) {
 		t.Fatalf("healthy OmniVoice capability = %s, want real", got)
 	}
 	healthy.Store(false)
+	caps = provideCapabilities(&conf.Config{}, rt, nil, nil, nil)
 	if got := caps(context.Background()).Get("tts"); got != capability.Unconfigured {
 		t.Fatalf("unhealthy OmniVoice capability = %s, want unconfigured", got)
+	}
+}
+
+func TestTTSHealthProbeCachesSuccessAndFailure(t *testing.T) {
+	var healthy atomic.Bool
+	var calls atomic.Int32
+	healthy.Store(true)
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":` + map[bool]string{true: "true", false: "false"}[healthy.Load()] + `,"model":"omnivoice","device":"cpu"}`))
+	}))
+	defer sidecar.Close()
+	synth := enginetts.NewSynthAdapter(enginetts.NewClient(enginetts.Options{BaseURL: sidecar.URL}), "")
+	probe := newCachedTTSHealth(synth)
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	probe.now = func() time.Time { return now }
+
+	if got := probe.status(context.Background()); got != capability.Real {
+		t.Fatalf("首次健康探测=%s want real", got)
+	}
+	healthy.Store(false)
+	if got := probe.status(context.Background()); got != capability.Real || calls.Load() != 1 {
+		t.Fatalf("成功结果应在短缓存内复用: status=%s calls=%d", got, calls.Load())
+	}
+	now = now.Add(probe.ttl)
+	if got := probe.status(context.Background()); got != capability.Unconfigured || calls.Load() != 2 {
+		t.Fatalf("过期后应重新探测并报告异常: status=%s calls=%d", got, calls.Load())
+	}
+	healthy.Store(true)
+	if got := probe.status(context.Background()); got != capability.Unconfigured || calls.Load() != 2 {
+		t.Fatalf("失败结果也应在短缓存内复用: status=%s calls=%d", got, calls.Load())
+	}
+	now = now.Add(probe.ttl)
+	if got := probe.status(context.Background()); got != capability.Real || calls.Load() != 3 {
+		t.Fatalf("失败缓存过期后应重新探测恢复: status=%s calls=%d", got, calls.Load())
 	}
 }
 

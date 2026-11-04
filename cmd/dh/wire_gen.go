@@ -55,6 +55,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -1131,6 +1132,36 @@ func wireInteractionRules(
 	})
 }
 
+type cachedTTSHealth struct {
+	synth *tts.SynthAdapter
+	ttl   time.Duration
+	now   func() time.Time
+
+	mu        sync.Mutex
+	expiresAt time.Time
+	cached    capability.Status
+}
+
+func newCachedTTSHealth(synth *tts.SynthAdapter) *cachedTTSHealth {
+	return &cachedTTSHealth{synth: synth, ttl: 5 * time.Second, now: time.Now}
+}
+
+func (p *cachedTTSHealth) status(ctx context.Context) capability.Status {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.now()
+	if !p.expiresAt.IsZero() && now.Before(p.expiresAt) {
+		return p.cached
+	}
+	p.cached = capability.Unconfigured
+	health, err := p.synth.Health(ctx)
+	if err == nil && health.OK {
+		p.cached = capability.Real
+	}
+	p.expiresAt = now.Add(p.ttl)
+	return p.cached
+}
+
 // provideCapabilities B2 §2.2：能力矩阵由装配点显式计算——按实际装配的实现类型给
 // 状态词，绝不只按配置存在报 real；探测未做的一律 unknown。
 func provideCapabilities(
@@ -1140,6 +1171,12 @@ func provideCapabilities(
 	sessions live.SessionStore,
 	d *data.Data,
 ) live.CapabilitySource {
+	var ttsHealth *cachedTTSHealth
+	if rt != nil {
+		if synth, ok := rt.synth.(*tts.SynthAdapter); ok {
+			ttsHealth = newCachedTTSHealth(synth)
+		}
+	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
 
@@ -1173,18 +1210,13 @@ func provideCapabilities(
 		}
 
 		if rt != nil && rt.synth != nil {
-			switch synth := rt.synth.(type) {
+			switch rt.synth.(type) {
 			case *tts2.FakeSynth:
 				mx["tts"] = capability.Fake
 			case tts2.UnavailableSynth:
 				mx["tts"] = capability.Unconfigured
 			case *tts.SynthAdapter:
-				health, err := synth.Health(ctx)
-				if err == nil && health.OK {
-					mx["tts"] = capability.Real
-				} else {
-					mx["tts"] = capability.Unconfigured
-				}
+				mx["tts"] = ttsHealth.status(ctx)
 			default:
 				mx["tts"] = capability.Unknown
 			}
