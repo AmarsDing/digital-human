@@ -2,6 +2,7 @@ package tts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ type jobSidecar struct {
 	cancels atomic.Int32
 	submits atomic.Int32
 	statusQ atomic.Int32
+	lastJob atomic.Value // JobRequest
 }
 
 func newJobSidecar(t *testing.T, wav []byte) *jobSidecar {
@@ -32,6 +34,12 @@ func newJobSidecar(t *testing.T, wav []byte) *jobSidecar {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == PathJobs:
 			j.submits.Add(1)
+			var req JobRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			j.lastJob.Store(req)
 			_, _ = w.Write([]byte(`{"job_id":"job-1","queue_pos":0}`))
 		case r.Method == http.MethodGet && r.URL.Path == PathJobs+"/job-1":
 			j.statusQ.Add(1)
@@ -70,6 +78,19 @@ func TestSynthAdapterWavToPCM(t *testing.T) {
 	}
 	if a.Name() != "omnivoice" {
 		t.Fatalf("name=%s", a.Name())
+	}
+}
+
+func TestSynthAdapterPassesVoiceAndSpeed(t *testing.T) {
+	sidecar := newJobSidecar(t, audio.WavBytes(audio.TonePCM(120)))
+	c := NewClient(Options{BaseURL: sidecar.srv.URL, PollInterval: time.Millisecond})
+	a := NewSynthAdapter(c, "default-voice")
+	if _, err := a.SynthWithParams(context.Background(), "你好", "voice-b", 1.25); err != nil {
+		t.Fatalf("synth: %v", err)
+	}
+	got := sidecar.lastJob.Load().(JobRequest)
+	if got.Text != "你好" || got.VoiceID != "voice-b" || got.Speed != 1.25 || got.Format != "wav" {
+		t.Fatalf("job request=%+v", got)
 	}
 }
 

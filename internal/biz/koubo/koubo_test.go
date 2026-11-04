@@ -14,16 +14,32 @@ import (
 	"github.com/teamwork/digital-human/pkg/audio"
 )
 
+type synthCall struct {
+	text  string
+	voice string
+	speed float64
+}
+
 type probeSynth struct {
 	mu     sync.Mutex
 	active int
 	max    int
 	delay  time.Duration
+	calls  []synthCall
 }
 
-func (p *probeSynth) Synth(ctx context.Context, _, _ string) ([]byte, error) {
+func (p *probeSynth) Synth(ctx context.Context, text, voice string) ([]byte, error) {
+	return p.synth(ctx, text, voice, 0)
+}
+
+func (p *probeSynth) SynthWithParams(ctx context.Context, text, voice string, speed float64) ([]byte, error) {
+	return p.synth(ctx, text, voice, speed)
+}
+
+func (p *probeSynth) synth(ctx context.Context, text, voice string, speed float64) ([]byte, error) {
 	p.mu.Lock()
 	p.active++
+	p.calls = append(p.calls, synthCall{text: text, voice: voice, speed: speed})
 	if p.active > p.max {
 		p.max = p.active
 	}
@@ -40,6 +56,12 @@ func (p *probeSynth) Synth(ctx context.Context, _, _ string) ([]byte, error) {
 		}
 	}
 	return audio.SilencePCM(160), nil
+}
+
+func (p *probeSynth) Calls() []synthCall {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]synthCall(nil), p.calls...)
 }
 
 func (p *probeSynth) MaxConcurrent() int {
@@ -153,6 +175,70 @@ func TestTTSIsSerial(t *testing.T) {
 	wg.Wait()
 	if synth.MaxConcurrent() != 1 {
 		t.Fatalf("max concurrent=%d", synth.MaxConcurrent())
+	}
+}
+
+func TestTTSCacheIsKeyedByTextVoiceAndSpeed(t *testing.T) {
+	svc, synth := newKo(t)
+	ctx := context.Background()
+	voice, speed := "voice-a", 1.0
+	svc.SetSynthParamsFn(func() (string, float64) { return voice, speed })
+	st, err := svc.Split("相同文本。", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := st.Segments[0].ID
+
+	if _, err := svc.TTS(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.TTS(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(synth.Calls()); got != 1 {
+		t.Fatalf("同文本同参数合成次数=%d want 1", got)
+	}
+	if len(second.Segments[0].Takes) != 2 || second.Segments[0].Takes[0].File != second.Segments[0].Takes[1].File {
+		t.Fatalf("同文本同参数未复用 take 文件: %+v", second.Segments[0].Takes)
+	}
+	call := synth.Calls()[0]
+	if call.text != "相同文本。" || call.voice != "voice-a" || call.speed != 1.0 {
+		t.Fatalf("合成参数未完整传递: %+v", call)
+	}
+
+	voice = "voice-b"
+	third, err := svc.TTS(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(synth.Calls()); got != 2 {
+		t.Fatalf("音色变化后合成次数=%d want 2", got)
+	}
+	if third.Segments[0].Takes[2].File == second.Segments[0].Takes[1].File {
+		t.Fatal("音色变化后不得复用旧音频")
+	}
+
+	speed = 1.25
+	fourth, err := svc.TTS(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(synth.Calls()); got != 3 {
+		t.Fatalf("语速变化后合成次数=%d want 3", got)
+	}
+	if fourth.Segments[0].Takes[3].File == third.Segments[0].Takes[2].File {
+		t.Fatal("语速变化后不得复用旧音频")
+	}
+
+	if _, err := svc.UpdateSegment(id, "不同文本。"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TTS(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(synth.Calls()); got != 4 {
+		t.Fatalf("文本变化后合成次数=%d want 4", got)
 	}
 }
 

@@ -815,6 +815,10 @@ func providePanelRuntime(
 	})
 
 	kou := koubo.NewService(koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")), synth, player, koubo.FakeActionGen{}, filepath.Join("storage", "koubo"), isLive)
+	kou.SetSynthParamsFn(func() (string, float64) {
+		ctx := context.Background()
+		return settingStr(st, ctx, "voice", "voice_id"), settingFloat(st, ctx, "voice", "speed")
+	})
 	arch := archive.NewService(sessions, mgr, bill)
 
 	arch.SetPersonaResolver(avatars)

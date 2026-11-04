@@ -23,10 +23,15 @@ func (a *SynthAdapter) Name() string { return "omnivoice" }
 
 // Synth 合成并返回 24k/s16le/mono PCM。
 func (a *SynthAdapter) Synth(ctx context.Context, text, voice string) ([]byte, error) {
+	return a.SynthWithParams(ctx, text, voice, 0)
+}
+
+// SynthWithParams 把音色和语速一并传给真实 OmniVoice 边车。
+func (a *SynthAdapter) SynthWithParams(ctx context.Context, text, voice string, speed float64) ([]byte, error) {
 	if voice == "" {
 		voice = a.voice
 	}
-	wav, err := a.c.Synthesize(ctx, JobRequest{Text: text, VoiceID: voice, Format: "wav"})
+	wav, err := a.c.Synthesize(ctx, JobRequest{Text: text, VoiceID: voice, Speed: speed, Format: "wav"})
 	if err != nil {
 		return nil, err
 	}

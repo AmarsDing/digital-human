@@ -149,6 +149,21 @@ type Synth interface {
 	Synth(ctx context.Context, text, voice string) ([]byte, error)
 }
 
+type synthWithParams interface {
+	SynthWithParams(ctx context.Context, text, voice string, speed float64) ([]byte, error)
+}
+
+type synthCacheKey struct {
+	text  string
+	voice string
+	speed float64
+}
+
+type synthCacheEntry struct {
+	file string
+	dur  float64
+}
+
 // ActionGen 生成动作描述（蓝本 engine.gen_action，未接 LLM 时由 fake 承接）。
 type ActionGen interface {
 	Generate(ctx context.Context, text string) (string, error)
@@ -164,14 +179,16 @@ func (f FakeActionGen) Generate(context.Context, string) (string, error) {
 }
 
 type Service struct {
-	mu      sync.Mutex
-	store   Store
-	synth   Synth
-	synthMu sync.Mutex // 同时只合成一段（蓝本 KOUBO TTS 串行锁）
-	player  media.Player
-	actions ActionGen
-	dir     string
-	isLive  func() bool
+	mu          sync.Mutex
+	store       Store
+	synth       Synth
+	synthMu     sync.Mutex // 同时只合成一段（蓝本 KOUBO TTS 串行锁）
+	synthParams func() (voice string, speed float64)
+	synthCache  map[synthCacheKey]synthCacheEntry
+	player      media.Player
+	actions     ActionGen
+	dir         string
+	isLive      func() bool
 
 	job        Job
 	playCancel context.CancelFunc
@@ -183,12 +200,21 @@ func NewService(store Store, synth Synth, player media.Player, gen ActionGen, au
 	if isLive == nil {
 		isLive = func() bool { return true }
 	}
-	return &Service{store: store, synth: synth, player: player, actions: gen, dir: audioDir, isLive: isLive, now: time.Now}
+	return &Service{
+		store: store, synth: synth, synthCache: make(map[synthCacheKey]synthCacheEntry),
+		player: player, actions: gen, dir: audioDir, isLive: isLive, now: time.Now,
+	}
 }
 
 func (s *Service) SetLive(fn func() bool) {
 	s.mu.Lock()
 	s.isLive = fn
+	s.mu.Unlock()
+}
+
+func (s *Service) SetSynthParamsFn(fn func() (voice string, speed float64)) {
+	s.mu.Lock()
+	s.synthParams = fn
 	s.mu.Unlock()
 }
 
@@ -400,10 +426,31 @@ func (s *Service) TTS(ctx context.Context, id string) (State, error) {
 func (s *Service) synthesize(ctx context.Context, segID, text string) (string, Take, error) {
 	s.synthMu.Lock()
 	defer s.synthMu.Unlock()
+
+	s.mu.Lock()
+	paramsFn := s.synthParams
+	s.mu.Unlock()
+	voice, speed := "", 0.0
+	if paramsFn != nil {
+		voice, speed = paramsFn()
+	}
+	voice = strings.TrimSpace(voice)
+	key := synthCacheKey{text: text, voice: voice, speed: speed}
+	if cached, ok := s.synthCache[key]; ok {
+		ts := s.now()
+		return cached.file, Take{File: cached.file, Dur: cached.dur, Ts: float64(ts.UnixMilli()) / 1000}, nil
+	}
+
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return "", Take{}, err
 	}
-	pcm, err := s.synth.Synth(ctx, text, "")
+	var pcm []byte
+	var err error
+	if parameterized, ok := s.synth.(synthWithParams); ok {
+		pcm, err = parameterized.SynthWithParams(ctx, text, voice, speed)
+	} else {
+		pcm, err = s.synth.Synth(ctx, text, voice)
+	}
 	if err != nil {
 		return "", Take{}, err
 	}
@@ -414,6 +461,7 @@ func (s *Service) synthesize(ctx context.Context, segID, text string) (string, T
 		return "", Take{}, err
 	}
 	dur := float64(audio.PCMDurationMS(pcm)) / 1000
+	s.synthCache[key] = synthCacheEntry{file: name, dur: dur}
 	return name, Take{File: name, Dur: dur, Ts: float64(ts.UnixMilli()) / 1000}, nil
 }
 

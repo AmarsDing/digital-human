@@ -807,6 +807,10 @@ func providePanelRuntime(
 		koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")),
 		synth, player, koubo.FakeActionGen{}, filepath.Join("storage", "koubo"), isLive,
 	)
+	kou.SetSynthParamsFn(func() (string, float64) {
+		ctx := context.Background()
+		return settingStr(st, ctx, "voice", "voice_id"), settingFloat(st, ctx, "voice", "speed")
+	})
 	arch := archive.NewService(sessions, mgr, bill)
 	// M5 A20：详情页无快照旧场次回落读 persona；软删后回 persona_id + 已删除语义。
 	arch.SetPersonaResolver(avatars)
