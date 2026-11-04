@@ -153,6 +153,38 @@ func uploadFile(t *testing.T, base, path, filename string, data []byte) (*http.R
 	return resp, raw
 }
 
+func TestPanelCapabilitySourcesUseSharedEnum(t *testing.T) {
+	base, _, stop := startPanelServer(t)
+	defer stop()
+
+	for _, tc := range []struct {
+		path  string
+		state string
+	}{
+		{path: "/api/v1/songs/status", state: "state"},
+		{path: "/api/v1/actions/queue", state: "status"},
+		{path: "/api/v1/tts/voices", state: ""},
+	} {
+		resp, raw := callJSON(t, base, http.MethodGet, tc.path, nil)
+		mustStatus(t, resp, http.StatusOK, tc.path)
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatalf("%s decode: %v", tc.path, err)
+		}
+		value := body
+		if tc.state != "" {
+			nested, ok := body[tc.state].(map[string]any)
+			if !ok {
+				t.Fatalf("%s 缺少 %s 对象: %s", tc.path, tc.state, raw)
+			}
+			value = nested
+		}
+		if value["source"] != "fake" {
+			t.Fatalf("%s fake 实现必须显式返回 source=fake: %s", tc.path, raw)
+		}
+	}
+}
+
 func TestPanelRoutesHTTPSmoke(t *testing.T) {
 	base, _, stop := startPanelServer(t)
 	defer stop()

@@ -1535,6 +1535,9 @@ func notFoundOrInternal(c khttp.Context, err error) error {
 }
 
 func mapTTSErr(c khttp.Context, err error) error {
+	if errors.Is(err, tts.ErrUnavailable) {
+		return c.JSON(http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "tts_unavailable", "message": "语音合成服务尚未配置，请先配置后再试听"})
+	}
 	if errors.Is(err, tts.ErrVoiceNotFound) || errors.Is(err, tts.ErrEmptyText) {
 		return badRequest(c, err)
 	}
