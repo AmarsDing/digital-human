@@ -173,10 +173,11 @@ func TestWSTicketNotBurnedByFailedHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("握手成功后 ticket 必须已消费: status=%d", resp2.StatusCode)
+	replayBody := decodeBody(t, resp2)
+	if resp2.StatusCode != http.StatusUnauthorized || replayBody["error"] != "ticket_invalid_or_used" {
+		t.Fatalf("握手成功后 ticket 必须已消费: status=%d body=%v", resp2.StatusCode, replayBody)
 	}
+	t.Logf("replayed WS ticket response: status=%d body=%v", resp2.StatusCode, replayBody)
 }
 
 // 长连测试：真实 WS 连接必须持续 120s 不断开（15s timeoutFilter 不得作用到 WS）。

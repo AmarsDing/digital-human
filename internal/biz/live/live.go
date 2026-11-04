@@ -135,9 +135,8 @@ type Manager struct {
 	allowUnpushedLive bool
 	// preflight 唯一 ready 判定服务（§7.5）；public-live 开播必须携带其签发 token。
 	preflight *Preflight
-	// defaultMode 开播模式缺省值（装配层从 live.start_mode 读取；未装配时 Start 按
-	// local-preview 处理并显式标注，绝不默认 public-live）。
-	defaultMode Mode
+	// modePolicy 是服务端开播模式的唯一判定依据；零值严格按 public-live。
+	modePolicy ModePolicy
 	// captionSplit F19/G16：captions.output_sentences 热读（nil 视为 true=逐句投喂）。
 	captionSplit func() bool
 	// recordingFlag F34 遗留接线：settings misc.record_enabled 开播时读入 StartOpts。
@@ -168,25 +167,19 @@ func (m *Manager) SetPreflight(p *Preflight) {
 	m.mu.Unlock()
 }
 
-// SetDefaultMode 注入开播模式缺省值（装配层从配置 live.start_mode 读取）。
-func (m *Manager) SetDefaultMode(mode Mode) {
+// SetModePolicy 注入服务端模式策略；请求中的 mode 仅用于一致性校验，绝不参与判定。
+func (m *Manager) SetModePolicy(policy ModePolicy) {
 	m.mu.Lock()
-	m.defaultMode = mode
+	m.modePolicy = policy
 	m.mu.Unlock()
 }
 
-// resolveMode 解析开播模式：显式入参 > 装配缺省 > local-preview（不假装 public）。
-func (m *Manager) resolveMode(req Mode) Mode {
-	if req != "" {
-		return req
-	}
+// resolveMode 只由服务端策略判定；客户端声明不一致时明确拒绝，不静默纠正。
+func (m *Manager) resolveMode(req Mode) (Mode, error) {
 	m.mu.Lock()
-	dm := m.defaultMode
+	policy := m.modePolicy
 	m.mu.Unlock()
-	if dm != "" {
-		return dm
-	}
-	return ModeLocalPreview
+	return resolveRequestedMode(policy, req)
 }
 
 // RefSwitcher 参考图信令推送端口（v3 §3.3 时序，M5），由 internal/biz/refs.Service 实现；
@@ -456,17 +449,19 @@ func buildConfigSnapshot(personaID string, opts StartOpts, prof avatar.ResolvedP
 }
 
 // StartRequest 严格 Start 入参（深化方案 v2 §7.5/§7.6）。
-// Mode 为空时按装配缺省解析（resolveMode）；public-live 必须携带 PreflightToken。
+// Mode 仅作一致性校验，实际模式由服务端策略判定；public-live 必须携带 PreflightToken。
 type StartRequest struct {
 	Mode             Mode
 	PreflightToken   string
+	ResultDigest     string
+	PersonaRevision  int64
 	DraftID          string
 	ExpectedRevision int64
 }
 
 // Start 返回 session_id / phase / live_id。已在 live/starting/stopping 时在
 // 同一 opMu 临界区内先 stop(reason=reconnect) 再创建，杜绝并发第三条会话。
-// 等价 StartWithMode(..., StartRequest{})：模式由装配缺省解析。
+// 等价 StartWithMode(..., StartRequest{})：模式由服务端策略判定。
 func (m *Manager) Start(ctx context.Context, personaID, avatarID, greeting string) (string, Phase, string, error) {
 	sid, phase, liveID, _, err := m.StartWithMode(ctx, personaID, avatarID, greeting, StartRequest{})
 	return sid, phase, liveID, err
@@ -480,7 +475,13 @@ func (m *Manager) StartWithMode(ctx context.Context, personaID, avatarID, greeti
 }
 
 func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting string, req StartRequest) (string, Phase, string, Mode, error) {
-	mode := m.resolveMode(req.Mode)
+	mode, err := m.resolveMode(req.Mode)
+	if err != nil {
+		return "", PhaseIdle, "", mode, err
+	}
+	if mode == ModePublicLive && req.DraftID == "" {
+		return "", PhaseIdle, "", mode, fmt.Errorf("%w: public-live requires draft_id", ErrDraftRequired)
+	}
 	m.mu.Lock()
 	curPhase := m.phase
 	m.mu.Unlock()
@@ -523,11 +524,10 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 		if pf == nil {
 			return "", curPhase, "", mode, fmt.Errorf("%w: preflight service not wired", ErrPreflightRequired)
 		}
-		personaRev := int64(0)
-		if profOK {
-			personaRev = prof.PersonaRevision
-		}
-		if err := pf.Verify(req.PreflightToken, mode, personaID, personaRev, ""); err != nil {
+		if err := pf.Verify(ctx, VerifyRequest{
+			Token: req.PreflightToken, Mode: mode, PersonaID: personaID, PersonaRevision: req.PersonaRevision,
+			DraftID: req.DraftID, ExpectedRevision: req.ExpectedRevision, ResultDigest: req.ResultDigest,
+		}); err != nil {
 			return "", curPhase, "", mode, err
 		}
 	}
@@ -601,6 +601,11 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 	// §7.3-2：vidu_ready 门档（ctrl.Start 成功）后一次性冻结开播配置快照；
 	// persist(PhaseStarting) 时本字段尚为 nil（快照必 nil，v3 §7.3 三细节）。
 	s.configSnapshot = buildConfigSnapshot(personaID, opts, prof, profOK, mode)
+	if req.DraftID != "" {
+		s.configSnapshot["draft_id"] = req.DraftID
+		s.configSnapshot["draft_revision"] = req.ExpectedRevision
+		s.configSnapshot["preflight_result_digest"] = req.ResultDigest
+	}
 	recorder := m.recorder
 	poller := m.poller
 	dmWorker := m.dmWorker

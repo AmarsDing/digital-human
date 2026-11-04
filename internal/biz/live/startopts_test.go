@@ -31,7 +31,7 @@ func TestStartOptsFromProfileResolver(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctrl := NewFakeController(quietLogger())
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, avatar.NewService(store))
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, avatar.NewService(store))
 
 	sid, phase, _, err := m.Start(ctx, "p1", "", "")
 	if err != nil || phase != PhaseLive {
@@ -58,7 +58,7 @@ func TestStartOptsFallbackWithoutProfile(t *testing.T) {
 	ctx := context.Background()
 	store := avatar.NewMemoryStore() // 空档案库：Resolve 必 ErrNotFound
 	ctrl := NewFakeController(quietLogger())
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, avatar.NewService(store))
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, avatar.NewService(store))
 
 	sid, phase, _, err := m.Start(ctx, "ghost-persona", "", "旧路径问候")
 	if !errors.Is(err, ErrResolveFailed) {
@@ -75,7 +75,7 @@ func TestStartOptsFallbackWithoutProfile(t *testing.T) {
 // TestStartOptsWithoutResolver resolver 为 nil（旧装配）：仅按入参构造 opts。
 func TestStartOptsWithoutResolver(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
-	m := NewManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
 	if _, phase, _, err := m.Start(context.Background(), "p", "", "hi"); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)
 	}
@@ -89,7 +89,7 @@ func TestStartOptsWithoutResolver(t *testing.T) {
 // 的场在建场时带 StartOpts.RecordingEnabled=true（与 yaml 常开任一成立即录）。
 func TestStartOptsRecordingEnabledFromSettings(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
-	m := NewManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
 	m.SetRecordingFlagFn(func() bool { return true })
 	if _, phase, _, err := m.Start(context.Background(), "p", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)
@@ -102,7 +102,7 @@ func TestStartOptsRecordingEnabledFromSettings(t *testing.T) {
 // TestStartOptsRecordingDefaultOff 未装配/关：StartOpts.RecordingEnabled 保持 false。
 func TestStartOptsRecordingDefaultOff(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
-	m := NewManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
 	m.SetRecordingFlagFn(func() bool { return false })
 	if _, phase, _, err := m.Start(context.Background(), "p", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)

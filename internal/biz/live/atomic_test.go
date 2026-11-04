@@ -13,7 +13,7 @@ import (
 // 不同 key 但已 live：必须在同一临界区内 stop(reconnect) 再开，而不是返回 409 或并存两场。
 func TestRestartDifferentKeyWhileLiveStopsReconnect(t *testing.T) {
 	ctrl := &recController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl,
 		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
@@ -42,7 +42,7 @@ func TestRestartDifferentKeyWhileLiveStopsReconnect(t *testing.T) {
 // 并发不同 key：opMu 串行化后最终只能剩一场，前一场都以 stop(reconnect) 收尾。
 func TestConcurrentDifferentKeyKeepsExactlyOneLiveSession(t *testing.T) {
 	ctrl := &counterController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl,
 		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
@@ -74,7 +74,7 @@ func TestConcurrentDifferentKeyKeepsExactlyOneLiveSession(t *testing.T) {
 
 // 控制器未实现 StatusProvider 时，运行态必须是 unknown/unconfigured，不能伪造 owner/connected。
 func TestRuntimeStatusUnknownWithoutStatusProvider(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	rt := m.RuntimeStatus(context.Background())
 	if rt.FeedKnown || rt.FeedOwner || rt.FeedKind != "unknown" {
 		t.Fatalf("feed must be unknown: %+v", rt)
@@ -89,7 +89,7 @@ func TestRuntimeStatusUnknownWithoutStatusProvider(t *testing.T) {
 
 // WS 状态取真实连接计数：有连接才 connected，断开后回落 disconnected。
 func TestWSStatusTracksRealConnections(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 
 	if st := m.WSStatusFor("s-1"); st.WSState != "disconnected" || !st.WSKnown {
 		t.Fatalf("no connection: %+v", st)
@@ -109,7 +109,7 @@ func TestWSStatusTracksRealConnections(t *testing.T) {
 
 // SnapshotFor：session 不匹配必须报错；transcript_since 必须真正分页。
 func TestSnapshotForSessionAndTranscriptPaging(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	ctx := context.Background()
 	sid, phase, _, err := m.Start(ctx, "p", "a", "")
 	if err != nil || phase != PhaseLive {
@@ -137,7 +137,7 @@ func TestSnapshotForSessionAndTranscriptPaging(t *testing.T) {
 
 // 结束后的 duration 必须冻结在 endedAt，而不是随查询时间继续增长。
 func TestSnapshotDurationFrozenAfterStop(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	if _, _, _, err := m.Start(context.Background(), "p", "a", ""); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestSnapshotDurationFrozenAfterStop(t *testing.T) {
 
 // 事件游标按 session_id 过滤并真正分页：after_seq/limit 必须生效，且不串场次。
 func TestListEventsFiltersBySessionAndPaginates(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	ctx := context.Background()
 
 	sid1, _, _, err := m.Start(ctx, "p", "a", "")

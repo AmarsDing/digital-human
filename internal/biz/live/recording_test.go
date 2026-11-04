@@ -36,7 +36,7 @@ func (r *stubRecorder) OnSessionStop(context.Context, string) (string, error) {
 // F34 开通路径：Start 随场启动录制，Stop 结束并轮询，persist 记录真实状态。
 func TestManagerRecorderLifecycle(t *testing.T) {
 	rec := &stubRecorder{enabled: true, state: "recording", stopState: "ready"}
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	m.SetRecorder(rec)
 
 	if _, _, _, err := m.Start(context.Background(), "p", "a", ""); err != nil {
@@ -62,7 +62,7 @@ func TestManagerRecorderLifecycle(t *testing.T) {
 // F34 未开通路径：recorder 报错不阻断开播，状态如实保留。
 func TestManagerRecorderFailureDoesNotBlock(t *testing.T) {
 	rec := &stubRecorder{enabled: false, state: "unavailable", startErr: errors.New("recording_not_enabled")}
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	m.SetRecorder(rec)
 
 	if _, phase, _, err := m.Start(context.Background(), "p", "a", ""); err != nil || phase != PhaseLive {
@@ -75,7 +75,7 @@ func TestManagerRecorderFailureDoesNotBlock(t *testing.T) {
 
 // 未配置录制时 RecordingState 为 none（真实值）。
 func TestManagerNoRecorderReportsNone(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	if got := m.RecordingState(); got != "none" {
 		t.Fatalf("recording state=%s want none", got)
 	}

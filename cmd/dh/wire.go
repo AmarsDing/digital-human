@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
@@ -83,9 +84,11 @@ func InitApp(cfgPath string, version VersionInfo) (*App, func(), error) {
 		provideViduKeys,
 		provideDanmakuWorker,
 		provideInteraction,
+		provideSongRequests,
 		provideGiftPatrons,
 		provideCapabilities,
 		providePreflight,
+		provideContentpkgStore,
 		provideContentpkg,
 		provideTickets,
 		provideNonces,
@@ -376,6 +379,7 @@ func provideManager(
 	st *settings.Service,
 ) *live.Manager {
 	m := live.NewManagerWithStores(bus, sink, ctrl, sessions, idem, resolver)
+	m.SetModePolicy(modePolicyFromConfig(cfg))
 	if recorder != nil {
 		m.SetRecorder(recorder)
 	}
@@ -460,6 +464,14 @@ func provideDanmakuWorker(
 
 // giftSpeaker 把 live.Manager.Say 适配为 gift/patron 的 Speaker 出口（mode 区分来源）。
 type giftSpeaker struct{ m *live.Manager }
+
+// chatSpeaker 规则优先普通聊天复用唯一口播出口。
+type chatSpeaker struct{ m *live.Manager }
+
+func (s chatSpeaker) Say(ctx context.Context, text string) error {
+	_, err := s.m.Say(ctx, text, "chat")
+	return err
+}
 
 func (s giftSpeaker) Say(ctx context.Context, text, mode string) error {
 	_, err := s.m.Say(ctx, text, mode)
@@ -665,11 +677,12 @@ func provideHealth(version VersionInfo, cfg *conf.Config, d *data.Data, m *live.
 
 // panelRuntime 持有 M3 面板依赖与共享调度器，避免多个 *media.Library 在 wire 中同名冲突。
 type panelRuntime struct {
-	deps      server.PanelDeps
-	scheduler *action.Scheduler
-	dm        *danmaku.Service
-	player    media.Player
-	koubo     *koubo.Service
+	deps          server.PanelDeps
+	scheduler     *action.Scheduler
+	songScheduler *song.Scheduler
+	dm            *danmaku.Service
+	player        media.Player
+	koubo         *koubo.Service
 	// sender/synth §2.2 能力矩阵探测源（装配点显式化：类型即能力证据）。
 	sender action.Sender
 	synth  tts.Synth
@@ -694,6 +707,8 @@ func providePanelRuntime(
 	vkeys *vidukeys.Service,
 	recorder live.Recorder,
 	patrons *patron.Service,
+	ix *interactionRuntime,
+	songRequests *repo.SwitchableSongRequestStore,
 ) *panelRuntime {
 	isLive := func() bool { return mgr.Snapshot().Phase == live.PhaseLive }
 
@@ -749,7 +764,29 @@ func providePanelRuntime(
 	sched.SetPauseChoreo(func(d time.Duration) { chor.Pause(d) })
 
 	songs := song.NewService(songLib, dec, player, bus, isLive)
+	songScheduler := song.NewScheduler(songRequests, songs, time.Now)
+	song.RegisterInteractionHandler(ix.disp, songRequests, songScheduler)
 	sched.SetSongPlaying(func() bool { return songs.Status().Playing })
+
+	// 规则优先：点歌/动作先判定，普通聊天才进入 LLM。动作发送仍为 fake，
+	// 因此不装配任何 Allowed+real 的动作映射，预检也会阻断公开开播。
+	files, _ := songLib.List()
+	ruleSongs := make(map[string]string, len(files)*2)
+	fileNames := make([]string, 0, len(files))
+	for _, file := range files {
+		fileNames = append(fileNames, file.Name)
+		ruleSongs[file.Name] = file.Name
+		ruleSongs[strings.TrimSuffix(file.Name, filepath.Ext(file.Name))] = file.Name
+	}
+	wireInteractionRules(dm, ix, chatMgr, chatSpeaker{m: mgr}, sched, interaction.RulePolicy{
+		RuleVersion:  "danmaku-rules-v1",
+		Revision:     interaction.SourceKey("danmaku-rules", strings.Join(fileNames, "\x00")),
+		LLMAvailable: settingStr(st, context.Background(), "llm", "api_key") != "",
+		Songs:        ruleSongs,
+	}, func() (string, bool) {
+		snap := mgr.Snapshot()
+		return snap.SessionID, snap.Phase == live.PhaseLive || snap.Phase == live.PhaseStarting
+	})
 
 	kou := koubo.NewService(
 		koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")),
@@ -775,24 +812,26 @@ func providePanelRuntime(
 	refsSvc.SetDir("storage/refs")
 
 	return &panelRuntime{
-		scheduler: sched,
-		dm:        dm,
-		player:    player,
-		koubo:     kou,
-		sender:    sender,
-		synth:     synth,
+		scheduler:     sched,
+		songScheduler: songScheduler,
+		dm:            dm,
+		player:        player,
+		koubo:         kou,
+		sender:        sender,
+		synth:         synth,
 		deps: server.PanelDeps{
-			TTS:      tts.NewService(audioLib, synth, st),
-			Actions:  actions,
-			Choreo:   chor,
-			Koubo:    kou,
-			Refs:     refsSvc,
-			Songs:    songs,
-			Archive:  arch,
-			Billing:  bill,
-			Danmaku:  dm,
-			Personas: personas,
-			Patrons:  patrons,
+			TTS:          tts.NewService(audioLib, synth, st),
+			Actions:      actions,
+			Choreo:       chor,
+			Koubo:        kou,
+			Refs:         refsSvc,
+			Songs:        songs,
+			SongRequests: songRequests,
+			Archive:      arch,
+			Billing:      bill,
+			Danmaku:      dm,
+			Personas:     personas,
+			Patrons:      patrons,
 			// G 批 M2：档案服务 + 图片管线（内容寻址 storage/images）。
 			// G 批 M3：sync-vidu 202 异步管线（无 Vidu 凭据时 503 fail-closed）。
 			Avatars:      avatars,
@@ -825,6 +864,7 @@ func providePanelRuntime(
 			Recording: recorderSupervisor(recorder),
 			// F08/F36/G03/N3 额度：有凭据实时透传 Vidu credits；无凭据 nil → 路由返回明确空态。
 			Credits: viduCreditsQuery(deps),
+			Effects: ix.store, InteractionDispatcher: ix.disp,
 			// import-folder 白名单根：只允许 storage 之下的目录。
 			StorageRoot: "storage",
 		},
@@ -878,8 +918,8 @@ func provideHTTPServer(
 		streamSvc, collectorSvc, collectorTracker, preflight)
 }
 
-func provideApp(s *khttp.Server, d *data.Data, logger *slog.Logger, m *live.Manager, dmWorker *danmaku.Worker, ix *interactionRuntime, pkgs *contentpkg.Service) *App {
-	return &App{Server: s, Data: d, Logger: logger, Manager: m, DanmakuWorker: dmWorker, Interaction: ix, Contentpkg: pkgs}
+func provideApp(s *khttp.Server, d *data.Data, logger *slog.Logger, m *live.Manager, dmWorker *danmaku.Worker, ix *interactionRuntime, pkgs *contentpkg.Service, rt *panelRuntime) *App {
+	return &App{Server: s, Data: d, Logger: logger, Manager: m, DanmakuWorker: dmWorker, Interaction: ix, Contentpkg: pkgs, SongScheduler: rt.songScheduler}
 }
 
 // providePublisher DZ 批：stream.enabled=false 时返回 nil（路由不注册，前端按 404/unconfigured
@@ -942,21 +982,42 @@ func provideCollectorService(t *relay.Tracker) *relay.CollectorService {
 
 // interactionRuntime 互动一致性闭环装配产物（§5.4/§5.5）。
 type interactionRuntime struct {
-	svc  *interaction.Service
-	disp *interaction.Dispatcher
-	gift *interaction.GiftSpeaker
+	svc        *interaction.Service
+	store      interaction.Store
+	disp       *interaction.Dispatcher
+	gift       *interaction.GiftSpeaker
+	rules      atomic.Pointer[interaction.RuleEngine]
+	chatSource atomic.Pointer[repo.EntDanmakuSink]
+}
+
+// provideSongRequests 点歌队列内存启动、PG 热切；晚到的 PG 在切换时立即恢复 playing 现场。
+func provideSongRequests(d *data.Data, logger *slog.Logger) *repo.SwitchableSongRequestStore {
+	policy := song.QueuePolicy{}
+	sw := repo.NewSwitchableSongRequestStore(song.NewMemoryRequestStore(policy, time.Now), policy, time.Now)
+	d.SetOnDBReady(func(client *ent.Client) {
+		sw.SetEnt(client)
+		if err := sw.RecoverPlaying(context.Background()); err != nil {
+			logger.Warn("recover persistent song requests failed", "err", err)
+		}
+	})
+	return sw
 }
 
 // provideInteraction B3：Decision/EffectOutbox 存储（内存启动、PG 热切）+ dispatcher
 // lease 骨架 + 礼物答谢链路（gift 合并触发 → 落库 → 派发 Say → 回执写状态）。
 func provideInteraction(d *data.Data, mgr *live.Manager) (*interactionRuntime, error) {
 	sw := repo.NewSwitchableInteractionStore(interaction.NewMemoryStore())
-	d.SetOnDBReady(sw.SetEnt)
 	svc := interaction.NewService(sw)
-	disp, err := interaction.NewDispatcher(sw, 30*time.Second, 30*time.Second, nil)
+	ix := &interactionRuntime{svc: svc, store: sw}
+	disp, err := interaction.NewDispatcher(sw, 30*time.Second, 30*time.Second, ix.orphanChatDecisions)
 	if err != nil {
 		return nil, err
 	}
+	ix.disp = disp
+	d.SetOnDBReady(func(client *ent.Client) {
+		sw.SetEnt(client)
+		ix.chatSource.Store(repo.NewEntDanmakuSink(client))
+	})
 	gs := interaction.NewGiftSpeaker(svc, disp, giftSpeaker{m: mgr}, func() (string, bool) {
 		snap := mgr.Snapshot()
 		if snap.Phase == live.PhaseLive || snap.Phase == live.PhaseStarting {
@@ -965,7 +1026,74 @@ func provideInteraction(d *data.Data, mgr *live.Manager) (*interactionRuntime, e
 		return "", false
 	})
 	gs.RegisterGiftHandler()
-	return &interactionRuntime{svc: svc, disp: disp, gift: gs}, nil
+	ix.gift = gs
+	return ix, nil
+}
+
+// orphanChatDecisions 只从 PG 恢复已持久化的规则聊天；内存降级没有可恢复的原始行。
+func (ix *interactionRuntime) orphanChatDecisions(ctx context.Context) ([]interaction.DecisionInput, error) {
+	source, rules := ix.chatSource.Load(), ix.rules.Load()
+	if source == nil || rules == nil {
+		return nil, nil
+	}
+	events, err := source.ListOrphanRuleChats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	inputs := make([]interaction.DecisionInput, 0, len(events))
+	for _, event := range events {
+		userKey := event.UserID
+		if userKey == "" {
+			userKey = event.UserName
+		}
+		inputs = append(inputs, rules.DecisionInput(interaction.RuleEvent{
+			EventRowID: event.ID, InternalEventID: event.SourceEventID,
+			SessionID: event.SessionID, UserKey: userKey, Text: event.Text,
+			ReceivedAtMs: event.ReceivedAtMs, ExpiresAtMs: event.ExpiresAtMs,
+		}))
+	}
+	return inputs, nil
+}
+
+// wireInteractionRules 把已持久化的 chat 原始事件接入确定性规则，并立即派发本次副作用。
+// 同源重放由 danmaku 与 Decision 两层幂等共同去重，不会形成第二条消费链。
+func wireInteractionRules(
+	dm *danmaku.Service,
+	ix *interactionRuntime,
+	chatter interaction.ChatChatter,
+	speaker interaction.ChatSpeaker,
+	actions interaction.ActionCommander,
+	policy interaction.RulePolicy,
+	session func() (string, bool),
+) {
+	engine := interaction.NewRuleEngine(ix.svc, policy, nil)
+	ix.rules.Store(engine)
+	interaction.RegisterChatReplyHandler(ix.disp, chatter, speaker)
+	interaction.RegisterActionHandler(ix.disp, actions)
+	dm.SetRuleTap(func(ctx context.Context, _ string, ev danmaku.TapEvent) error {
+		sessionID, ok := session()
+		if !ok || sessionID == "" {
+			return fmt.Errorf("interaction: chat rule without live session")
+		}
+		userKey := ev.UserID
+		if userKey == "" {
+			userKey = ev.UserName
+		}
+		_, effects, err := engine.Handle(ctx, interaction.RuleEvent{
+			EventRowID: ev.EventRowID, InternalEventID: ev.SourceEventID,
+			SessionID: sessionID, UserKey: userKey, Text: ev.Text,
+			ReceivedAtMs: ev.ReceivedAtMs, ExpiresAtMs: ev.ExpiresAtMs,
+		})
+		if err != nil {
+			return err
+		}
+		for range effects {
+			if _, err := ix.disp.DispatchOnce(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // provideCapabilities B2 §2.2：能力矩阵由装配点显式计算——按实际装配的实现类型给
@@ -1030,8 +1158,9 @@ func provideCapabilities(
 		default:
 			mx["vidu"] = capability.Unknown
 		}
-		// koubo_actiongen：当前装配 FakeActionGen。
+		// koubo_actiongen 与内容包 FileStore 当前均为显式内存/fake 装配。
 		mx["koubo_actiongen"] = capability.Fake
+		mx["content_storage"] = capability.Fake
 		// push_gate（DZ 批已装配时探测当前推流状态）。
 		if pub == nil {
 			mx["push_gate"] = capability.Unconfigured
@@ -1050,7 +1179,11 @@ func provideCapabilities(
 	}
 }
 
-// providePreflight B1 §7.5：唯一 ready 判定服务装配 + 严格 Start 缺省模式（§7.6）。
+func modePolicyFromConfig(cfg *conf.Config) live.ModePolicy {
+	return live.ModePolicy{AllowLocalPreview: cfg.Live.AllowLocalPreview, EngineMode: cfg.Engine.Mode}
+}
+
+// providePreflight B1 §7.5：唯一 ready 判定服务装配 + 服务端 Start 模式策略（§7.6）。
 func providePreflight(
 	cfg *conf.Config,
 	resolver avatar.ProfileResolver,
@@ -1059,6 +1192,7 @@ func providePreflight(
 	sessions live.SessionStore,
 	mgr *live.Manager,
 	rt *panelRuntime,
+	drafts contentpkg.Store,
 ) *live.Preflight {
 	pf := live.NewPreflight(resolver, caps,
 		func() (publish.PushGate, bool) {
@@ -1071,24 +1205,27 @@ func providePreflight(
 			p, ok := sessions.(interface{ Persistent() bool })
 			return ok && p.Persistent()
 		})
+	pf.SetDraftSource(drafts)
+	pf.SetModePolicy(modePolicyFromConfig(cfg))
 	mgr.SetPreflight(pf)
-	// 缺省模式：live.start_mode 显式配置优先；否则 dev→local-preview、real→public-live。
-	mode := live.Mode(cfg.Live.StartMode)
-	if mode == "" {
-		if cfg.Engine.Mode == "dev" {
-			mode = live.ModeLocalPreview
-		} else {
-			mode = live.ModePublicLive
-		}
-	}
-	mgr.SetDefaultMode(mode)
 	return pf
 }
 
-// provideContentpkg B4 §7.1/§7.3/§7.4：LiveDraft CAS + ApplyJournal 骨架存储
-// （内存启动、PG 热切）；apply 提交点/补偿为显式未实现错误。
-func provideContentpkg(d *data.Data) *contentpkg.Service {
+// provideContentpkgStore 是草稿、预检和 Start 共用的唯一内容包事实源。
+func provideContentpkgStore(d *data.Data) contentpkg.Store {
 	sw := repo.NewSwitchableContentpkgStore(contentpkg.NewMemoryStore())
 	d.SetOnDBReady(sw.SetEnt)
-	return contentpkg.NewService(sw)
+	return sw
+}
+
+func provideContentpkg(store contentpkg.Store, rt *panelRuntime) *contentpkg.Service {
+	// 当前只有内存 FileStore；local-preview 可用，capability=content_storage:fake
+	// 会阻断 public-live，绝不把内存提交冒充持久发布。
+	svc := contentpkg.NewServiceWithFileStores(store, map[string]contentpkg.FileStore{
+		"koubo":  contentpkg.NewMemoryFileStore(),
+		"choreo": contentpkg.NewMemoryFileStore(),
+		"refs":   contentpkg.NewMemoryFileStore(),
+	})
+	rt.deps.Contentpkg = svc
+	return svc
 }

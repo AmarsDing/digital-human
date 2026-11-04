@@ -23,7 +23,7 @@ func (f *llmFakeStreamer) Stream(_ context.Context, _ []llm.Message) (<-chan llm
 // G07：ResetLlm 真实清 chat 记忆并返回清除轮数（蓝本 bridge.py:536 → llm.reset_history）。
 func TestResetLlmClearsChatMemory(t *testing.T) {
 	ctx := context.Background()
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	chatMgr := chat.NewManager(&llmFakeStreamer{sentences: []string{"好。"}}, nil)
 	m.SetLlmMemory(chatMgr)
 
@@ -53,7 +53,7 @@ func TestResetLlmClearsChatMemory(t *testing.T) {
 
 // 未装配记忆端口时如实返回 0（不假装清过）。
 func TestResetLlmWithoutMemory(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	if _, _, _, err := m.Start(context.Background(), "p", "a", ""); err != nil {
 		t.Fatal(err)
 	}

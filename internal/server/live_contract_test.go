@@ -42,6 +42,7 @@ func startLiveHTTPWithRTC(t *testing.T, ctrl live.Controller, issuer *rtc.Issuer
 	bus := eventbus.New(64)
 	mgr := live.NewManagerWithStores(bus, live.NewMemorySink(64), ctrl, nil,
 		live.NewMemoryIdempotencyStore(time.Hour), nil)
+	mgr.SetModePolicy(live.ModePolicy{AllowLocalPreview: true, EngineMode: "dev"})
 	dm := danmaku.NewService(danmaku.ModeConfirm)
 	svc := service.NewLiveService(mgr, nil, dm, issuer)
 

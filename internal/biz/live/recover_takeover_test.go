@@ -17,7 +17,7 @@ func TestRecoverAfterCrashNewManagerTakesOver(t *testing.T) {
 	// 旧进程：开播成功后"崩溃"——不调 Stop，Manager 直接废弃。
 	bus1 := eventbus.New(64)
 	ctrl1 := &recController{}
-	m1 := NewManagerWithStores(bus1, NewMemorySink(64), ctrl1, store, nil, nil)
+	m1 := newPreviewManager(bus1, NewMemorySink(64), ctrl1, store, nil, nil)
 	sid1, phase, _, err := m1.Start(ctx, "p", "a", "")
 	if err != nil || phase != PhaseLive {
 		t.Fatalf("old manager start: phase=%s err=%v", phase, err)
@@ -28,7 +28,7 @@ func TestRecoverAfterCrashNewManagerTakesOver(t *testing.T) {
 	bus2 := eventbus.New(64)
 	sink2 := NewMemorySink(64)
 	ctrl2 := &recController{}
-	m2 := NewManagerWithStores(bus2, sink2, ctrl2, store, nil, nil)
+	m2 := newPreviewManager(bus2, sink2, ctrl2, store, nil, nil)
 	sid2, phase2, _, err := m2.Start(ctx, "p", "a", "")
 	if err != nil || phase2 != PhaseLive {
 		t.Fatalf("new manager start: phase=%s err=%v", phase2, err)

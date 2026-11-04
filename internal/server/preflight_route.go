@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -26,6 +27,19 @@ func registerPreflightRoute(srv *khttp.Server, pf *live.Preflight) {
 		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil && err != io.EOF {
 			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "bad_request"})
 		}
-		return c.JSON(http.StatusOK, pf.Run(c.Request().Context(), req))
+		result, err := pf.Run(c.Request().Context(), req)
+		if err != nil {
+			reason := ""
+			switch {
+			case errors.Is(err, live.ErrModeNotAllowed):
+				reason = "mode_not_allowed"
+			case errors.Is(err, live.ErrDraftRequired):
+				reason = "draft_required"
+			default:
+				return err
+			}
+			return c.JSON(http.StatusConflict, map[string]any{"ok": false, "reason": reason, "mode": result.Mode})
+		}
+		return c.JSON(http.StatusOK, result)
 	})
 }

@@ -41,7 +41,7 @@ func TestConcurrentStartStopConsistency(t *testing.T) {
 	bus := eventbus.New(256)
 	store := NewMemorySessionStore()
 	ctrl := &concController{}
-	m := NewManagerWithStores(bus, NewMemorySink(256), ctrl, store,
+	m := newPreviewManager(bus, NewMemorySink(256), ctrl, store,
 		NewMemoryIdempotencyStore(time.Hour), nil)
 
 	var wg sync.WaitGroup
@@ -98,7 +98,7 @@ func TestConcurrentStartStopConsistency(t *testing.T) {
 func TestConcurrentSameIdempotencyKey(t *testing.T) {
 	bus := eventbus.New(256)
 	ctrl := &concController{}
-	m := NewManagerWithStores(bus, NewMemorySink(256), ctrl, nil,
+	m := newPreviewManager(bus, NewMemorySink(256), ctrl, nil,
 		NewMemoryIdempotencyStore(time.Hour), nil)
 
 	var wg sync.WaitGroup

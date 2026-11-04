@@ -28,9 +28,8 @@ type Config struct {
 
 // Live 开播模式配置。
 type Live struct {
-	// StartMode 开播缺省模式：local-preview | public-live；为空按 engine.mode 推导
-	// （dev→local-preview，real→public-live）。public-live 必须走唯一预检拿 token。
-	StartMode string `yaml:"start_mode"`
+	// AllowLocalPreview 默认 false；仅同时满足 engine.mode=dev 才开放本地预览。
+	AllowLocalPreview bool `yaml:"allow_local_preview"`
 }
 
 // Health 探活语义配置。

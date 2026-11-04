@@ -12,7 +12,7 @@ import (
 // （对齐蓝本 engine.py interrupt/_barge_in：停播放、清 TTS 队列），不动 StopActionAudio。
 func TestInterruptInvokesHooks(t *testing.T) {
 	var stopPlayback, clearTTS, stopAction atomic.Int32
-	m := NewManager(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()))
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()))
 	m.SetInterruptHooks(InterruptHooks{
 		StopPlayback:    func(context.Context) { stopPlayback.Add(1) },
 		ClearTTSQueue:   func(context.Context) { clearTTS.Add(1) },
@@ -30,7 +30,7 @@ func TestInterruptInvokesHooks(t *testing.T) {
 // TestStopActionsInvokesHook G22：StopActions 触发 StopActionAudio（中断当前动作语音）。
 func TestStopActionsInvokesHook(t *testing.T) {
 	var stopPlayback, clearTTS, stopAction atomic.Int32
-	m := NewManager(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()))
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()))
 	m.SetInterruptHooks(InterruptHooks{
 		StopPlayback:    func(context.Context) { stopPlayback.Add(1) },
 		ClearTTSQueue:   func(context.Context) { clearTTS.Add(1) },
@@ -47,7 +47,7 @@ func TestStopActionsInvokesHook(t *testing.T) {
 
 // TestInterruptWithoutHooksNoPanic 未装配 hooks 时 Interrupt/StopActions 安全无操作。
 func TestInterruptWithoutHooksNoPanic(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()))
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()))
 	m.Interrupt(context.Background())
 	m.StopActions(context.Background())
 }

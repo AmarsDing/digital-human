@@ -35,7 +35,7 @@ func (w *recDMWorker) snapshot() (started, stopped []string) {
 
 // TestDanmakuWorkerLifecycle 弹幕批读 worker 随开播启动、停播停止（SetCreditsPoller 同款 Setter 模式）。
 func TestDanmakuWorkerLifecycle(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	w := &recDMWorker{}
 	m.SetDanmakuWorker(w)
 
@@ -59,7 +59,7 @@ func TestDanmakuWorkerLifecycle(t *testing.T) {
 
 // TestDanmakuWorkerNilSafe 未注入 worker 时开播/停播不受影响。
 func TestDanmakuWorkerNilSafe(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	if _, phase, _, err := m.Start(context.Background(), "p", "a", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)
 	}

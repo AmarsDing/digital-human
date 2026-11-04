@@ -57,7 +57,7 @@ func TestConfigSnapshotWrittenOnceAtLive(t *testing.T) {
 	}
 	rec := &recStore{}
 	ctrl := NewFakeController(quietLogger())
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, rec, nil, avatar.NewService(store))
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, rec, nil, avatar.NewService(store))
 
 	if _, phase, _, err := m.Start(ctx, "p1", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)
@@ -106,7 +106,7 @@ func TestConfigSnapshotLegacyPath(t *testing.T) {
 	ctx := context.Background()
 	rec := &recStore{}
 	ctrl := NewFakeController(quietLogger())
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, rec, nil, nil)
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, rec, nil, nil)
 
 	if _, phase, _, err := m.Start(ctx, "", "", "旧路径问候"); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)

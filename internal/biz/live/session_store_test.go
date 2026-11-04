@@ -41,7 +41,7 @@ func (s *recSessionStore) savedPhases() []Phase {
 func TestStartPersistsStartingAndLive(t *testing.T) {
 	ctrl := &recController{}
 	store := newRecSessionStore()
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, store, nil, nil)
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, store, nil, nil)
 
 	sid, phase, liveID, err := m.Start(context.Background(), "persona-1", "avatar-1", "")
 	if err != nil || phase != PhaseLive {
@@ -66,7 +66,7 @@ func TestStartPersistsStartingAndLive(t *testing.T) {
 func TestStopPersistsStoppingAndEnded(t *testing.T) {
 	ctrl := &recController{}
 	store := newRecSessionStore()
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, store, nil, nil)
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, store, nil, nil)
 
 	sid, _, _, err := m.Start(context.Background(), "p", "a", "")
 	if err != nil {
@@ -111,7 +111,7 @@ func TestRecoverMarksAllUnfinishedExceptCurrentSession(t *testing.T) {
 	}
 
 	b := eventbus.New(64)
-	m := NewManagerWithStores(b, NewMemorySink(64), &recController{}, store, nil, nil)
+	m := newPreviewManager(b, NewMemorySink(64), &recController{}, store, nil, nil)
 	if err := m.Recover(context.Background()); err != nil {
 		t.Fatalf("recover: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestRecoverMarksAllUnfinishedExceptCurrentSession(t *testing.T) {
 func TestRecoverSkipsCurrentSession(t *testing.T) {
 	store := NewMemorySessionStore()
 	b := eventbus.New(64)
-	m := NewManagerWithStores(b, NewMemorySink(64), &recController{}, store, nil, nil)
+	m := newPreviewManager(b, NewMemorySink(64), &recController{}, store, nil, nil)
 
 	sid, phase, _, err := m.Start(context.Background(), "", "", "")
 	if err != nil {
@@ -177,7 +177,7 @@ func TestRecoverSkipsCurrentSession(t *testing.T) {
 }
 
 func TestRecoverNoopWithoutStore(t *testing.T) {
-	m := NewManager(eventbus.New(8), NewMemorySink(8), &recController{})
+	m := newPreviewBasicManager(eventbus.New(8), NewMemorySink(8), &recController{})
 	if err := m.Recover(context.Background()); err != nil {
 		t.Fatalf("recover without store: %v", err)
 	}

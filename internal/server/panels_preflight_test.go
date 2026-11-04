@@ -23,6 +23,7 @@ func TestLivePreflightRoute(t *testing.T) {
 			"push_gate": capability.Unconfigured, "storage_persistent": capability.Fake,
 		}
 	}, nil, func() bool { return false })
+	pf.SetDraftSource(contractDraftSource{})
 	// 路由独立于面板清单注册（见 preflight_route.go 注释）：手工装配最小 HTTP 服务。
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -44,7 +45,7 @@ func TestLivePreflightRoute(t *testing.T) {
 	defer srv.stop()
 
 	resp, raw := callJSON(t, srv.base, "POST", "/api/v1/live/preflight",
-		map[string]any{"mode": "public-live", "persona_id": ""})
+		map[string]any{"mode": "public-live", "persona_id": "", "draft_id": "d1", "expected_revision": 3})
 	mustStatus(t, resp, http.StatusOK, "/api/v1/live/preflight")
 	var body struct {
 		CheckID        string `json:"check_id"`
@@ -82,7 +83,8 @@ func TestLivePreflightRoute(t *testing.T) {
 		t.Fatalf("fake 能力 public 必须 fail: %+v", seen)
 	}
 
-	// local-preview：fake 显式 warn，ready=true。
+	// local-preview：仅显式 allow + dev 可用；fake 显式 warn，ready=true。
+	pf.SetModePolicy(live.ModePolicy{AllowLocalPreview: true, EngineMode: "dev"})
 	resp2, raw2 := callJSON(t, srv.base, "POST", "/api/v1/live/preflight",
 		map[string]any{"mode": "local-preview"})
 	mustStatus(t, resp2, http.StatusOK, "preflight local")

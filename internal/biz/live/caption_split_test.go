@@ -34,7 +34,7 @@ func (r *sayRecorder) said() []string {
 // → 整段文本按蓝本分句规则逐句投喂 TTS（每句一次 ctrl.Say），返回首句 utterance id。
 func TestSaySplitsSentencesWhenCaptionEnabled(t *testing.T) {
 	ctrl := &sayRecorder{FakeController: NewFakeController(quietLogger())}
-	m := NewManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
 	m.SetCaptionSplitFn(func() bool { return true })
 	if _, phase, _, err := m.Start(context.Background(), "p", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)
@@ -56,7 +56,7 @@ func TestSaySplitsSentencesWhenCaptionEnabled(t *testing.T) {
 // → 整段一次投喂，不切句。
 func TestSayWholeTextWhenCaptionDisabled(t *testing.T) {
 	ctrl := &sayRecorder{FakeController: NewFakeController(quietLogger())}
-	m := NewManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
 	m.SetCaptionSplitFn(func() bool { return false })
 	if _, phase, _, err := m.Start(context.Background(), "p", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)
@@ -73,7 +73,7 @@ func TestSayWholeTextWhenCaptionDisabled(t *testing.T) {
 // TestSaySplitDefaultsOnWithoutFn 未装配开关读取口（nil）按产品默认 true 逐句。
 func TestSaySplitDefaultsToSentenceWithoutFn(t *testing.T) {
 	ctrl := &sayRecorder{FakeController: NewFakeController(quietLogger())}
-	m := NewManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
 	if _, phase, _, err := m.Start(context.Background(), "p", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)
 	}
@@ -88,7 +88,7 @@ func TestSaySplitDefaultsToSentenceWithoutFn(t *testing.T) {
 // TestSaySplitNoPunctuationStaysWhole 无句读文本即使开关为开也保持单句。
 func TestSaySplitNoPunctuationStaysWhole(t *testing.T) {
 	ctrl := &sayRecorder{FakeController: NewFakeController(quietLogger())}
-	m := NewManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
 	m.SetCaptionSplitFn(func() bool { return true })
 	if _, phase, _, err := m.Start(context.Background(), "p", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)

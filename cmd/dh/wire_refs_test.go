@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/teamwork/digital-human/internal/biz/contentpkg"
 	"github.com/teamwork/digital-human/internal/biz/live"
 	"github.com/teamwork/digital-human/internal/biz/refs"
 	"github.com/teamwork/digital-human/internal/conf"
@@ -26,6 +27,36 @@ func (s *stubPromptCtrl) PromptOperation(context.Context, string, []map[string]a
 }
 
 // TestProvideRefsSignalerDevKeepsFake G3-1：dev 模式保留 FakeSignaler（本地自测）。
+func TestProvideContentpkgAttachesApplyRoute(t *testing.T) {
+	rt := &panelRuntime{}
+	svc := provideContentpkg(contentpkg.NewMemoryStore(), rt)
+	if rt.deps.Contentpkg != svc {
+		t.Fatal("内容包服务必须装配到 live-drafts apply 路由")
+	}
+}
+
+func TestModePolicyFromConfigDefaultsToPublic(t *testing.T) {
+	cfg, err := conf.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Live.AllowLocalPreview {
+		t.Fatal("live.allow_local_preview 默认必须 false")
+	}
+	if got := modePolicyFromConfig(cfg); got != (live.ModePolicy{EngineMode: "real"}) {
+		t.Fatalf("默认策略必须 public-live: %+v", got)
+	}
+
+	cfg.Live.AllowLocalPreview = true
+	if got := modePolicyFromConfig(cfg); !got.AllowLocalPreview || got.EngineMode != "real" {
+		t.Fatalf("allow 不得改写 real 引擎: %+v", got)
+	}
+	cfg.Engine.Mode = "dev"
+	if got := modePolicyFromConfig(cfg); !got.AllowLocalPreview || got.EngineMode != "dev" {
+		t.Fatalf("显式 allow + dev 策略: %+v", got)
+	}
+}
+
 func TestProvideRefsSignalerDevKeepsFake(t *testing.T) {
 	cfg := &conf.Config{}
 	cfg.Engine.Mode = "dev"

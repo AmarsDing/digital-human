@@ -71,7 +71,7 @@ func TestStartPushesRefsInOrderAndGreetsOnce(t *testing.T) {
 	bus := eventbus.New(64)
 	sink := NewMemorySink(64)
 	ctrl := &recController{}
-	m := NewManagerWithStores(bus, sink, ctrl, nil, nil, av)
+	m := newPreviewManager(bus, sink, ctrl, nil, nil, av)
 	sig := refs.NewFakeSignaler()
 	m.SetRefSwitcher(refs.NewService(sig, bus))
 
@@ -104,7 +104,7 @@ func TestStartRefsPushFailureDegrades(t *testing.T) {
 	av := newRefFixture(t)
 	bus := eventbus.New(64)
 	sink := NewMemorySink(64)
-	m := NewManagerWithStores(bus, sink, &recController{}, nil, nil, av)
+	m := newPreviewManager(bus, sink, &recController{}, nil, nil, av)
 	sig := refs.NewFakeSignaler()
 	sig.SetFail(errors.New("type14 rejected"))
 	m.SetRefSwitcher(refs.NewService(sig, bus))
@@ -124,7 +124,7 @@ func TestStartGreetingFailureDegrades(t *testing.T) {
 	av := newRefFixture(t)
 	sink := NewMemorySink(64)
 	ctrl := &sayFailController{NewFakeController(quietLogger())}
-	m := NewManagerWithStores(eventbus.New(64), sink, ctrl, nil, nil, av)
+	m := newPreviewManager(eventbus.New(64), sink, ctrl, nil, nil, av)
 
 	if _, phase, _, err := m.Start(ctx, "p1", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("greeting 失败不得影响开播: phase=%s err=%v", phase, err)
@@ -144,7 +144,7 @@ func TestStartPrecheckAvatarNotSynced(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctrl := &recController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, avatar.NewService(store))
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, avatar.NewService(store))
 	// 先起一场无档案旧路径直播（personaID 空跳过预检）。
 	if _, phase, _, err := m.Start(ctx, "", "", "旧路径"); err != nil || phase != PhaseLive {
 		t.Fatalf("旧路径开播: phase=%s err=%v", phase, err)
@@ -178,7 +178,7 @@ func TestStartPrecheckImageExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctrl := &recController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, avatar.NewService(store))
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, avatar.NewService(store))
 	if _, _, _, err := m.Start(ctx, "p1", "", ""); !errors.Is(err, ErrAvatarExpired) {
 		t.Fatalf("err=%v, want ErrAvatarExpired", err)
 	}
@@ -200,7 +200,7 @@ func TestStartSnapshotFrozenAcrossRevisions(t *testing.T) {
 	}
 	rec := &recStore{}
 	ctrl := NewFakeController(quietLogger())
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, rec, nil, avatar.NewService(store))
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl, rec, nil, avatar.NewService(store))
 
 	if _, phase, _, err := m.Start(ctx, "p1", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("first start: phase=%s err=%v", phase, err)
@@ -255,7 +255,7 @@ func TestStartActionLibraryDegradedEvent(t *testing.T) {
 	av := newRefFixture(t)
 	bus := eventbus.New(64)
 	sink := NewMemorySink(64)
-	m := NewManagerWithStores(bus, sink, &degradeController{&recController{}}, nil, nil, av)
+	m := newPreviewManager(bus, sink, &degradeController{&recController{}}, nil, nil, av)
 
 	if _, phase, _, err := m.Start(ctx, "p1", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("降级开播必须成功: phase=%s err=%v", phase, err)
@@ -279,7 +279,7 @@ func TestStartNoDegradeNoEvent(t *testing.T) {
 	ctx := context.Background()
 	av := newRefFixture(t)
 	sink := NewMemorySink(64)
-	m := NewManagerWithStores(eventbus.New(64), sink, &recController{}, nil, nil, av)
+	m := newPreviewManager(eventbus.New(64), sink, &recController{}, nil, nil, av)
 
 	if _, phase, _, err := m.Start(ctx, "p1", "", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("start: phase=%s err=%v", phase, err)

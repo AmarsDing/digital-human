@@ -8,6 +8,7 @@ import (
 
 	"github.com/teamwork/digital-human/internal/biz/avatar"
 	"github.com/teamwork/digital-human/internal/biz/capability"
+	"github.com/teamwork/digital-human/internal/biz/contentpkg"
 	"github.com/teamwork/digital-human/internal/publish"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 )
@@ -20,17 +21,40 @@ func (g fakePushGate) Status() publish.Status { return g.st }
 func allRealCaps(context.Context) capability.Matrix {
 	return capability.Matrix{
 		"action_sender": capability.Real, "song_player": capability.Real,
-		"tts": capability.Real, "vidu": capability.Real,
-		"push_gate": capability.Real, "storage_persistent": capability.Real,
+		"tts": capability.Real, "vidu": capability.Real, "koubo_actiongen": capability.Real,
+		"content_storage": capability.Real, "push_gate": capability.Real, "storage_persistent": capability.Real,
 	}
 }
 
 func allFakeCaps(context.Context) capability.Matrix {
 	return capability.Matrix{
 		"action_sender": capability.Fake, "song_player": capability.Fake,
-		"tts": capability.Fake, "vidu": capability.Fake,
-		"push_gate": capability.Fake, "storage_persistent": capability.Fake,
+		"tts": capability.Fake, "vidu": capability.Fake, "koubo_actiongen": capability.Fake,
+		"content_storage": capability.Fake, "push_gate": capability.Fake, "storage_persistent": capability.Fake,
 	}
+}
+
+func runPreflight(t *testing.T, pf *Preflight, ctx context.Context, req PreflightRequest) PreflightResult {
+	t.Helper()
+	res, err := pf.Run(ctx, req)
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+	return res
+}
+
+func localPreviewPolicy() ModePolicy {
+	return ModePolicy{AllowLocalPreview: true, EngineMode: "dev"}
+}
+
+func newPreviewManager(bus *eventbus.Bus, sink EventSink, ctrl Controller, store SessionStore, idem Store, resolver avatar.ProfileResolver) *Manager {
+	m := NewManagerWithStores(bus, sink, ctrl, store, idem, resolver)
+	m.SetModePolicy(localPreviewPolicy())
+	return m
+}
+
+func newPreviewBasicManager(bus *eventbus.Bus, sink EventSink, ctrl Controller) *Manager {
+	return newPreviewManager(bus, sink, ctrl, nil, nil, nil)
 }
 
 func newAvatarSvc(t *testing.T, id string) *avatar.Service {
@@ -48,8 +72,9 @@ func newAvatarSvc(t *testing.T, id string) *avatar.Service {
 func TestPreflightPublicBlocksFakeCaps(t *testing.T) {
 	ctx := context.Background()
 	pf := NewPreflight(nil, allFakeCaps, func() (publish.PushGate, bool) { return nil, false }, func() bool { return false })
+	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
 
-	pub := pf.Run(ctx, PreflightRequest{Mode: ModePublicLive})
+	pub := runPreflight(t, pf, ctx, PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
 	if pub.Ready {
 		t.Fatal("fake 能力下 public ready 必须为 false")
 	}
@@ -70,7 +95,9 @@ func TestPreflightPublicBlocksFakeCaps(t *testing.T) {
 		t.Fatalf("token/新鲜期缺失: %+v", pub)
 	}
 
-	loc := pf.Run(ctx, PreflightRequest{Mode: ModeLocalPreview})
+	localPF := NewPreflight(nil, allFakeCaps, func() (publish.PushGate, bool) { return nil, false }, func() bool { return false })
+	localPF.SetModePolicy(localPreviewPolicy())
+	loc := runPreflight(t, localPF, ctx, PreflightRequest{Mode: ModeLocalPreview})
 	if !loc.Ready {
 		t.Fatal("local-preview 下 fake 为 warn 不阻断，ready 应为 true")
 	}
@@ -86,7 +113,8 @@ func TestPreflightUnknownBlocks(t *testing.T) {
 	pf := NewPreflight(nil, func(context.Context) capability.Matrix {
 		return capability.Matrix{"action_sender": capability.Unknown} // 其余未登记=unknown
 	}, nil, nil)
-	res := pf.Run(context.Background(), PreflightRequest{Mode: ModePublicLive})
+	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
+	res := runPreflight(t, pf, context.Background(), PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
 	if res.Ready {
 		t.Fatal("unknown 绝不默认 pass：ready 必须为 false")
 	}
@@ -103,12 +131,12 @@ func TestPublicStartRequiresToken(t *testing.T) {
 	}, func() bool { return true })
 	m.SetPreflight(pf)
 	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing}}, false)
-	m.SetDefaultMode(ModePublicLive)
+	m.SetModePolicy(ModePolicy{})
 
-	if _, _, _, err := m.Start(ctx, "", "", ""); !errors.Is(err, ErrPreflightRequired) {
+	if _, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{DraftID: "d1", ExpectedRevision: 1}); !errors.Is(err, ErrPreflightRequired) {
 		t.Fatalf("无 token 必须拒绝: %v", err)
 	}
-	if _, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{PreflightToken: "pft_bogus"}); !errors.Is(err, ErrPreflightRequired) {
+	if _, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{PreflightToken: "pft_bogus", DraftID: "d1", ExpectedRevision: 1}); !errors.Is(err, ErrPreflightRequired) {
 		t.Fatalf("错 token 必须拒绝: %v", err)
 	}
 	if snap := m.Snapshot(); snap.Phase != PhaseIdle || snap.SessionID != "" {
@@ -124,14 +152,15 @@ func TestPublicStartRejectedWithFakeSender(t *testing.T) {
 	pf := NewPreflight(nil, allFakeCaps, func() (publish.PushGate, bool) {
 		return fakePushGate{st: publish.Status{State: publish.StatePushing}}, false
 	}, func() bool { return true })
+	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
 	m.SetPreflight(pf)
 	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing}}, false)
 
-	res := pf.Run(ctx, PreflightRequest{Mode: ModePublicLive})
+	res := runPreflight(t, pf, ctx, PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
 	if res.Ready {
 		t.Fatal("fake 能力矩阵下 ready 必须 false")
 	}
-	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModePublicLive, PreflightToken: res.PreflightToken})
+	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModePublicLive, PreflightToken: res.PreflightToken, DraftID: "d1", ExpectedRevision: 1})
 	if !errors.Is(err, ErrCapabilityBlocked) {
 		t.Fatalf("fake Sender 下 public Start 必须 ErrCapabilityBlocked, got %v", err)
 	}
@@ -148,16 +177,17 @@ func TestPublicStartTokenExpired(t *testing.T) {
 	pf := NewPreflight(nil, allRealCaps, func() (publish.PushGate, bool) {
 		return fakePushGate{st: publish.Status{State: publish.StatePushing}}, false
 	}, func() bool { return true })
+	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
 	m.SetPreflight(pf)
 	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing}}, false)
 
-	res := pf.Run(ctx, PreflightRequest{Mode: ModePublicLive})
+	res := runPreflight(t, pf, ctx, PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
 	if !res.Ready {
 		t.Fatalf("all-real 应 ready: %+v", res.Checks)
 	}
 	// 拨快服务端时钟越过新鲜期（in-package 测试钩子）。
 	pf.now = func() time.Time { return time.Now().Add(2 * PreflightTTL) }
-	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModePublicLive, PreflightToken: res.PreflightToken})
+	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModePublicLive, PreflightToken: res.PreflightToken, DraftID: "d1", ExpectedRevision: 1})
 	if !errors.Is(err, ErrPreflightRequired) {
 		t.Fatalf("过期 token 必须拒绝: %v", err)
 	}
@@ -173,14 +203,18 @@ func TestPublicStartHappyPath(t *testing.T) {
 	m := NewManagerWithStores(eventbus.New(64), sink, ctrl, nil, nil, avatars)
 	gate := fakePushGate{st: publish.Status{State: publish.StatePushing}}
 	pf := NewPreflight(avatars, allRealCaps, func() (publish.PushGate, bool) { return gate, false }, func() bool { return true })
+	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(3)})
 	m.SetPreflight(pf)
 	m.SetPushGate(gate, false)
 
-	res := pf.Run(ctx, PreflightRequest{Mode: ModePublicLive, PersonaID: "p1"})
+	res := runPreflight(t, pf, ctx, PreflightRequest{Mode: ModePublicLive, PersonaID: "p1", DraftID: "d1", ExpectedRevision: 3})
 	if !res.Ready {
 		t.Fatalf("应 ready: %+v", res.Checks)
 	}
-	sid, phase, _, mode, err := m.StartWithMode(ctx, "p1", "", "", StartRequest{Mode: ModePublicLive, PreflightToken: res.PreflightToken})
+	sid, phase, _, mode, err := m.StartWithMode(ctx, "p1", "", "", StartRequest{
+		Mode: ModePublicLive, PreflightToken: res.PreflightToken, ResultDigest: res.ResultDigest,
+		PersonaRevision: res.Revision, DraftID: "d1", ExpectedRevision: 3,
+	})
 	if err != nil || phase != PhaseLive {
 		t.Fatalf("public start: phase=%s err=%v", phase, err)
 	}
@@ -193,6 +227,13 @@ func TestPublicStartHappyPath(t *testing.T) {
 	if _, _, err := m.Stop(ctx, "test-done"); err != nil {
 		t.Fatal(err)
 	}
+	_, _, _, _, err = m.StartWithMode(ctx, "p1", "", "", StartRequest{
+		Mode: ModePublicLive, PreflightToken: res.PreflightToken, ResultDigest: res.ResultDigest,
+		PersonaRevision: res.Revision, DraftID: "d1", ExpectedRevision: 3,
+	})
+	if !errors.Is(err, ErrPreflightRequired) {
+		t.Fatalf("已成功消费的 token 重放必须拒绝: %v", err)
+	}
 }
 
 // TestLocalPreviewStartAnnotatesMode local-preview 显式开播：允许 fake，响应与事件带 mode。
@@ -201,6 +242,7 @@ func TestLocalPreviewStartAnnotatesMode(t *testing.T) {
 	sink := NewMemorySink(64)
 	ctrl := NewFakeController(quietLogger())
 	m := NewManagerWithStores(eventbus.New(64), sink, ctrl, nil, nil, nil)
+	m.SetModePolicy(localPreviewPolicy())
 
 	sid, phase, _, mode, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModeLocalPreview})
 	if err != nil || phase != PhaseLive {
@@ -234,6 +276,7 @@ func TestLocalPreviewWhilePushingRejected(t *testing.T) {
 	ctx := context.Background()
 	ctrl := NewFakeController(quietLogger())
 	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, nil)
+	m.SetModePolicy(localPreviewPolicy())
 	m.SetPushGate(fakePushGate{st: publish.Status{State: publish.StatePushing}}, false)
 	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModeLocalPreview})
 	if !errors.Is(err, ErrPreviewWhilePushing) {
@@ -247,8 +290,174 @@ func TestPublicStartPushGateNotWired(t *testing.T) {
 	ctrl := NewFakeController(quietLogger())
 	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl, nil, nil, nil)
 	m.SetPreflight(NewPreflight(nil, allRealCaps, func() (publish.PushGate, bool) { return nil, false }, func() bool { return true }))
-	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModePublicLive, PreflightToken: "pft_x"})
+	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModePublicLive, PreflightToken: "pft_x", DraftID: "d1", ExpectedRevision: 1})
 	if !errors.Is(err, ErrPushGateRequired) {
 		t.Fatalf("public 无 PushGate 必须拒绝: %v", err)
+	}
+}
+
+type fakeDraftSource struct{ draft contentpkg.Draft }
+
+func (s *fakeDraftSource) GetDraft(context.Context, string) (contentpkg.Draft, bool, error) {
+	return s.draft, s.draft.ID != "", nil
+}
+
+func committedDraft(revision int64) contentpkg.Draft {
+	d := contentpkg.Draft{
+		ID: "d1", Revision: revision, Status: contentpkg.DraftCommitted,
+		Snapshot: map[string]any{
+			"assets": []any{map[string]any{"id": "song1", "revision": float64(4), "content_hash": "sha256:song"}},
+		},
+	}
+	d.SnapshotHash = contentpkg.HashSnapshot(d.Snapshot)
+	return d
+}
+
+func newDraftPreflight(source *fakeDraftSource, caps CapabilitySource) (*Preflight, fakePushGate) {
+	gate := fakePushGate{st: publish.Status{State: publish.StatePushing}}
+	pf := NewPreflight(nil, caps, func() (publish.PushGate, bool) { return gate, false }, func() bool { return true })
+	pf.SetDraftSource(source)
+	return pf, gate
+}
+
+func TestPreflightDigestStableAcrossObservationTime(t *testing.T) {
+	source := &fakeDraftSource{draft: committedDraft(3)}
+	pf, _ := newDraftPreflight(source, allRealCaps)
+	now := time.Unix(100, 0)
+	pf.now = func() time.Time { return now }
+	req := PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 3}
+	first := runPreflight(t, pf, context.Background(), req)
+	now = now.Add(time.Second)
+	second := runPreflight(t, pf, context.Background(), req)
+	if !first.Ready || first.ResultDigest != second.ResultDigest {
+		t.Fatalf("同输入同结论 digest 必须稳定: first=%+v second=%+v", first, second)
+	}
+}
+
+func TestPreflightRejectsInvalidAssetRef(t *testing.T) {
+	d := committedDraft(3)
+	d.Snapshot["assets"] = []any{map[string]any{"id": "song1", "revision": float64(0)}}
+	d.SnapshotHash = contentpkg.HashSnapshot(d.Snapshot)
+	pf, _ := newDraftPreflight(&fakeDraftSource{draft: d}, allRealCaps)
+	res := runPreflight(t, pf, context.Background(), PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 3})
+	if res.Ready {
+		t.Fatalf("缺 content_hash 的资产不得通过公开预检: %+v", res.Checks)
+	}
+}
+
+func TestPreflightRejectsSameRevisionSnapshotMutation(t *testing.T) {
+	d := committedDraft(3)
+	pf, _ := newDraftPreflight(&fakeDraftSource{draft: d}, allRealCaps)
+	res := runPreflight(t, pf, context.Background(), PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 3})
+	if !res.Ready {
+		t.Fatalf("初始草稿应 ready: %+v", res.Checks)
+	}
+	d.Snapshot["greeting"] = "changed"
+	// 模拟持久化损坏：同 revision 改了 snapshot 但没有同步 hash。
+	pf.SetDraftSource(&fakeDraftSource{draft: d})
+	res = runPreflight(t, pf, context.Background(), PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 3})
+	if res.Ready {
+		t.Fatal("同 revision 的 snapshot/hash 不一致必须阻断")
+	}
+}
+
+func TestPublicStartRequiresDigestAndRevalidatesDraft(t *testing.T) {
+	ctx := context.Background()
+	source := &fakeDraftSource{draft: committedDraft(3)}
+	pf, gate := newDraftPreflight(source, allRealCaps)
+	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()), nil, nil, nil)
+	m.SetPreflight(pf)
+	m.SetPushGate(gate, false)
+	req := PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 3}
+	res := runPreflight(t, pf, ctx, req)
+	if !res.Ready {
+		t.Fatalf("有效已提交草稿应 ready: %+v", res.Checks)
+	}
+	start := StartRequest{Mode: ModePublicLive, PreflightToken: res.PreflightToken, DraftID: "d1", ExpectedRevision: 3}
+	if _, _, _, _, err := m.StartWithMode(ctx, "", "", "", start); !errors.Is(err, ErrPreflightRequired) {
+		t.Fatalf("缺 result_digest 必须要求重新预检: %v", err)
+	}
+	start.ResultDigest = res.ResultDigest
+	source.draft.Revision = 4
+	if _, _, _, _, err := m.StartWithMode(ctx, "", "", "", start); !errors.Is(err, ErrPreflightRequired) {
+		t.Fatalf("预检后 revision 变化必须拒绝: %v", err)
+	}
+	if snap := m.Snapshot(); snap.SessionID != "" {
+		t.Fatalf("复核失败不得创建场次: %+v", snap)
+	}
+}
+
+func TestServerModePolicyRejectsSpoofAndRequiresExplicitDev(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		policy ModePolicy
+	}{
+		{name: "default_public", policy: ModePolicy{}},
+		{name: "real_engine_still_public", policy: ModePolicy{AllowLocalPreview: true, EngineMode: "real"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pf := NewPreflight(nil, allFakeCaps, nil, nil)
+			pf.SetModePolicy(tc.policy)
+			_, err := pf.Run(ctx, PreflightRequest{Mode: ModeLocalPreview})
+			if !errors.Is(err, ErrModeNotAllowed) {
+				t.Fatalf("伪造 local-preview 必须 ErrModeNotAllowed: %v", err)
+			}
+			m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()), nil, nil, nil)
+			m.SetModePolicy(tc.policy)
+			_, _, _, _, err = m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModeLocalPreview})
+			if !errors.Is(err, ErrModeNotAllowed) {
+				t.Fatalf("Start 伪造 local-preview 必须 ErrModeNotAllowed: %v", err)
+			}
+			if snap := m.Snapshot(); snap.SessionID != "" {
+				t.Fatalf("mode 拒绝后不得创建场次: %+v", snap)
+			}
+		})
+	}
+
+	pf := NewPreflight(nil, allFakeCaps, nil, nil)
+	pf.SetModePolicy(localPreviewPolicy())
+	res, err := pf.Run(ctx, PreflightRequest{Mode: ModeLocalPreview})
+	if err != nil || res.Mode != ModeLocalPreview {
+		t.Fatalf("显式 allow + dev 才允许 local-preview: res=%+v err=%v", res, err)
+	}
+	if _, err := pf.Run(ctx, PreflightRequest{Mode: ModePublicLive}); !errors.Is(err, ErrModeNotAllowed) {
+		t.Fatalf("服务端 dev 预览时客户端 public 也必须明确拒绝: %v", err)
+	}
+}
+
+func TestPublicPreflightAndStartRequireDraft(t *testing.T) {
+	ctx := context.Background()
+	pf := NewPreflight(nil, allRealCaps, nil, func() bool { return true })
+	if _, err := pf.Run(ctx, PreflightRequest{Mode: ModePublicLive}); !errors.Is(err, ErrDraftRequired) {
+		t.Fatalf("public 空 draft 预检必须 ErrDraftRequired: %v", err)
+	}
+	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()), nil, nil, nil)
+	if _, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{Mode: ModePublicLive}); !errors.Is(err, ErrDraftRequired) {
+		t.Fatalf("public 空 draft Start 必须 ErrDraftRequired: %v", err)
+	}
+}
+
+func TestPublicStartRejectsCapabilityRegression(t *testing.T) {
+	ctx := context.Background()
+	source := &fakeDraftSource{draft: committedDraft(3)}
+	current := capability.Real
+	caps := func(context.Context) capability.Matrix {
+		mx := allRealCaps(ctx)
+		mx["action_sender"] = current
+		return mx
+	}
+	pf, gate := newDraftPreflight(source, caps)
+	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), NewFakeController(quietLogger()), nil, nil, nil)
+	m.SetPreflight(pf)
+	m.SetPushGate(gate, false)
+	res := runPreflight(t, pf, ctx, PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 3})
+	current = capability.Fake
+	_, _, _, _, err := m.StartWithMode(ctx, "", "", "", StartRequest{
+		Mode: ModePublicLive, PreflightToken: res.PreflightToken, ResultDigest: res.ResultDigest,
+		PersonaRevision: res.Revision, DraftID: "d1", ExpectedRevision: 3,
+	})
+	if err == nil {
+		t.Fatal("预检后能力退化不得开播")
 	}
 }

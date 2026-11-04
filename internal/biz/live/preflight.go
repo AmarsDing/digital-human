@@ -14,6 +14,7 @@ import (
 
 	"github.com/teamwork/digital-human/internal/biz/avatar"
 	"github.com/teamwork/digital-human/internal/biz/capability"
+	"github.com/teamwork/digital-human/internal/biz/contentpkg"
 	"github.com/teamwork/digital-human/internal/publish"
 )
 
@@ -28,6 +29,28 @@ const (
 	ModeLocalPreview Mode = "local-preview"
 	ModePublicLive   Mode = "public-live"
 )
+
+// ModePolicy 是服务端开播模式的唯一判定依据。零值 fail-closed 为 public-live；
+// 只有显式允许且引擎为 dev 时才开放 local-preview。
+type ModePolicy struct {
+	AllowLocalPreview bool
+	EngineMode        string
+}
+
+func (p ModePolicy) effectiveMode() Mode {
+	if p.AllowLocalPreview && p.EngineMode == "dev" {
+		return ModeLocalPreview
+	}
+	return ModePublicLive
+}
+
+func resolveRequestedMode(policy ModePolicy, requested Mode) (Mode, error) {
+	mode := policy.effectiveMode()
+	if requested != "" && requested != mode {
+		return mode, fmt.Errorf("%w: requested=%s server=%s", ErrModeNotAllowed, requested, mode)
+	}
+	return mode, nil
+}
 
 // CheckStatus 预检单项状态（§7.5：只允许 pass/warn/fail/unknown/running；
 // 外部耗时不可控时 running/unknown，绝不默认 pass）。
@@ -63,6 +86,8 @@ type PreflightRequest struct {
 // PreflightResult 预检响应（§7.5 契约）。
 type PreflightResult struct {
 	CheckID        string           `json:"check_id"`
+	PersonaID      string           `json:"persona_id"`
+	Revision       int64            `json:"revision"`
 	PreflightToken string           `json:"preflight_token"`
 	Ready          bool             `json:"ready"`
 	Mode           Mode             `json:"mode"`
@@ -77,8 +102,16 @@ type PreflightResult struct {
 
 // 严格 Start 错误（服务层映射见 service.mapLiveError）。
 var (
-	// ErrPreflightRequired public-live 缺少/无效/过期/不匹配的 preflight_token。
+	// ErrModeNotAllowed 客户端声明的 mode 与服务端实际判定不一致。
+	ErrModeNotAllowed = errors.New("mode_not_allowed")
+	// ErrDraftRequired public-live 缺少必须绑定的已提交草稿。
+	ErrDraftRequired = errors.New("draft_required")
+	// ErrPreflightRequired public-live 缺少/无效/不匹配的 preflight_token。
 	ErrPreflightRequired = errors.New("preflight_required")
+	// ErrPreflightExpired token 过期或客户端仍持有旧预检摘要，必须重新预检。
+	ErrPreflightExpired = errors.New("preflight_expired")
+	// ErrProfileChanged persona_id 或档案 revision 与预检绑定不一致。
+	ErrProfileChanged = errors.New("profile_changed")
 	// ErrResolveFailed 严格模式下档案 Resolve 失败/档案删除/结果 unknown：
 	// 直接报错，不回落旧路径、不创建场次（§7.6-3，堵 M1 fail-open）。
 	ErrResolveFailed = errors.New("avatar_resolve_failed")
@@ -109,14 +142,21 @@ type tokenBinding struct {
 // CapabilitySource 装配点显式提供的能力矩阵（§2.2：不许只按配置存在就报 real）。
 type CapabilitySource func(ctx context.Context) capability.Matrix
 
+// DraftSource 是内容包只读端口；预检和 Start 必须读取同一持久事实源。
+type DraftSource interface {
+	GetDraft(ctx context.Context, id string) (contentpkg.Draft, bool, error)
+}
+
 // Preflight 唯一 ready 判定服务（§7.5）：页面、apply 和 Start 对同 revision
 // 必须得到相同阻断结论；UI 只显示原始状态，不保存第二套规则。
 type Preflight struct {
 	resolver          avatar.ProfileResolver
+	drafts            DraftSource
 	caps              CapabilitySource
 	pushGate          func() (publish.PushGate, bool) // 与 Manager.currentPushGate 同语义
 	storagePersistent func() bool
 	now               func() time.Time
+	modePolicy        ModePolicy
 
 	mu     sync.Mutex
 	tokens map[string]tokenBinding
@@ -138,16 +178,51 @@ func NewPreflight(
 	}
 }
 
+// SetDraftSource 注入内容包只读事实源；公开开播携带草稿时未装配会 fail-closed。
+func (p *Preflight) SetDraftSource(source DraftSource) {
+	p.mu.Lock()
+	p.drafts = source
+	p.mu.Unlock()
+}
+
+// SetModePolicy 注入服务端模式策略；请求中的 mode 仅用于一致性校验，绝不参与判定。
+func (p *Preflight) SetModePolicy(policy ModePolicy) {
+	p.mu.Lock()
+	p.modePolicy = policy
+	p.mu.Unlock()
+}
+
+func (p *Preflight) currentModePolicy() ModePolicy {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.modePolicy
+}
+
 // Run 执行一次预检并签发服务端绑定 token（无论 ready 与否都签发，
 // Start 复核时按 token 存证判定，杜绝客户端伪造 ready）。
-func (p *Preflight) Run(ctx context.Context, req PreflightRequest) PreflightResult {
+func (p *Preflight) Run(ctx context.Context, req PreflightRequest) (PreflightResult, error) {
+	mode, err := resolveRequestedMode(p.currentModePolicy(), req.Mode)
+	if err != nil {
+		return PreflightResult{Mode: mode}, err
+	}
+	if mode == ModePublicLive && req.DraftID == "" {
+		return PreflightResult{Mode: mode}, fmt.Errorf("%w: public-live requires draft_id", ErrDraftRequired)
+	}
+	req.Mode = mode
+	return p.run(ctx, req, true), nil
+}
+
+func (p *Preflight) run(ctx context.Context, req PreflightRequest, issueToken bool) PreflightResult {
 	now := p.now()
 	obs := now.UnixMilli()
 	mode := req.Mode
 	if mode == "" {
 		mode = ModePublicLive
 	}
-	checks := make([]Check, 0, 8)
+	checks := make([]Check, 0, 9)
+	inputRevs := map[string]int64{}
+	draftRev := req.ExpectedRevision
+	snapshotHash := ""
 	add := func(code string, st CheckStatus, blocking bool, source, target, detail string) {
 		checks = append(checks, Check{
 			Code: code, Status: st, Blocking: blocking, Source: source,
@@ -181,8 +256,60 @@ func (p *Preflight) Run(ctx context.Context, req PreflightRequest) PreflightResu
 			add("avatar_resolve", CheckPass, true, "profile_resolver", "avatar", "")
 		}
 	}
+	if req.PersonaID != "" {
+		inputRevs["avatar"] = personaRev
+	}
 
-	// 能力矩阵四项（§2.2/§2.3 硬前置）：public 下 fake/unconfigured/unknown 均 fail；
+	// content_package：Start 只能使用已提交的完整不可变草稿。所有嵌套 AssetRef
+	// 都必须带 id 且至少绑定 revision 或 content_hash，revision 集合进入 token 与 digest 绑定。
+	if req.DraftID == "" {
+		add("content_package", CheckWarn, false, "contentpkg", "draft", "not_requested")
+	} else {
+		p.mu.Lock()
+		drafts := p.drafts
+		p.mu.Unlock()
+		d, ok, err := contentpkg.Draft{}, false, error(nil)
+		if drafts == nil {
+			err = errors.New("draft_store_unconfigured")
+		} else {
+			d, ok, err = drafts.GetDraft(ctx, req.DraftID)
+		}
+		var draftErr string
+		switch {
+		case err != nil:
+			draftErr = err.Error()
+		case !ok:
+			draftErr = "draft_not_found"
+		case d.Status != contentpkg.DraftCommitted:
+			draftErr = "draft_not_committed"
+		case req.ExpectedRevision <= 0 || d.Revision != req.ExpectedRevision:
+			draftErr = "draft_revision_mismatch"
+		case d.SnapshotHash == "" || d.Snapshot == nil:
+			draftErr = "snapshot_incomplete"
+		case d.SnapshotHash != contentpkg.HashSnapshot(d.Snapshot):
+			draftErr = "snapshot_hash_mismatch"
+		default:
+			var revs map[string]int64
+			revs, err = inspectAssetRefs(d.Snapshot)
+			if err != nil {
+				draftErr = err.Error()
+			} else {
+				for key, rev := range revs {
+					inputRevs[key] = rev
+				}
+				draftRev = d.Revision
+				snapshotHash = d.SnapshotHash
+				inputRevs["draft"] = d.Revision
+			}
+		}
+		if draftErr != "" {
+			add("content_package", CheckFail, true, "contentpkg", req.DraftID, draftErr)
+		} else {
+			add("content_package", CheckPass, true, "contentpkg", req.DraftID, "")
+		}
+	}
+
+	// 能力矩阵硬前置：public 下 fake/unconfigured/unknown 均 fail；
 	// local-preview 下 fake 显式标注 warn（允许但可见），unconfigured/unknown 仍 warn 不阻断。
 	var mx capability.Matrix
 	if p.caps != nil {
@@ -199,6 +326,8 @@ func (p *Preflight) Run(ctx context.Context, req PreflightRequest) PreflightResu
 		add(code, st, blocking, "capability_probe", target, "capability="+string(s))
 	}
 	capCheck("action_sender", "actions")
+	capCheck("koubo_actiongen", "koubo")
+	capCheck("content_storage", "content")
 	capCheck("song_player", "songs")
 	capCheck("tts", "tts")
 	capCheck("vidu", "vidu")
@@ -254,81 +383,192 @@ func (p *Preflight) Run(ctx context.Context, req PreflightRequest) PreflightResu
 	}
 	sort.Strings(blockingFailed)
 
-	digest := digestChecks(mode, req.PersonaID, personaRev, req.DraftID, req.ExpectedRevision, checks)
+	digest := digestChecks(mode, req.PersonaID, personaRev, req.DraftID, draftRev, snapshotHash, inputRevs, checks)
 	p.mu.Lock()
 	p.seq++
 	checkID := fmt.Sprintf("pf_%d_%d", obs, p.seq)
-	token := "pft_" + randToken()
-	p.tokens[token] = tokenBinding{
-		mode: mode, personaID: req.PersonaID, personaRev: personaRev,
-		draftID: req.DraftID, draftRevision: req.ExpectedRevision,
-		resultDigest: digest, ready: ready,
-		expiresAtMs:    now.Add(PreflightTTL).UnixMilli(),
-		blockingFailed: blockingFailed,
+	token := ""
+	if issueToken {
+		token = "pft_" + randToken()
+		p.tokens[token] = tokenBinding{
+			mode: mode, personaID: req.PersonaID, personaRev: personaRev,
+			draftID: req.DraftID, draftRevision: draftRev,
+			resultDigest: digest, ready: ready,
+			expiresAtMs:    now.Add(PreflightTTL).UnixMilli(),
+			blockingFailed: blockingFailed,
+		}
 	}
 	p.mu.Unlock()
 
-	inputRevs := map[string]int64{}
-	if req.PersonaID != "" {
-		inputRevs["avatar"] = personaRev
-	}
-	if req.DraftID != "" {
-		inputRevs["draft"] = req.ExpectedRevision
-	}
 	return PreflightResult{
-		CheckID: checkID, PreflightToken: token, Ready: ready, Mode: mode,
-		DraftID: req.DraftID, DraftRevision: req.ExpectedRevision,
+		CheckID: checkID, PersonaID: req.PersonaID, Revision: personaRev,
+		PreflightToken: token, Ready: ready, Mode: mode,
+		DraftID: req.DraftID, DraftRevision: draftRev,
 		InputRevisions: inputRevs, ResultDigest: digest,
 		ObservedAtMs: obs, ExpiresAtMs: now.Add(PreflightTTL).UnixMilli(),
 		Checks: checks,
 	}
 }
 
-// Verify public Start 临界区复核（§7.6-2）：token 存在、未过期、mode/persona 一致、
-// ready=true 且 digest 匹配（复核方传入当前重算的 digest）。任一不符显式报错。
-func (p *Preflight) Verify(token string, mode Mode, personaID string, personaRev int64, redigest string) error {
-	if token == "" {
+// VerifyRequest 是 public Start 的完整预检绑定；任一字段缺失都不能走兼容旁路。
+type VerifyRequest struct {
+	Token            string
+	Mode             Mode
+	PersonaID        string
+	PersonaRevision  int64
+	DraftID          string
+	ExpectedRevision int64
+	ResultDigest     string
+}
+
+// Verify 在 Start 临界区内用同一套求值逻辑重新探测外部状态并计算 digest。
+// token、客户端摘要、当前摘要三者必须一致，能力/推流/资产退化后只能重新预检。
+func (p *Preflight) Verify(ctx context.Context, req VerifyRequest) error {
+	mode, err := resolveRequestedMode(p.currentModePolicy(), req.Mode)
+	if err != nil {
+		return err
+	}
+	req.Mode = mode
+	if mode == ModePublicLive && req.DraftID == "" {
+		return fmt.Errorf("%w: public-live requires draft_id", ErrDraftRequired)
+	}
+	if req.Token == "" {
 		return fmt.Errorf("%w: missing preflight_token", ErrPreflightRequired)
 	}
 	p.mu.Lock()
-	b, ok := p.tokens[token]
+	b, ok := p.tokens[req.Token]
 	p.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("%w: unknown token", ErrPreflightRequired)
 	}
 	if p.now().UnixMilli() > b.expiresAtMs {
-		return fmt.Errorf("%w: token expired", ErrPreflightRequired)
+		return fmt.Errorf("%w: %w: token expired", ErrPreflightRequired, ErrPreflightExpired)
 	}
-	if b.mode != mode || b.personaID != personaID {
-		return fmt.Errorf("%w: token binding mismatch (mode/persona)", ErrPreflightRequired)
+	if b.mode != req.Mode {
+		return fmt.Errorf("%w: token binding mismatch (mode)", ErrPreflightRequired)
 	}
-	if personaRev != 0 && b.personaRev != 0 && b.personaRev != personaRev {
-		return fmt.Errorf("%w: persona revision changed after preflight", ErrPreflightRequired)
+	if b.personaID != req.PersonaID {
+		return fmt.Errorf("%w: persona_id changed after preflight", ErrProfileChanged)
 	}
-	if redigest != "" && redigest != b.resultDigest {
-		return fmt.Errorf("%w: result digest mismatch", ErrPreflightRequired)
+	if b.personaID != "" && req.PersonaRevision == 0 {
+		return fmt.Errorf("%w: revision is required", ErrPreflightRequired)
+	}
+	if b.personaID != "" && b.personaRev != req.PersonaRevision {
+		return fmt.Errorf("%w: revision does not match preflight", ErrProfileChanged)
+	}
+	if req.ResultDigest != "" && req.ResultDigest != b.resultDigest {
+		return fmt.Errorf("%w: %w: result digest mismatch", ErrPreflightRequired, ErrPreflightExpired)
 	}
 	if !b.ready {
 		return fmt.Errorf("%w: preflight not ready (%v)", ErrCapabilityBlocked, b.blockingFailed)
 	}
+	if req.Mode == ModePublicLive && (req.DraftID == "" || req.ExpectedRevision <= 0 || req.ResultDigest == "") {
+		return fmt.Errorf("%w: draft_id, expected_revision and result_digest are required", ErrPreflightRequired)
+	}
+	if b.draftID != req.DraftID || b.draftRevision != req.ExpectedRevision {
+		return fmt.Errorf("%w: draft binding mismatch", ErrPreflightRequired)
+	}
+	current := p.run(ctx, PreflightRequest{
+		Mode: req.Mode, PersonaID: req.PersonaID, DraftID: req.DraftID, ExpectedRevision: req.ExpectedRevision,
+	}, false)
+	if !current.Ready {
+		return fmt.Errorf("%w: current preflight not ready", ErrPreflightRequired)
+	}
+	if current.PersonaID != b.personaID || current.Revision != b.personaRev {
+		return fmt.Errorf("%w: profile revision changed after preflight", ErrProfileChanged)
+	}
+	if current.ResultDigest != b.resultDigest {
+		return fmt.Errorf("%w: %w: external state changed after preflight", ErrPreflightRequired, ErrPreflightExpired)
+	}
+	// token 单次消费：Manager.opMu 串行化 Start；成功复核后立即删除存证，重放即 unknown token。
+	p.mu.Lock()
+	delete(p.tokens, req.Token)
+	p.mu.Unlock()
 	return nil
 }
 
-// digestChecks 对 mode/persona/revision/checks 规范化后取 sha256；
-// checks 排序后序列化，保证同结论同 digest。
-func digestChecks(mode Mode, personaID string, personaRev int64, draftID string, draftRev int64, checks []Check) string {
+// digestChecks 对稳定输入与结论规范化后取 sha256。观测时间不参与摘要，
+// 否则 Start 重算必然变化；checks 与 map 序列化顺序均固定。
+func digestChecks(mode Mode, personaID string, personaRev int64, draftID string, draftRev int64, snapshotHash string, inputRevs map[string]int64, checks []Check) string {
 	sorted := append([]Check(nil), checks...)
+	for i := range sorted {
+		sorted[i].ObservedAtMs = 0
+	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Code < sorted[j].Code })
 	payload, _ := json.Marshal(struct {
-		Mode    Mode    `json:"mode"`
-		Persona string  `json:"persona_id"`
-		PRev    int64   `json:"persona_revision"`
-		Draft   string  `json:"draft_id"`
-		DRev    int64   `json:"draft_revision"`
-		Checks  []Check `json:"checks"`
-	}{mode, personaID, personaRev, draftID, draftRev, sorted})
+		Mode         Mode             `json:"mode"`
+		Persona      string           `json:"persona_id"`
+		PRev         int64            `json:"persona_revision"`
+		Draft        string           `json:"draft_id"`
+		DRev         int64            `json:"draft_revision"`
+		SnapshotHash string           `json:"snapshot_hash"`
+		Inputs       map[string]int64 `json:"input_revisions"`
+		Checks       []Check          `json:"checks"`
+	}{mode, personaID, personaRev, draftID, draftRev, snapshotHash, inputRevs, sorted})
 	sum := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func inspectAssetRefs(snapshot map[string]any) (map[string]int64, error) {
+	revisions := map[string]int64{}
+	var walk func(any) error
+	walk = func(value any) error {
+		switch v := value.(type) {
+		case map[string]any:
+			_, hasID := v["id"]
+			_, hasRevision := v["revision"]
+			_, hasHash := v["content_hash"]
+			if hasID && (hasRevision || hasHash) {
+				id, idOK := v["id"].(string)
+				rev, revOK := revisionNumber(v["revision"])
+				hash, hashOK := v["content_hash"].(string)
+				revisionBound := revOK && rev > 0
+				hashBound := hashOK && hash != ""
+				if !idOK || id == "" || (!revisionBound && !hashBound) {
+					return errors.New("asset_ref_incomplete")
+				}
+				if revisionBound {
+					key := "asset:" + id
+					if previous, exists := revisions[key]; exists && previous != rev {
+						return errors.New("asset_revision_conflict")
+					}
+					revisions[key] = rev
+				}
+			}
+			for _, child := range v {
+				if err := walk(child); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if err := walk(child); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := walk(snapshot); err != nil {
+		return nil, err
+	}
+	return revisions, nil
+}
+
+func revisionNumber(value any) (int64, bool) {
+	switch v := value.(type) {
+	case int:
+		return int64(v), true
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), v == float64(int64(v))
+	case json.Number:
+		n, err := v.Int64()
+		return n, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func randToken() string {

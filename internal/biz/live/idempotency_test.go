@@ -39,7 +39,7 @@ func (c *counterController) counts() (int, int) {
 
 func TestStartIdempotentSameKeyReturnsSameSession(t *testing.T) {
 	ctrl := &counterController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl,
 		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
@@ -62,7 +62,7 @@ func TestStartIdempotentSameKeyReturnsSameSession(t *testing.T) {
 
 func TestStartIdempotentDifferentKeyRestarts(t *testing.T) {
 	ctrl := &counterController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl,
 		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
@@ -84,7 +84,7 @@ func TestStartIdempotentDifferentKeyRestarts(t *testing.T) {
 
 func TestStartIdempotentEmptyKeyDisablesCache(t *testing.T) {
 	ctrl := &counterController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl,
 		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
@@ -100,7 +100,7 @@ func TestStartIdempotentEmptyKeyDisablesCache(t *testing.T) {
 
 func TestStopIdempotentSameKeyStopsOnce(t *testing.T) {
 	ctrl := &counterController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl,
 		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
@@ -125,7 +125,7 @@ func TestStopIdempotentSameKeyStopsOnce(t *testing.T) {
 
 func TestStartIdempotentConcurrentSameKeyStartsOnce(t *testing.T) {
 	ctrl := &counterController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl,
 		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 
@@ -168,7 +168,7 @@ func TestStartIdempotentConcurrentSameKeyStartsOnce(t *testing.T) {
 
 func TestStopIdempotentConcurrentSameKeyStopsOnce(t *testing.T) {
 	ctrl := &counterController{}
-	m := NewManagerWithStores(eventbus.New(64), NewMemorySink(64), ctrl,
+	m := newPreviewManager(eventbus.New(64), NewMemorySink(64), ctrl,
 		nil, NewMemoryIdempotencyStore(time.Hour), nil)
 	ctx := context.Background()
 	if _, _, _, err := m.Start(ctx, "p", "a", ""); err != nil {

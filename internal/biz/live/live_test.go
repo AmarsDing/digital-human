@@ -28,7 +28,7 @@ func (c *recController) Say(context.Context, string, string) (string, error) {
 
 func TestRestartStopsWithReconnectFirst(t *testing.T) {
 	ctrl := &recController{}
-	m := NewManager(eventbus.New(64), NewMemorySink(64), ctrl)
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), ctrl)
 
 	if _, phase, _, err := m.Start(context.Background(), "p", "a", ""); err != nil || phase != PhaseLive {
 		t.Fatalf("first start: phase=%s err=%v", phase, err)
@@ -45,7 +45,7 @@ func TestRestartStopsWithReconnectFirst(t *testing.T) {
 }
 
 func TestStopIsIdempotent(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	ok, note, err := m.Stop(context.Background(), "manual")
 	if err != nil || !ok || note == "" {
 		t.Fatalf("idle stop should be idempotent ok, got ok=%v note=%q err=%v", ok, note, err)
@@ -56,7 +56,7 @@ func TestStopIsIdempotent(t *testing.T) {
 }
 
 func TestSayRequiresLive(t *testing.T) {
-	m := NewManager(eventbus.New(64), NewMemorySink(64), &recController{})
+	m := newPreviewBasicManager(eventbus.New(64), NewMemorySink(64), &recController{})
 	if _, err := m.Say(context.Background(), "hi", "sentence"); err == nil {
 		t.Fatal("say before live should fail")
 	}

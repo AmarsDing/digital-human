@@ -38,6 +38,8 @@ func (s *LiveService) StartLive(ctx context.Context, req *livev1.StartLiveReques
 	sessionID, phase, liveID, mode, err := s.m.StartIdempotentWithMode(ctx, key, req.GetPersonaId(), req.GetAvatarId(), req.GetGreeting(), live.StartRequest{
 		Mode:             live.Mode(req.GetMode()),
 		PreflightToken:   req.GetPreflightToken(),
+		ResultDigest:     req.GetResultDigest(),
+		PersonaRevision:  req.GetRevision(),
 		DraftID:          req.GetDraftId(),
 		ExpectedRevision: req.GetExpectedRevision(),
 	})
@@ -175,6 +177,14 @@ func mapLiveError(err error) error {
 		return kerrors.New(400, "avatar_expired", "档案形象未同步或 Vidu 资产已过期，请重新同步后开播")
 	case errors.Is(err, live.ErrSessionMismatch):
 		return kerrors.New(404, "session_not_found", err.Error())
+	case errors.Is(err, live.ErrModeNotAllowed):
+		return kerrors.New(409, "mode_not_allowed", err.Error())
+	case errors.Is(err, live.ErrDraftRequired):
+		return kerrors.New(409, "draft_required", err.Error())
+	case errors.Is(err, live.ErrPreflightExpired):
+		return kerrors.New(428, "preflight_expired", err.Error())
+	case errors.Is(err, live.ErrProfileChanged):
+		return kerrors.New(409, "profile_changed", err.Error())
 	case errors.Is(err, live.ErrPreflightRequired):
 		// §7.6：public-live 缺/错/过期 preflight_token → 428 前置要求（先走唯一预检）。
 		return kerrors.New(428, "preflight_required", err.Error())
