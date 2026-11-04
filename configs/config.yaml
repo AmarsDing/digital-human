@@ -9,6 +9,12 @@ data:
   # 本机未部署 PG/Redis 时留空，进程以 degraded 模式启动（默认 /healthz 仍返回 200，
   # 以 status=degraded + missing 显式标注；health.require_dependencies=true 时恢复返回 503）。
   postgres_dsn: ""
+  # 单实例默认最多 20 个连接，避免压满本机 PG；保留 5 个热连接降低常规请求建连开销。
+  postgres_max_open_conns: 20
+  postgres_max_idle_conns: 5
+  # 30 分钟轮换长连接以适配故障转移/代理重平衡，空闲 5 分钟即释放资源。
+  postgres_conn_max_lifetime: 30m
+  postgres_conn_max_idle_time: 5m
   redis_addr: ""
   connect_timeout: 5s
   required: false

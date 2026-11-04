@@ -92,12 +92,36 @@ type Server struct {
 }
 
 type Data struct {
-	PostgresDSN     string        `yaml:"postgres_dsn"`
-	RedisAddr       string        `yaml:"redis_addr"`
-	RedisPassword   string        `yaml:"redis_password"`
-	ConnectTimeout  time.Duration `yaml:"connect_timeout"`
-	Required        bool          `yaml:"required"` // true 时启动即失败；默认 false（M0 起可降级运行）
-	EventRetentionD int           `yaml:"event_retention_days"`
+	PostgresDSN             string        `yaml:"postgres_dsn"`
+	PostgresMaxOpenConns    int           `yaml:"postgres_max_open_conns"`
+	PostgresMaxIdleConns    int           `yaml:"postgres_max_idle_conns"`
+	PostgresConnMaxLifetime time.Duration `yaml:"postgres_conn_max_lifetime"`
+	PostgresConnMaxIdleTime time.Duration `yaml:"postgres_conn_max_idle_time"`
+	RedisAddr               string        `yaml:"redis_addr"`
+	RedisPassword           string        `yaml:"redis_password"`
+	ConnectTimeout          time.Duration `yaml:"connect_timeout"`
+	Required                bool          `yaml:"required"` // true 时启动即失败；默认 false（M0 起可降级运行）
+	EventRetentionD         int           `yaml:"event_retention_days"`
+}
+
+// Validate 校验 PG 连接池；所有值必须为正，空闲连接不得超过最大打开连接。
+func (d Data) Validate() error {
+	if d.PostgresMaxOpenConns <= 0 {
+		return fmt.Errorf("data.postgres_max_open_conns 必须为正")
+	}
+	if d.PostgresMaxIdleConns <= 0 {
+		return fmt.Errorf("data.postgres_max_idle_conns 必须为正")
+	}
+	if d.PostgresMaxIdleConns > d.PostgresMaxOpenConns {
+		return fmt.Errorf("data.postgres_max_idle_conns 不得超过 postgres_max_open_conns")
+	}
+	if d.PostgresConnMaxLifetime <= 0 {
+		return fmt.Errorf("data.postgres_conn_max_lifetime 必须为正")
+	}
+	if d.PostgresConnMaxIdleTime <= 0 {
+		return fmt.Errorf("data.postgres_conn_max_idle_time 必须为正")
+	}
+	return nil
 }
 
 type Security struct {
@@ -180,8 +204,12 @@ func defaults() *Config {
 			MetricsLoopback: true,
 		},
 		Data: Data{
-			ConnectTimeout:  5 * time.Second,
-			EventRetentionD: 90,
+			PostgresMaxOpenConns:    20,
+			PostgresMaxIdleConns:    5,
+			PostgresConnMaxLifetime: 30 * time.Minute,
+			PostgresConnMaxIdleTime: 5 * time.Minute,
+			ConnectTimeout:          5 * time.Second,
+			EventRetentionD:         90,
 		},
 		Security: Security{
 			Mode:      "local",
@@ -200,6 +228,9 @@ func defaults() *Config {
 
 // Validate 拒绝危险组合：lan 模式必须配置 token hash 与 HTTPS 前置说明。
 func (c *Config) Validate() error {
+	if err := c.Data.Validate(); err != nil {
+		return err
+	}
 	switch c.Security.Mode {
 	case "local":
 		if !isLoopbackAddr(c.Server.HTTPAddr) {

@@ -175,7 +175,7 @@ func upsertAssetTx(ctx context.Context, tx *ent.Tx, a avatar.Asset) (string, err
 		SetUploadedAtMs(time.Now().UnixMilli()).
 		Save(ctx)
 	if err != nil {
-		if ent.IsConstraintError(err) && a.SHA256 != "" {
+		if isUniqueViolation(err) && a.SHA256 != "" {
 			if hit, qerr := tx.Asset.Query().Where(asset.Sha256(a.SHA256)).Only(ctx); qerr == nil {
 				return hit.ID, nil
 			}
@@ -235,7 +235,7 @@ func (s *EntAvatarStore) Create(ctx context.Context, a avatar.Avatar) error {
 		c.SetAvatarAssetID(assetID)
 	}
 	if _, err := c.Save(ctx); err != nil {
-		if ent.IsConstraintError(err) {
+		if isUniqueViolation(err) {
 			return avatar.ErrSlugConflict // slug 唯一索引兜底（并发）
 		}
 		return err
@@ -362,7 +362,7 @@ func (s *EntAvatarStore) UpdateWithRevision(ctx context.Context, a avatar.Avatar
 	}
 	n, err := upd.Save(ctx)
 	if err != nil {
-		if ent.IsConstraintError(err) {
+		if isUniqueViolation(err) {
 			return avatar.ErrSlugConflict
 		}
 		return err
@@ -527,7 +527,7 @@ func (s *EntAvatarStore) PutAsset(ctx context.Context, a avatar.Asset) error {
 		SetSha256(a.SHA256).SetViduURI(a.URI).SetExpiresAtMs(a.ExpiresAtMs).
 		SetUploadedAtMs(time.Now().UnixMilli()).
 		Save(ctx); err != nil {
-		if ent.IsConstraintError(err) {
+		if isUniqueViolation(err) {
 			return nil // 并发同 sha256：复用首次记录
 		}
 		return err

@@ -54,7 +54,7 @@ func NewData(cfg *conf.Config, logger *slog.Logger) (*Data, func(), error) {
 
 	if cfg.Data.PostgresDSN != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		drv, err := openPostgres(cfg.Data.PostgresDSN)
+		drv, err := openPostgres(cfg.Data.PostgresDSN, cfg.Data)
 		if err == nil {
 			d.Ent = ent.NewClient(ent.Driver(drv))
 			if err = d.Ent.Schema.Create(ctx); err != nil {
@@ -152,7 +152,7 @@ func (d *Data) Probe(ctx context.Context) Status {
 		pg = d.db.PingContext(pingCtx) == nil
 	}
 	if !pg && d.cfg != nil && d.cfg.Data.PostgresDSN != "" && d.Ent == nil {
-		if client, db, err := connectPostgres(pingCtx, d.cfg.Data.PostgresDSN); err == nil {
+		if client, db, err := connectPostgres(pingCtx, d.cfg.Data.PostgresDSN, d.cfg.Data); err == nil {
 			d.Ent, d.db, pg = client, db, true
 			for _, fn := range d.onDBReady {
 				fn(client)
@@ -179,16 +179,23 @@ func (d *Data) Probe(ctx context.Context) Status {
 	return d.status
 }
 
-func openPostgres(dsn string) (*entsql.Driver, error) {
+func openPostgres(dsn string, dataCfg conf.Data) (*entsql.Driver, error) {
+	if err := dataCfg.Validate(); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(dataCfg.PostgresMaxOpenConns)
+	db.SetMaxIdleConns(dataCfg.PostgresMaxIdleConns)
+	db.SetConnMaxLifetime(dataCfg.PostgresConnMaxLifetime)
+	db.SetConnMaxIdleTime(dataCfg.PostgresConnMaxIdleTime)
 	return entsql.OpenDB(dialect.Postgres, db), nil
 }
 
-func connectPostgres(ctx context.Context, dsn string) (*ent.Client, *sql.DB, error) {
-	drv, err := openPostgres(dsn)
+func connectPostgres(ctx context.Context, dsn string, dataCfg conf.Data) (*ent.Client, *sql.DB, error) {
+	drv, err := openPostgres(dsn, dataCfg)
 	if err != nil {
 		return nil, nil, err
 	}

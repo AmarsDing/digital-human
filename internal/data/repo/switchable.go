@@ -57,7 +57,7 @@ func (s *SwitchableSink) backfill(db sink) {
 	for _, e := range all.All() {
 		if err := db.Append(ctx, e); err != nil {
 			// (session_id, seq) / event_id 唯一约束说明该事件已写入，继续下一条。
-			if ent.IsConstraintError(err) {
+			if isUniqueViolation(err) {
 				continue
 			}
 			return

@@ -148,7 +148,7 @@ func MigrateAvatars(ctx context.Context, client *ent.Client, logger *slog.Logger
 		if _, err := client.Setting.Create().
 			SetID(markerID).
 			SetValueJSON(markerVal).SetUpdatedAtMs(now).SetUpdatedBy("migration").
-			Save(ctx); err != nil && !ent.IsConstraintError(err) {
+			Save(ctx); err != nil && !isUniqueViolation(err) {
 			return fmt.Errorf("avatar migration: write marker: %w", err)
 		}
 	}

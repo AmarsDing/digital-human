@@ -19,7 +19,7 @@ func TestOpenPostgresDriver(t *testing.T) {
 	if !slices.Contains(sql.Drivers(), "pgx") {
 		t.Fatal("pgx database/sql 驱动未注册")
 	}
-	drv, err := openPostgres("postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable")
+	drv, err := openPostgres("postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable", testPostgresPool())
 	if err != nil {
 		t.Fatalf("打开 pgx 驱动失败: %v", err)
 	}
@@ -36,6 +36,10 @@ func TestNewDataWithRealPostgres(t *testing.T) {
 	}
 	cfg := &conf.Config{}
 	cfg.Data.PostgresDSN = dsn
+	cfg.Data.PostgresMaxOpenConns = 7
+	cfg.Data.PostgresMaxIdleConns = 2
+	cfg.Data.PostgresConnMaxLifetime = 10 * time.Minute
+	cfg.Data.PostgresConnMaxIdleTime = time.Minute
 	cfg.Data.ConnectTimeout = 10 * time.Second
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	d, cleanup, err := NewData(cfg, logger)
@@ -49,10 +53,13 @@ func TestNewDataWithRealPostgres(t *testing.T) {
 	if status := d.Probe(context.Background()); !status.Postgres {
 		t.Fatalf("Probe 未报告真实 PG 可用: %+v", status)
 	}
+	if got := d.db.Stats().MaxOpenConnections; got != 7 {
+		t.Fatalf("连接池最大打开连接未生效: got=%d want=7", got)
+	}
 }
 
 func TestConnectPostgresRejectsInvalidDSNWithoutDriverError(t *testing.T) {
-	client, db, err := connectPostgres(context.Background(), "://bad")
+	client, db, err := connectPostgres(context.Background(), "://bad", testPostgresPool())
 	if err == nil {
 		if client != nil {
 			_ = client.Close()
@@ -64,5 +71,14 @@ func TestConnectPostgresRejectsInvalidDSNWithoutDriverError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "unknown driver") {
 		t.Fatalf("postgres DSN 未进入驱动解析阶段: %v", err)
+	}
+}
+
+func testPostgresPool() conf.Data {
+	return conf.Data{
+		PostgresMaxOpenConns:    5,
+		PostgresMaxIdleConns:    2,
+		PostgresConnMaxLifetime: 30 * time.Minute,
+		PostgresConnMaxIdleTime: 5 * time.Minute,
 	}
 }
