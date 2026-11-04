@@ -15,6 +15,77 @@ func responseDraft(t *testing.T, raw []byte) map[string]any {
 	return draft
 }
 
+func TestDraftHTTPSaveValidatesLeaseAndRevision(t *testing.T) {
+	svc, _ := newDraftRouteService()
+	base := startInteractionRouteServer(t, PanelDeps{Contentpkg: svc})
+
+	resp, raw := callJSON(t, base, http.MethodPost, "/api/v1/live-drafts", map[string]any{
+		"template_id": "tpl-save", "base_revision": 1, "schema_version": 1,
+		"snapshot": map[string]any{"title": "保存前"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", resp.StatusCode, raw)
+	}
+	draftID := responseDraft(t, raw)["draft_id"].(string)
+	resp, raw = callJSON(t, base, http.MethodPost, "/api/v1/live-drafts/"+draftID+"/open-edit", map[string]any{
+		"owner_id": "owner-1", "lease_ttl_seconds": 300,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("open-edit status=%d body=%s", resp.StatusCode, raw)
+	}
+	lease := responseDraft(t, raw)
+	savePath := "/api/v1/live-drafts/" + draftID
+	snapshot := map[string]any{"title": "保存后"}
+
+	resp, raw = callJSON(t, base, http.MethodPut, savePath, map[string]any{
+		"owner_id": "owner-2", "fencing_token": lease["fencing_token"],
+		"expected_revision": lease["revision"], "snapshot": snapshot,
+	})
+	if resp.StatusCode != http.StatusConflict || decodeDraftResponse(t, raw)["error"] != "draft_owner_conflict" {
+		t.Fatalf("owner conflict status=%d body=%s", resp.StatusCode, raw)
+	}
+
+	resp, raw = callJSON(t, base, http.MethodPut, savePath, map[string]any{
+		"owner_id": "owner-1", "fencing_token": lease["fencing_token"],
+		"expected_revision": 2, "snapshot": snapshot,
+	})
+	if resp.StatusCode != http.StatusConflict || decodeDraftResponse(t, raw)["error"] != "draft_revision_conflict" {
+		t.Fatalf("revision conflict status=%d body=%s", resp.StatusCode, raw)
+	}
+
+	resp, raw = callJSON(t, base, http.MethodPut, savePath, map[string]any{
+		"owner_id": "owner-1", "fencing_token": lease["fencing_token"].(float64) + 1,
+		"expected_revision": lease["revision"], "snapshot": snapshot,
+	})
+	if resp.StatusCode != http.StatusConflict || decodeDraftResponse(t, raw)["error"] != "draft_fencing_conflict" {
+		t.Fatalf("fencing conflict status=%d body=%s", resp.StatusCode, raw)
+	}
+
+	resp, raw = callJSON(t, base, http.MethodPut, savePath, map[string]any{
+		"owner_id": "owner-1", "fencing_token": lease["fencing_token"],
+		"expected_revision": lease["revision"], "snapshot": snapshot,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("save status=%d body=%s", resp.StatusCode, raw)
+	}
+	saved := responseDraft(t, raw)
+	if saved["revision"].(float64) != 2 || saved["snapshot_hash"] == lease["snapshot_hash"] || saved["committed"] != false {
+		t.Fatalf("saved draft=%s", raw)
+	}
+	if saved["snapshot"].(map[string]any)["title"] != "保存后" {
+		t.Fatalf("snapshot not saved: %s", raw)
+	}
+
+	resp, raw = callJSON(t, base, http.MethodGet, "/api/v1/live-drafts/"+draftID+"?owner_id=owner-1", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get saved draft status=%d body=%s", resp.StatusCode, raw)
+	}
+	persisted := responseDraft(t, raw)
+	if persisted["revision"].(float64) != 2 || persisted["snapshot"].(map[string]any)["title"] != "保存后" {
+		t.Fatalf("saved draft not persisted: %s", raw)
+	}
+}
+
 func TestDraftHTTPCreateOpenEditApplyFlow(t *testing.T) {
 	svc, _ := newDraftRouteService()
 	base := startInteractionRouteServer(t, PanelDeps{Contentpkg: svc})

@@ -57,6 +57,22 @@ func registerDraftRoutes(srv *khttp.Server, svc *contentpkg.Service) {
 		return
 	}
 	r := srv.Route("/")
+	r.PUT("/api/v1/live-drafts/{id}", func(c khttp.Context) error {
+		var body struct {
+			OwnerID          string         `json:"owner_id"`
+			FencingToken     int64          `json:"fencing_token"`
+			ExpectedRevision int64          `json:"expected_revision"`
+			Snapshot         map[string]any `json:"snapshot"`
+		}
+		if err := decodeJSONBody(c, &body); err != nil || strings.TrimSpace(body.OwnerID) == "" || body.FencingToken <= 0 || body.ExpectedRevision <= 0 || body.Snapshot == nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid_draft_request"})
+		}
+		d, err := svc.Save(c.Request().Context(), param(c, "id"), body.OwnerID, body.FencingToken, body.ExpectedRevision, body.Snapshot)
+		if err != nil {
+			return draftApplyError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "draft": newDraftDetail(d)})
+	})
 	r.POST("/api/v1/live-drafts", func(c khttp.Context) error {
 		var body struct {
 			TemplateID    string         `json:"template_id"`
