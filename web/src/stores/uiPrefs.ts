@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 export type PanelId = 'voice' | 'command' | 'danmaku' | 'koubo' | 'refs' | 'songs' | 'archive'
+export type WorkspacePanelId = Exclude<PanelId, 'archive'>
 export type ThemeMode = 'dark' | 'light'
 export type DensityMode = 'normal' | 'compact'
 export type MotionMode = 'full' | 'reduced'
@@ -95,7 +96,7 @@ export const useUiPrefs = defineStore('uiPrefs', {
     stats: true,
     statsPos: { ...DEFAULT_STATS_POS } as StatsPos,
     panels: JSON.parse(JSON.stringify(DEFAULT_PANELS)) as Record<PanelId, PanelLayout>,
-    activeWorkspaceTab: 'danmaku' as PanelId,
+    activeWorkspaceTab: 'danmaku' as WorkspacePanelId,
     theme: 'dark' as ThemeMode,
     density: 'normal' as DensityMode,
     colorVision: 'base' as 'base' | 'safe',
@@ -116,7 +117,7 @@ export const useUiPrefs = defineStore('uiPrefs', {
         try {
           const legacy = JSON.parse(legacyRaw) as Partial<Record<PanelId, Partial<PanelLayout>>>
           const opened = PANEL_ORDER.filter((id) => legacy?.[id]?.open)
-          this.activeWorkspaceTab = read<PanelId>(KEY.workspaceTab, opened[0] ?? 'danmaku')
+          this.activeWorkspaceTab = asWorkspaceTab(read<PanelId>(KEY.workspaceTab, opened[0] ?? 'danmaku'))
         } catch {
           this.activeWorkspaceTab = 'danmaku'
         }
@@ -124,7 +125,7 @@ export const useUiPrefs = defineStore('uiPrefs', {
         write(KEY.workspaceTab, this.activeWorkspaceTab)
         this.panels = JSON.parse(JSON.stringify(DEFAULT_PANELS))
       } else {
-        this.activeWorkspaceTab = read<PanelId>(KEY.workspaceTab, 'danmaku')
+        this.activeWorkspaceTab = asWorkspaceTab(read<PanelId>(KEY.workspaceTab, 'danmaku'))
       }
       this.theme = read<ThemeMode>(KEY.theme, 'dark')
       this.density = read<DensityMode>(KEY.density, 'normal')
@@ -175,7 +176,7 @@ export const useUiPrefs = defineStore('uiPrefs', {
     savePanels(): void {
       // v2 §2：多面板浮层几何不再持久化，只保留内存态；激活 Tab 由 setActiveWorkspaceTab 持久。
     },
-    setActiveWorkspaceTab(tab: PanelId): void {
+    setActiveWorkspaceTab(tab: WorkspacePanelId): void {
       this.activeWorkspaceTab = tab
       write(KEY.workspaceTab, tab)
     },
@@ -215,6 +216,10 @@ export const useUiPrefs = defineStore('uiPrefs', {
     }
   }
 })
+
+function asWorkspaceTab(tab: PanelId): WorkspacePanelId {
+  return tab === 'archive' ? 'danmaku' : tab
+}
 
 function clampWidth(v: number): number {
   if (!Number.isFinite(v)) return 360

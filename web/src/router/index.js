@@ -4,6 +4,7 @@ import SettingsPage from '../pages/SettingsPage.vue'
 import PlatformPage from '../pages/PlatformPage.vue'
 import AvatarsPage from '../pages/AvatarsPage.vue'
 import AvatarEditPage from '../pages/AvatarEditPage.vue'
+import SessionsPage from '../pages/SessionsPage.vue'
 import PreparePage from '../pages/PreparePage.vue'
 
 export default createRouter({
@@ -15,6 +16,8 @@ export default createRouter({
     { path: '/platform', component: PlatformPage },
     { path: '/avatars', component: AvatarsPage },
     { path: '/avatars/new', component: AvatarEditPage },
-    { path: '/avatars/:id/edit', component: AvatarEditPage }
+    { path: '/avatars/:id/edit', component: AvatarEditPage },
+    { path: '/sessions', component: SessionsPage },
+    { path: '/sessions/:id', component: SessionsPage }
   ]
 })

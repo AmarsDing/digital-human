@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { classifyApiError } from '../../services/api/client'
 import NtSelect from '../ui/NtSelect.vue'
 import { phaseLabel } from '../../utils/labels'
@@ -14,6 +14,9 @@ import {
   type SessionSummary,
   type Totals
 } from '../../services/api/panels'
+
+const props = withDefaults(defineProps<{ sessionId?: string }>(), { sessionId: '' })
+const emit = defineEmits<{ (e: 'select', id: string): void }>()
 
 const sessions = ref<SessionSummary[]>([])
 const detail = ref<SessionDetail | null>(null)
@@ -127,6 +130,15 @@ function credits(v?: number | null): string {
   return v === undefined || v === null ? '—' : String(v)
 }
 
+watch(
+  () => props.sessionId,
+  (id) => {
+    detail.value = null
+    if (id) void open(id)
+  },
+  { immediate: true }
+)
+
 onMounted(load)
 </script>
 
@@ -138,13 +150,12 @@ onMounted(load)
     </div>
     <p v-if="loading && sessions.length === 0" class="note">正在读取场次…</p>
     <p v-else-if="error" class="error" role="alert" aria-live="assertive">{{ error }}</p>
-    <p v-if="!loading && sessions.length === 0" class="note">
-      暂无场次记录。开播后场次会写入当前存储（内存 sink 重启即清空）。
-    </p>
+    <p class="note" data-testid="storage-warning">当前场次使用内存 sink 存储，服务重启后记录即清空。</p>
+    <p v-if="!loading && sessions.length === 0" class="note">暂无场次记录。开播后场次会写入当前存储。</p>
     <template v-else>
       <ul class="list">
         <li v-for="s in sessions" :key="s.id" :class="{ active: detail?.session.id === s.id }">
-          <button type="button" class="session" @click="open(s.id)">
+          <button type="button" class="session" @click="emit('select', s.id)">
             <span class="mono">{{ s.id.slice(0, 8) }}</span>
             <span :title="s.phase">{{ phaseLabel(s.phase) }}</span>
             <span class="mono">{{ duration(s.duration_s * 1000) }}</span>
@@ -260,6 +271,7 @@ onMounted(load)
 }
 .session {
   display: grid;
+  min-height: 44px;
   grid-template-columns: auto auto 1fr auto;
   align-items: center;
   gap: 8px;
@@ -324,7 +336,7 @@ onMounted(load)
   text-overflow: ellipsis;
 }
 .mini {
-  height: 28px;
+  min-height: 44px;
   padding: 0 10px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);
