@@ -21,7 +21,9 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/avatar"
 	"github.com/teamwork/digital-human/internal/biz/billing"
 	"github.com/teamwork/digital-human/internal/biz/choreo"
+	"github.com/teamwork/digital-human/internal/biz/contentpkg"
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
+	"github.com/teamwork/digital-human/internal/biz/interaction"
 	"github.com/teamwork/digital-human/internal/biz/koubo"
 	"github.com/teamwork/digital-human/internal/biz/media"
 	"github.com/teamwork/digital-human/internal/biz/patron"
@@ -41,16 +43,17 @@ const maxUploadFileBytes = 50 << 20 // 50MB
 
 // PanelDeps 是 M3 面板后端的依赖集合；nil 服务会被跳过注册，便于渐进接线。
 type PanelDeps struct {
-	TTS      *tts.Service
-	Actions  *action.Service
-	Choreo   *choreo.Service
-	Koubo    *koubo.Service
-	Refs     *refs.Service
-	Songs    *song.Service
-	Archive  *archive.Service
-	Billing  *billing.Service
-	Danmaku  *danmaku.Service
-	Personas *persona.Service
+	TTS          *tts.Service
+	Actions      *action.Service
+	Choreo       *choreo.Service
+	Koubo        *koubo.Service
+	Refs         *refs.Service
+	Songs        *song.Service
+	SongRequests song.RequestStore
+	Archive      *archive.Service
+	Billing      *billing.Service
+	Danmaku      *danmaku.Service
+	Personas     *persona.Service
 	// Patrons F29/G24 贵宾名单与欢迎（蓝本 bridge.py:878-940 五路由）；nil 跳过注册。
 	Patrons *patron.Service
 	// Avatars 数字人档案服务（G 批 M2，v2 §3.1 11 RPC + 图片路由）；nil 跳过注册。
@@ -80,6 +83,11 @@ type PanelDeps struct {
 	// Credits F08/F36/G03/N3 实时额度查询（蓝本 bridge.py:1508 /api/credits 透传 vidu credits）；
 	// nil（无凭据/dev）时返回 200 明确空态 configured=false，不报错。
 	Credits func(ctx context.Context) (map[string]any, error)
+	// Contentpkg 内容包草稿原子应用；nil 时不注册发布路由。
+	Contentpkg *contentpkg.Service
+	// Effects 与 InteractionDispatcher 提供 unknown 副作用查询和人工对账。
+	Effects               interaction.Store
+	InteractionDispatcher *interaction.Dispatcher
 	// StorageRoot 是 import-folder 允许的白名单根目录；为空时回退到 TTS 素材库所在根。
 	StorageRoot string
 }
@@ -88,6 +96,54 @@ type PanelDeps struct {
 // 语义与蓝本 bridge.py/koubo.py 对齐；新增路由必须在此显式登记。
 func registerPanelRoutes(srv *khttp.Server, d PanelDeps) {
 	r := srv.Route("/")
+
+	if d.Contentpkg != nil {
+		r.POST("/api/v1/live-drafts/{id}/apply", func(c khttp.Context) error {
+			var body struct {
+				OwnerID          string `json:"owner_id"`
+				FencingToken     int64  `json:"fencing_token"`
+				ExpectedRevision int64  `json:"expected_revision"`
+				PreflightID      string `json:"preflight_id"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			journal, err := d.Contentpkg.Apply(c.Request().Context(), param(c, "id"), body.OwnerID, body.FencingToken, body.ExpectedRevision, body.PreflightID)
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "journal": journal})
+		})
+	}
+
+	if d.Effects != nil {
+		r.GET("/api/v1/effects", func(c khttp.Context) error {
+			effects, err := d.Effects.ListEffects(c.Request().Context(), c.Request().URL.Query().Get("status"))
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "effects": effects, "count": len(effects)})
+		})
+	}
+	if d.InteractionDispatcher != nil {
+		r.POST("/api/v1/effects/{id}/reconcile", func(c khttp.Context) error {
+			var body struct {
+				Action    interaction.ReconcileAction `json:"action"`
+				ReceiptID string                      `json:"receipt_id"`
+				Reason    string                      `json:"reason"`
+			}
+			if err := decodeJSONBody(c, &body); err != nil {
+				return badRequest(c, err)
+			}
+			if err := d.InteractionDispatcher.Reconcile(c.Request().Context(), param(c, "id"), body.Action, body.ReceiptID, body.Reason); err != nil {
+				if errors.Is(err, interaction.ErrInvalidReconcile) {
+					return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "invalid_reconcile"})
+				}
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": param(c, "id")})
+		})
+	}
 
 	if d.TTS != nil {
 		r.GET("/api/v1/tts/voices", func(c khttp.Context) error {
@@ -477,6 +533,44 @@ func registerPanelRoutes(srv *khttp.Server, d PanelDeps) {
 		})
 		r.GET("/api/v1/songs/status", func(c khttp.Context) error {
 			return c.JSON(http.StatusOK, map[string]any{"ok": true, "state": d.Songs.Status()})
+		})
+	}
+
+	if d.SongRequests != nil {
+		r.GET("/api/v1/song-requests", func(c khttp.Context) error {
+			requests, err := d.SongRequests.List(c.Request().Context())
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "requests": requests, "count": len(requests)})
+		})
+		changeStatus := func(c khttp.Context, action string) error {
+			ctx := c.Request().Context()
+			id := param(c, "id")
+			if err := d.SongRequests.ChangeStatus(ctx, id, action); err != nil {
+				switch {
+				case errors.Is(err, song.ErrRequestNotFound):
+					return c.JSON(http.StatusNotFound, map[string]any{"ok": false, "error": "song_request_not_found"})
+				case errors.Is(err, song.ErrInvalidRequestTransition):
+					return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "invalid_song_request_transition"})
+				default:
+					return internal(c, err)
+				}
+			}
+			req, _, err := d.SongRequests.Get(ctx, id)
+			if err != nil {
+				return internal(c, err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{"ok": true, "request": req})
+		}
+		r.POST("/api/v1/song-requests/{id}/approve", func(c khttp.Context) error {
+			return changeStatus(c, song.RequestActionApprove)
+		})
+		r.POST("/api/v1/song-requests/{id}/reject", func(c khttp.Context) error {
+			return changeStatus(c, song.RequestActionReject)
+		})
+		r.POST("/api/v1/song-requests/{id}/cancel", func(c khttp.Context) error {
+			return changeStatus(c, song.RequestActionCancel)
 		})
 	}
 
