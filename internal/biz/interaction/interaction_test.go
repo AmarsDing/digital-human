@@ -122,8 +122,8 @@ func TestDispatchRetryThenSuccess(t *testing.T) {
 	}
 }
 
-// TestSweepLeaseExpiredRequeue 崩溃扫描：lease 过期的 dispatching 回收为 pending（§5.5-2）。
-func TestSweepLeaseExpiredRequeue(t *testing.T) {
+// TestSweepLeaseExpiredUnknown 崩溃扫描：过期 dispatching 结果不可知，禁止自动重放。
+func TestSweepLeaseExpiredUnknown(t *testing.T) {
 	st := NewMemoryStore()
 	svc := NewService(st)
 	disp, _ := NewDispatcher(st, 30*time.Second, 30*time.Second, nil)
@@ -139,8 +139,11 @@ func TestSweepLeaseExpiredRequeue(t *testing.T) {
 		t.Fatal(err)
 	}
 	eff, _ := st.GetEffect(effs[0].ID)
-	if eff.Status != EffectPending || eff.LeaseOwner != "" {
-		t.Fatalf("过期 lease 必须回收为 pending: %+v", eff)
+	if eff.Status != EffectUnknown || eff.ReconcileStatus != ReconcilePending {
+		t.Fatalf("过期 lease 必须 unknown+reconcile_pending，禁止盲目重放: %+v", eff)
+	}
+	if ok, err := disp.DispatchOnce(context.Background()); err != nil || ok {
+		t.Fatalf("unknown 不得被自动再次派发: ok=%v err=%v", ok, err)
 	}
 }
 
@@ -217,6 +220,36 @@ func TestGiftSpeakerHappyPath(t *testing.T) {
 	}
 }
 
+func TestGiftSpeakerSameTextDifferentBatchesAreDistinct(t *testing.T) {
+	st := NewMemoryStore()
+	svc := NewService(st)
+	disp, _ := NewDispatcher(st, 30*time.Second, 30*time.Second, nil)
+	inner := &captureSayer{}
+	gs := NewGiftSpeaker(svc, disp, inner, func() (string, bool) { return "s1", true })
+	gs.RegisterGiftHandler()
+	if err := gs.SayGiftBatch(context.Background(), "谢谢甲的玫瑰", "batch-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := gs.SayGiftBatch(context.Background(), "谢谢甲的玫瑰", "batch-2"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := st.CountDecisions(context.Background()); n != 2 {
+		t.Fatalf("同文案不同批次必须各有 Decision: %d", n)
+	}
+	if len(inner.got) != 2 {
+		t.Fatalf("不同批次不得被错误去重: %v", inner.got)
+	}
+	d, ok, _ := st.GetDecisionBySource(context.Background(), SourceKey("gift_thanks", "s1", "batch-1"))
+	if !ok {
+		t.Fatal("批次来源键未持久化")
+	}
+	for _, eff := range st.effects {
+		if eff.DecisionID == d.ID && (eff.DispatchID == "" || eff.DownstreamReceiptID != "say:"+eff.DispatchID) {
+			t.Fatalf("回执必须包含实际 dispatch ID: %+v", eff)
+		}
+	}
+}
+
 // TestGiftSpeakerNoSessionFailClosed 无场次时礼物答谢显式拒绝（不静默丢失、不落库）。
 func TestGiftSpeakerNoSessionFailClosed(t *testing.T) {
 	st := NewMemoryStore()
@@ -240,6 +273,37 @@ func TestGiftSpeakerPatronPassThrough(t *testing.T) {
 	}
 	if len(inner.got) != 1 {
 		t.Fatal("patron 应透传内层")
+	}
+}
+
+func TestDispatcherRunDispatchesPendingEffects(t *testing.T) {
+	st := NewMemoryStore()
+	svc := NewService(st)
+	_, effects := decideOne(t, svc, "src-run")
+	disp, _ := NewDispatcher(st, time.Second, time.Second, nil)
+	handled := make(chan struct{}, 1)
+	disp.RegisterHandler(EffectTypeGiftThanks, func(context.Context, Effect) (string, error) {
+		handled <- struct{}{}
+		return "receipt-run", nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	disp.Run(ctx, 5*time.Millisecond)
+	select {
+	case <-handled:
+	case <-time.After(time.Second):
+		t.Fatal("Run 只扫描崩溃状态，没有派发 pending effect")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		eff, _ := st.GetEffect(effects[0].ID)
+		if eff.Status == EffectSucceeded && eff.DownstreamReceiptID == "receipt-run" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("后台派发未写回执: %+v", eff)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

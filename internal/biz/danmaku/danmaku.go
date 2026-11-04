@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 	"unicode"
-
-	"github.com/google/uuid"
 )
 
 type Mode string
@@ -77,15 +75,22 @@ type Service struct {
 	// kindTap 为可选的 gift/join 分流钩子（F27 礼物合并器 / G24 贵宾欢迎的入口）；
 	// 事件被接受后在锁外同步调用，批读 worker 对 gift/join 仍保持不念（计 skipped）。
 	kindTap KindTap
+	ruleTap RuleTap
+	seen    map[string]Event
 }
 
 // TapEvent 是 kindTap 分发的原始事件（kind 取 gift/join）。
 type TapEvent struct {
-	UserID   string
-	UserName string
-	Text     string
-	Diamond  int64
-	VIP      bool
+	EventRowID    string
+	SourceEventID string
+	UserID        string
+	UserName      string
+	Text          string
+	Diamond       int64
+	VIP           bool
+	OccurredAtMs  int64
+	ReceivedAtMs  int64
+	ExpiresAtMs   int64
 }
 
 // KindTap gift/join 事件分流端口；装配层注入 gift.Merger / patron.Service 的适配器。
@@ -93,20 +98,30 @@ type KindTap func(kind string, ev TapEvent)
 
 // Event 是落库用弹幕事件（danmakuevent 表口径）；decision 取值见 schema 注释。
 type Event struct {
-	SessionID   string
-	Kind        string
-	UserID      string
-	UserName    string
-	Text        string
-	Diamond     int64
-	Source      string
-	Decision    string
-	CreatedAtMs int64
+	ID            string
+	SessionID     string
+	Kind          string
+	UserID        string
+	UserName      string
+	Text          string
+	Diamond       int64
+	Source        string
+	SourceEventID string
+	Decision      string
+	OccurredAtMs  int64
+	ReceivedAtMs  int64
+	ExpiresAtMs   int64
+	CreatedAtMs   int64
 }
 
 // EventSink 弹幕事件写路径端口；Ent 实现落 PG，内存实现只留最近若干条供排查。
 type EventSink interface {
 	Record(ctx context.Context, e Event) error
+}
+
+// IdempotentEventSink 由持久存储实现，用于进程重启后仍能识别同源重放。
+type IdempotentEventSink interface {
+	RecordEvent(ctx context.Context, e Event) (duplicate bool, err error)
 }
 
 // MemoryEventSink 内存降级：有界环形缓冲（默认 512 条），重启即丢，不提供复盘查询。
@@ -153,6 +168,7 @@ func NewService(mode Mode) *Service {
 		recent:   make([]ConsumeItem, 0, MaxRecentDanmaku),
 		counts:   map[string]map[string]int{},
 		vipUsers: map[string]int64{},
+		seen:     map[string]Event{},
 	}
 }
 
@@ -200,75 +216,13 @@ func (s *Service) SetKindTap(fn KindTap) {
 	s.mu.Unlock()
 }
 
-// Ingest 返回 ok=false 时也是 200；reason 供采集器识别。
-// vip 为采集侧判定的送礼/贵宾标记（蓝本 priority=vip）：进 VIP 优先队列并登记本场贵宾名单。
-// 每次调用都会经 EventSink 落一条弹幕事件（含判定结果）。
+// Ingest 保留旧 API；新采集入口通过 Envelope 携带平台来源事件 ID。
 func (s *Service) Ingest(ctx context.Context, kind, userID, userName, text string, diamond int64, source string, vip bool) (bool, string) {
-	s.mu.Lock()
-	if kind != "chat" && kind != "gift" && kind != "join" {
-		sink, sid := s.sink, s.sessionID
-		s.mu.Unlock()
-		s.record(ctx, sink, Event{SessionID: sid, Kind: kind, UserID: userID, UserName: userName, Text: text, Diamond: diamond, Source: source, Decision: "blocked", CreatedAtMs: time.Now().UnixMilli()})
-		return false, "unknown_kind"
-	}
-	if s.mode == ModeOff {
-		s.dropped++
-		sink, sid := s.sink, s.sessionID
-		s.mu.Unlock()
-		s.record(ctx, sink, Event{SessionID: sid, Kind: kind, UserID: userID, UserName: userName, Text: text, Diamond: diamond, Source: source, Decision: "dropped", CreatedAtMs: time.Now().UnixMilli()})
-		return false, "off"
-	}
-	// 结构过滤：剔除控制符/零宽字符、折叠超长重复字符、按 rune 截断。
-	text = sanitizeText(text)
-	if vip {
-		// 贵宾登记（蓝本 _vip_touch：MRU 语义，按 userName/userID 双键可查）。
-		nowMs := time.Now().UnixMilli()
-		if userName != "" {
-			s.vipUsers[userName] = nowMs
-		}
-		if userID != "" {
-			s.vipUsers[userID] = nowMs
-		}
-		// VIP 优先队列：满 5 丢最旧并计数（蓝本“送礼观众也防刷屏”）。
-		if len(s.vipq) >= maxVIPQueue {
-			s.vipq = s.vipq[1:]
-			s.dropped++
-		}
-		s.vipq = append(s.vipq, ConsumeItem{UserName: userName, Text: text, Kind: kind, VIP: true})
-	} else {
-		// deque(maxlen=8)，不按文本去重。
-		if len(s.recent) == MaxRecentDanmaku {
-			s.recent = s.recent[1:]
-		}
-		s.recent = append(s.recent, ConsumeItem{UserName: userName, Text: text, Kind: kind})
-	}
-	decision := "t0"
-	if s.mode == ModeConfirm && kind == "chat" {
-		decision = "confirm"
-		// pending 上限：超出丢最旧并计入 dropped。
-		if len(s.pend) >= maxPending {
-			s.pend = s.pend[1:]
-			s.dropped++
-		}
-		s.pend = append(s.pend, Pending{ID: uuid.NewString(), UserName: userName, Text: text, CreatedAtMs: time.Now().UnixMilli()})
-	}
-	sink, sid := s.sink, s.sessionID
-	tap := s.kindTap
-	s.mu.Unlock()
-	// F27/G24：gift/join 接受后分流给合并器/贵宾欢迎（不念经 worker 语义保持）。
-	if tap != nil && (kind == "gift" || kind == "join") {
-		tap(kind, TapEvent{UserID: userID, UserName: userName, Text: text, Diamond: diamond, VIP: vip})
-	}
-	s.record(ctx, sink, Event{SessionID: sid, Kind: kind, UserID: userID, UserName: userName, Text: text, Diamond: diamond, Source: source, Decision: decision, CreatedAtMs: time.Now().UnixMilli()})
-	return true, ""
-}
-
-// record 在锁外落库；sink 为 nil 或写失败均不影响 Ingest 主流程。
-func (s *Service) record(ctx context.Context, sink EventSink, e Event) {
-	if sink == nil {
-		return
-	}
-	_ = sink.Record(ctx, e)
+	result := s.IngestEvent(ctx, Envelope{
+		Kind: kind, UserID: userID, UserName: userName, Text: text,
+		Diamond: diamond, Source: source, VIP: vip,
+	})
+	return result.OK, result.Reason
 }
 
 // PendingReads 返回待播报深度（vip 队列 / 普通缓冲），供 worker 决策节奏与空转退出。

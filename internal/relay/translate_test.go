@@ -17,6 +17,13 @@ func TestTranslateChat(t *testing.T) {
 	if out.Source != "douyin" || out.IdempotencyKey == "" {
 		t.Fatalf("chat meta: %+v", out)
 	}
+	timed := Translate(map[string]any{
+		"method": "WebcastChatMessage", "user": map[string]any{"nickname": "小明"},
+		"content": "你好", "msgId": "m2", "createTime": float64(1700), "expiresAtMs": float64(1800),
+	})
+	if timed.OccurredAtMs != 1700 || timed.ExpiresAtMs != 1800 {
+		t.Fatalf("chat 时间字段必须透传: %+v", timed)
+	}
 }
 
 func TestTranslateGiftComboAntiDuplicate(t *testing.T) {

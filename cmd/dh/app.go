@@ -13,6 +13,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/contentpkg"
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/live"
+	"github.com/teamwork/digital-human/internal/biz/song"
 	"github.com/teamwork/digital-human/internal/data"
 )
 
@@ -31,6 +32,8 @@ type App struct {
 	Interaction *interactionRuntime
 	// Contentpkg B4 内容包原子性骨架（§7.1/§7.4）：持有引用保证 wire 装配（含 PG 热切）。
 	Contentpkg *contentpkg.Service
+	// SongScheduler 启动恢复崩溃中的点歌请求；playing 只转 unknown，不自动重播。
+	SongScheduler *song.Scheduler
 }
 
 func (a *App) Run() error {
@@ -39,6 +42,9 @@ func (a *App) Run() error {
 		if err := a.Manager.Recover(context.Background()); err != nil {
 			a.Logger.Warn("recover stale sessions failed", "err", err)
 		}
+	}
+	if err := a.recoverSongRequests(context.Background()); err != nil {
+		a.Logger.Warn("recover song requests failed", "err", err)
 	}
 	// B3 §5.5：崩溃扫描 goroutine——启动即扫一次，此后 30s 周期
 	//（补建缺失 Decision、lease 过期回收、超回执期转 unknown+reconcile_pending）。
@@ -65,4 +71,11 @@ func (a *App) Run() error {
 		defer cancel()
 		return a.Server.Stop(ctx)
 	}
+}
+
+func (a *App) recoverSongRequests(ctx context.Context) error {
+	if a.SongScheduler == nil {
+		return nil
+	}
+	return a.SongScheduler.Recover(ctx)
 }

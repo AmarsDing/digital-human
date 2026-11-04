@@ -271,3 +271,34 @@ func TestComposeThanks(t *testing.T) {
 		t.Fatal("空批次应空串")
 	}
 }
+
+type batchCaptureSpeaker struct {
+	fakeSpeaker
+	batchIDs []string
+}
+
+func (s *batchCaptureSpeaker) SayGiftBatch(_ context.Context, text, batchID string) error {
+	s.batchIDs = append(s.batchIDs, batchID)
+	return s.fakeSpeaker.Say(context.Background(), text, "gift")
+}
+
+func TestMergerSameTextDifferentBatchesHaveDifferentIDs(t *testing.T) {
+	sp := &batchCaptureSpeaker{}
+	m := NewMerger(fakeSettings{groups: map[string]map[string]any{
+		"gift": {"enabled": true, "window_s": 6, "flush_people": 4, "flush_diamond": 50,
+			"max_names": 4, "min_interval_s": 0, "urgent_min_interval_s": 0, "max_per_minute": 99, "max_items": 12},
+		"member": {"enabled": false},
+	}}, sp, nil, nil)
+	m.OnSessionStart(context.Background(), "s-gift-batches")
+	defer m.OnSessionStop(context.Background(), "s-gift-batches")
+	for i := 0; i < 2; i++ {
+		m.Ingest(context.Background(), Event{UserName: "甲", Item: "玫瑰", Num: 1, Unit: 1, Value: 1})
+		m.flush(context.Background())
+	}
+	if got := sp.lines(); len(got) != 2 || got[0] != got[1] {
+		t.Fatalf("测试需要两个同文案批次: %v", got)
+	}
+	if len(sp.batchIDs) != 2 || sp.batchIDs[0] == "" || sp.batchIDs[0] == sp.batchIDs[1] {
+		t.Fatalf("同文案不同批次必须传不同 batch ID: lines=%v ids=%v", sp.lines(), sp.batchIDs)
+	}
+}

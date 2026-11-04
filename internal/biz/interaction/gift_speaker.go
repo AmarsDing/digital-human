@@ -30,28 +30,50 @@ func NewGiftSpeaker(svc *Service, disp *Dispatcher, inner Sayer, sessionFn func(
 	return &GiftSpeaker{svc: svc, disp: disp, inner: inner, session: sessionFn}
 }
 
-// Say 实现 gift.Speaker。
+// Say 实现 gift.Speaker；旧调用保留内容幂等，新 Merger 走 SayGiftBatch。
 func (g *GiftSpeaker) Say(ctx context.Context, text string, mode string) error {
 	if mode != "gift" {
-		// 骨架：非礼物链路（patron 欢迎等）暂透传，接入点保留。
 		return g.inner.Say(ctx, text, mode)
 	}
-	if g.svc == nil || g.disp == nil || g.inner == nil || g.session == nil {
-		return errors.New("interaction: gift speaker not fully wired")
-	}
-	sessionID, ok := g.session()
-	if !ok || sessionID == "" {
+	sessionID, ok := g.currentSession()
+	if !ok {
 		return errors.New("interaction: gift thanks without live session (refused, fail-closed)")
 	}
-	// 无外部源事件行时的确定性兜底键：同场次同内容不重复建 Decision（§5.2 唯一性）。
-	source := SourceKey("gift_thanks", sessionID, text)
+	return g.sayGift(ctx, text, SourceKey("gift_thanks", sessionID, text))
+}
+
+// SayGiftBatch 以 Merger 批次为幂等边界，同文案不同批次不会互相去重。
+func (g *GiftSpeaker) SayGiftBatch(ctx context.Context, text, batchID string) error {
+	if batchID == "" {
+		return errors.New("interaction: gift batch ID is required")
+	}
+	sessionID, ok := g.currentSession()
+	if !ok {
+		return errors.New("interaction: gift thanks without live session (refused, fail-closed)")
+	}
+	return g.sayGift(ctx, text, SourceKey("gift_thanks", sessionID, batchID))
+}
+
+func (g *GiftSpeaker) currentSession() (string, bool) {
+	if g.session == nil {
+		return "", false
+	}
+	sessionID, ok := g.session()
+	return sessionID, ok && sessionID != ""
+}
+
+func (g *GiftSpeaker) sayGift(ctx context.Context, text, source string) error {
+	if g.svc == nil || g.disp == nil || g.inner == nil {
+		return errors.New("interaction: gift speaker not fully wired")
+	}
+	sessionID, _ := g.currentSession()
 	_, effects, err := g.svc.Decide(ctx, DecisionInput{
 		SessionID:        sessionID,
 		SourceEventRowID: source,
 		Intent:           EffectTypeGiftThanks,
 		Outcome:          DecideExecute,
 		ReasonCode:       "gift_merged",
-		PayloadSafe:      map[string]any{"text": text, "mode": mode},
+		PayloadSafe:      map[string]any{"text": text, "mode": "gift"},
 		Effects: []EffectInput{{
 			EffectType: EffectTypeGiftThanks, TargetID: "tts", Seq: 1,
 			PayloadSafe: map[string]any{"text": text},

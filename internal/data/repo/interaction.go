@@ -251,9 +251,59 @@ func (s *EntInteractionStore) MarkUnknown(ctx context.Context, id, reason string
 		SetStatus(interaction.EffectUnknown).
 		SetReconcileStatus(interaction.ReconcilePending).
 		SetLastError(reason).
-		SetReconciledAtMs(nowMs).
 		Save(ctx)
 	return err
+}
+
+func (s *EntInteractionStore) Reconcile(ctx context.Context, id string, action interaction.ReconcileAction, receiptID, reason string, nowMs int64) error {
+	update := s.client.EffectOutbox.Update().
+		Where(effectoutbox.ID(id), effectoutbox.Status(interaction.EffectUnknown)).
+		SetReconcileStatus(interaction.ReconcileResolved).
+		SetReconciledAtMs(nowMs).
+		SetLeaseOwner("").
+		SetLeaseUntilMs(0)
+	switch action {
+	case interaction.ReconcileActionSucceeded:
+		update.SetStatus(interaction.EffectReconcileSucceeded).
+			SetDownstreamReceiptID(receiptID).
+			SetTerminalReason(reason).
+			SetFinishedAtMs(nowMs)
+	case interaction.ReconcileActionFailed:
+		update.SetStatus(interaction.EffectReconcileFailed).
+			SetTerminalReason(reason).
+			SetFinishedAtMs(nowMs)
+	case interaction.ReconcileActionRequeue:
+		update.SetStatus(interaction.EffectPending).
+			SetNextRetryAtMs(0).
+			SetDispatchID("").
+			SetLastError(reason)
+	default:
+		return interaction.ErrInvalidReconcile
+	}
+	n, err := update.Save(ctx)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return interaction.ErrInvalidReconcile
+	}
+	return nil
+}
+
+func (s *EntInteractionStore) ListEffects(ctx context.Context, status string) ([]interaction.Effect, error) {
+	query := s.client.EffectOutbox.Query()
+	if status != "" {
+		query = query.Where(effectoutbox.Status(status))
+	}
+	rows, err := query.Order(ent.Asc(effectoutbox.FieldCreatedAtMs), ent.Asc(effectoutbox.FieldID)).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]interaction.Effect, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, effectFromEnt(row))
+	}
+	return out, nil
 }
 
 func (s *EntInteractionStore) CountDecisions(ctx context.Context) (int, error) {
@@ -361,6 +411,12 @@ func (s *SwitchableInteractionStore) Requeue(ctx context.Context, id string) err
 }
 func (s *SwitchableInteractionStore) MarkUnknown(ctx context.Context, id, reason string, nowMs int64) error {
 	return s.current().MarkUnknown(ctx, id, reason, nowMs)
+}
+func (s *SwitchableInteractionStore) Reconcile(ctx context.Context, id string, action interaction.ReconcileAction, receiptID, reason string, nowMs int64) error {
+	return s.current().Reconcile(ctx, id, action, receiptID, reason, nowMs)
+}
+func (s *SwitchableInteractionStore) ListEffects(ctx context.Context, status string) ([]interaction.Effect, error) {
+	return s.current().ListEffects(ctx, status)
 }
 func (s *SwitchableInteractionStore) CountDecisions(ctx context.Context) (int, error) {
 	return s.current().CountDecisions(ctx)

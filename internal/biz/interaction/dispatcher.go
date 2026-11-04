@@ -64,10 +64,17 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (bool, error) {
 	}
 	eff := claimed[0]
 	dispatchID := "dsp-" + randHex(8)
-	ok, err := d.store.MarkDispatching(ctx, eff.ID, d.owner, dispatchID, nowMs+d.lease.Milliseconds(), nowMs)
+	leaseUntilMs := nowMs + d.lease.Milliseconds()
+	ok, err := d.store.MarkDispatching(ctx, eff.ID, d.owner, dispatchID, leaseUntilMs, nowMs)
 	if err != nil || !ok {
 		return false, err
 	}
+	eff.Status = EffectDispatching
+	eff.LeaseOwner = d.owner
+	eff.LeaseUntilMs = leaseUntilMs
+	eff.DispatchID = dispatchID
+	eff.Attempt++
+	eff.DispatchedAtMs = nowMs
 	h, found := d.handlers[eff.EffectType]
 	if !found {
 		// 无执行器的链路（骨架未接通）：失败终态 + 显式原因，绝不假装成功。
@@ -79,7 +86,7 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (bool, error) {
 	receipt, herr := h(ctx, eff)
 	finMs := d.now().UnixMilli()
 	if herr != nil {
-		if eff.Attempt+1 >= eff.MaxAttempts {
+		if eff.Attempt >= eff.MaxAttempts {
 			return true, d.store.MarkFailed(ctx, eff.ID, herr.Error(), "attempts_exhausted", finMs)
 		}
 		// 固定 1s 退避工程初值（后续切片接指数退避）。
@@ -90,8 +97,8 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) (bool, error) {
 
 // Sweep 崩溃扫描一步（启动时 + 周期调用；§5.5）：
 //  1. 补建缺失 Decision（sources 提供原始事件行 → Decide 同事务落库）；
-//  2. lease 过期的 dispatching 回收为 pending；
-//  3. 超回执期的 dispatching 转 unknown + reconcile_status=pending。
+//  2. lease 过期的 dispatching 转 unknown + reconcile_pending，禁止自动重放；
+//  3. 超回执期的 dispatching 同样转 unknown + reconcile_pending。
 func (d *Dispatcher) Sweep(ctx context.Context) error {
 	nowMs := d.now().UnixMilli()
 	if d.sources != nil {
@@ -110,8 +117,8 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 		return err
 	}
 	for _, eff := range expired {
-		if err := d.store.Requeue(ctx, eff.ID); err != nil {
-			d.log.Warn("interaction sweep requeue failed", "effect", eff.ID, "err", err)
+		if err := d.store.MarkUnknown(ctx, eff.ID, "lease_expired", nowMs); err != nil {
+			d.log.Warn("interaction sweep mark-unknown failed", "effect", eff.ID, "err", err)
 		}
 	}
 	stale, err := d.store.ListReceiptTimeout(ctx, nowMs-d.receiptTimeout.Milliseconds())
@@ -126,6 +133,11 @@ func (d *Dispatcher) Sweep(ctx context.Context) error {
 	return nil
 }
 
+// Reconcile 由操作员在查明下游事实后显式选择终态或重排队。
+func (d *Dispatcher) Reconcile(ctx context.Context, id string, action ReconcileAction, receiptID, reason string) error {
+	return d.store.Reconcile(ctx, id, action, receiptID, reason, d.now().UnixMilli())
+}
+
 // Run 崩溃扫描 goroutine：启动即扫一次，随后每 interval（§5.5 工程初值 30s）扫一次。
 // ctx 取消即退出；返回 chan 供测试等待（可为 nil 忽略）。
 func (d *Dispatcher) Run(ctx context.Context, interval time.Duration) {
@@ -134,6 +146,7 @@ func (d *Dispatcher) Run(ctx context.Context, interval time.Duration) {
 	}
 	go func() {
 		_ = d.Sweep(ctx)
+		d.dispatchPending(ctx)
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
@@ -144,9 +157,23 @@ func (d *Dispatcher) Run(ctx context.Context, interval time.Duration) {
 				if err := d.Sweep(ctx); err != nil {
 					d.log.Warn("interaction sweep failed", "err", err)
 				}
+				d.dispatchPending(ctx)
 			}
 		}
 	}()
+}
+
+func (d *Dispatcher) dispatchPending(ctx context.Context) {
+	for {
+		worked, err := d.DispatchOnce(ctx)
+		if err != nil {
+			d.log.Warn("interaction dispatch failed", "err", err)
+			return
+		}
+		if !worked {
+			return
+		}
+	}
 }
 
 func newUUID() string { return randHex(16) }

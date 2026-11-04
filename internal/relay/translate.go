@@ -19,6 +19,9 @@ type Out struct {
 	Diamond        int64  `json:"diamond,omitempty"`
 	Source         string `json:"source"` // 固定 douyin
 	IdempotencyKey string `json:"idempotency_key"`
+	OccurredAtMs   int64  `json:"occurred_at_ms,omitempty"`
+	ReceivedAtMs   int64  `json:"received_at_ms,omitempty"`
+	ExpiresAtMs    int64  `json:"expires_at_ms,omitempty"`
 }
 
 // Translate 把 douyinLive 的一条 JSON 消息翻译为 Out；不关心的类型返回 nil。
@@ -41,7 +44,8 @@ func Translate(msg map[string]any) *Out {
 			return nil
 		}
 		return &Out{Kind: "chat", UserName: nick, UserID: str(user["id"]),
-			Text: content, Source: "douyin", IdempotencyKey: msgKey(msg)}
+			Text: content, Source: "douyin", IdempotencyKey: msgKey(msg),
+			OccurredAtMs: eventTimeMs(msg), ExpiresAtMs: toI64(msg["expiresAtMs"])}
 
 	case "WebcastGiftMessage", "WebcastLightGiftMessage", "WebcastBindingGiftMessage":
 		inner := msg
@@ -101,6 +105,13 @@ func msgKey(m map[string]any) string {
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return "dy-" + hex.EncodeToString(sum[:])[:16]
+}
+
+func eventTimeMs(m map[string]any) int64 {
+	if ts := toI64(m["createTime"]); ts > 0 {
+		return ts
+	}
+	return toI64(m["timestamp"])
 }
 
 func str(v any) string {

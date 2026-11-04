@@ -3,8 +3,8 @@
 // dispatcher lease 派发 + 回执写状态；崩溃扫描补建缺失 Decision、回收过期 lease、
 // 超回执期转 unknown+reconcile_pending。
 //
-// 本期只打通礼物答谢链路（gift 合并触发 → Decision+EffectOutbox → dispatcher 调 Say
-// → 回执写状态）；其余链路（chat_reply/action/song_play）仅留骨架接口。
+// 礼物答谢经 gift 合并触发进入同一闭环；规则侧 chat_reply/action 也有现有出口适配，
+// song_request 的队列与播放适配位于 song 包，统一复用此 dispatcher。
 package interaction
 
 import (
@@ -82,6 +82,17 @@ const (
 	ReconcileManualRequired = "manual_required"
 )
 
+// ReconcileAction 是操作员核对下游事实后的显式选择。
+type ReconcileAction string
+
+const (
+	ReconcileActionSucceeded ReconcileAction = "succeeded"
+	ReconcileActionFailed    ReconcileAction = "failed"
+	ReconcileActionRequeue   ReconcileAction = "requeue"
+)
+
+var ErrInvalidReconcile = errors.New("interaction: effect is not unknown or action is invalid")
+
 // 决策结果（§5.4 decision 枚举）。
 const (
 	DecideExecute  = "execute"
@@ -134,6 +145,10 @@ type Store interface {
 	Requeue(ctx context.Context, id string) error
 	// MarkUnknown 超回执期：dispatching→unknown + reconcile_status=pending。
 	MarkUnknown(ctx context.Context, id, reason string, nowMs int64) error
+	// Reconcile 只允许人工核对 unknown 后写终态或显式重排队。
+	Reconcile(ctx context.Context, id string, action ReconcileAction, receiptID, reason string, nowMs int64) error
+	// ListEffects 按状态读取副作用，供 unknown 人工对账；空状态表示全部。
+	ListEffects(ctx context.Context, status string) ([]Effect, error)
 	// 崩溃扫描补建缺失 Decision 的审计计数（观测用）。
 	CountDecisions(ctx context.Context) (int, error)
 }

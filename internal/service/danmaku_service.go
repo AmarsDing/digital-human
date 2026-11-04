@@ -15,8 +15,13 @@ func NewDanmakuService(svc *danmaku.Service) *DanmakuService { return &DanmakuSe
 
 // Ingest 永远返回成功响应体（HTTP 200），由 {ok,reason} 表达拒绝原因。
 func (s *DanmakuService) Ingest(ctx context.Context, req *livev1.IngestRequest) (*livev1.IngestReply, error) {
-	ok, reason := s.svc.Ingest(ctx, req.GetKind(), req.GetUserId(), req.GetUserName(), req.GetText(), req.GetDiamond(), req.GetSource(), req.GetVip())
-	return &livev1.IngestReply{Ok: ok, Reason: reason}, nil
+	result := s.svc.IngestEvent(ctx, danmaku.Envelope{
+		Kind: req.GetKind(), UserID: req.GetUserId(), UserName: req.GetUserName(),
+		Text: req.GetText(), Diamond: req.GetDiamond(), Source: req.GetSource(), VIP: req.GetVip(),
+		SourceEventID: req.GetIdempotencyKey(), OccurredAtMs: req.GetOccurredAtMs(),
+		ReceivedAtMs: req.GetReceivedAtMs(), ExpiresAtMs: req.GetExpiresAtMs(),
+	})
+	return &livev1.IngestReply{Ok: result.OK, Reason: result.Reason}, nil
 }
 
 func (s *DanmakuService) SetMode(_ context.Context, req *livev1.SetModeRequest) (*livev1.SetModeReply, error) {

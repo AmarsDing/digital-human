@@ -77,6 +77,32 @@ func TestEntInteractionStoreIdempotencyKeyUnique(t *testing.T) {
 }
 
 // TestEntInteractionStoreDispatchFlow Ent 后端完整派发流：claim→dispatching→succeeded 回执。
+func TestEntInteractionStoreListEffectsByStatus(t *testing.T) {
+	ctx := context.Background()
+	st := NewEntInteractionStore(newEntTestClient(t))
+	_, effects, err := interaction.NewService(st).Decide(ctx, interaction.DecisionInput{
+		SessionID: "s1", SourceEventRowID: "src-list-unknown", Intent: interaction.IntentChatReply,
+		Effects: []interaction.EffectInput{{EffectType: interaction.EffectTypeChatReply, TargetID: "speech", Seq: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.MarkDispatching(ctx, effects[0].ID, "owner", "dispatch-list", 1000, 1); err != nil || !ok {
+		t.Fatalf("mark dispatching ok=%v err=%v", ok, err)
+	}
+	if err := st.MarkUnknown(ctx, effects[0].ID, "receipt_timeout", 2); err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := st.ListEffects(ctx, interaction.EffectUnknown)
+	if err != nil || len(unknown) != 1 || unknown[0].ID != effects[0].ID {
+		t.Fatalf("unknown list=%+v err=%v", unknown, err)
+	}
+	pending, err := st.ListEffects(ctx, interaction.EffectPending)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("pending list=%+v err=%v", pending, err)
+	}
+}
+
 func TestEntInteractionStoreDispatchFlow(t *testing.T) {
 	ctx := context.Background()
 	st := NewEntInteractionStore(newEntTestClient(t))

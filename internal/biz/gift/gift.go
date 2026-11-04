@@ -25,6 +25,11 @@ type Speaker interface {
 	Say(ctx context.Context, text string, mode string) error
 }
 
+// BatchSpeaker 在现有 Say 通道上补充礼物批次标识；不支持时回退 Say。
+type BatchSpeaker interface {
+	SayGiftBatch(ctx context.Context, text, batchID string) error
+}
+
 // SettingsProvider 读 gift / danmaku 组键。
 type SettingsProvider interface {
 	Value(ctx context.Context, group, key string) any
@@ -82,6 +87,8 @@ type Merger struct {
 	vipWelcomed map[string]bool
 	vipCooldown map[string]time.Time
 	stats       Stats
+	sessionID   string
+	batchSeq    uint64
 }
 
 type aggItem struct {
@@ -126,6 +133,8 @@ func (m *Merger) SetClock(c Clock) { m.clock = c }
 func (m *Merger) OnSessionStart(ctx context.Context, sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.sessionID = sessionID
+	m.batchSeq = 0
 	m.items = map[string]*aggItem{}
 	m.order = nil
 	m.extraVal = 0
@@ -308,6 +317,8 @@ func (m *Merger) flush(ctx context.Context) {
 		batch = append(batch, *m.items[k])
 	}
 	text := composeThanks(batch, extra)
+	m.batchSeq++
+	batchID := fmt.Sprintf("gift-%s-%d-%d", m.sessionID, now.UnixMilli(), m.batchSeq)
 	m.items = map[string]*aggItem{}
 	m.order = nil
 	m.extraVal = 0
@@ -322,13 +333,19 @@ func (m *Merger) flush(ctx context.Context) {
 	if text == "" {
 		return
 	}
-	if err := m.speaker.Say(ctx, text, "gift"); err != nil {
-		m.log.Warn("gift say failed", "err", err)
+	var err error
+	if speaker, ok := m.speaker.(BatchSpeaker); ok {
+		err = speaker.SayGiftBatch(ctx, text, batchID)
+	} else {
+		err = m.speaker.Say(ctx, text, "gift")
+	}
+	if err != nil {
+		m.log.Warn("gift say failed", "err", err, "batch_id", batchID)
 		return
 	}
 	if m.emit != nil {
 		m.emit("gift_batch", map[string]any{
-			"text": text, "items": len(batch), "extra": extra, "diamond": totalValue,
+			"text": text, "items": len(batch), "extra": extra, "diamond": totalValue, "batch_id": batchID,
 		})
 	}
 }

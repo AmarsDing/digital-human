@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/teamwork/digital-human/internal/biz/capability"
 	"github.com/teamwork/digital-human/internal/biz/media"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 )
@@ -25,18 +26,20 @@ var (
 	ErrNotLive   = errors.New("未开播")
 	ErrNotFound  = errors.New("歌曲不存在")
 	ErrBusy      = errors.New("正在播放其他歌曲")
+	ErrStopped   = errors.New("歌曲已停止")
 	ErrEmptyName = errors.New("file_name 为空")
 )
 
 type State struct {
-	File         string   `json:"file"`
-	Script       string   `json:"script"`
-	Playing      bool     `json:"song_playing"`
-	Epoch        int64    `json:"epoch"`
-	StartedAtMs  int64    `json:"started_at_ms,omitempty"`
-	CaptionLines []string `json:"caption_lines"`
-	LyricsSource string   `json:"lyrics_source"`
-	Decoder      string   `json:"decoder"`
+	Source       capability.Status `json:"source"`
+	File         string            `json:"file"`
+	Script       string            `json:"script"`
+	Playing      bool              `json:"song_playing"`
+	Epoch        int64             `json:"epoch"`
+	StartedAtMs  int64             `json:"started_at_ms,omitempty"`
+	CaptionLines []string          `json:"caption_lines"`
+	LyricsSource string            `json:"lyrics_source"`
+	Decoder      string            `json:"decoder"`
 }
 
 type Service struct {
@@ -46,10 +49,11 @@ type Service struct {
 	bus    *eventbus.Bus
 	isLive func() bool
 
-	mu     sync.Mutex
-	state  State
-	cancel context.CancelFunc
-	epoch  int64
+	dispatchMu sync.Mutex
+	mu         sync.Mutex
+	state      State
+	cancel     context.CancelFunc
+	epoch      int64
 
 	cacheDigest [sha256.Size]byte
 	cachePCM    []byte
@@ -84,21 +88,71 @@ func (s *Service) Status() State {
 
 func (s *Service) snapshot() State {
 	out := s.state
+	out.Source = playbackSource(s.dec, s.player)
 	out.CaptionLines = append([]string(nil), s.state.CaptionLines...)
 	return out
 }
 
-// Play 点播：先停掉当前曲目，再解码、读取字幕、异步喂流；立即返回 playing=true。
+func playbackSource(dec media.Decoder, player media.Player) capability.Status {
+	decoder := decoderSource(dec)
+	source := playerSource(player)
+	if decoder == capability.Unconfigured || source == capability.Unconfigured {
+		return capability.Unconfigured
+	}
+	if decoder == capability.Unknown || source == capability.Unknown {
+		return capability.Unknown
+	}
+	if decoder == capability.Fake || source == capability.Fake {
+		return capability.Fake
+	}
+	return capability.Real
+}
+
+func decoderSource(dec media.Decoder) capability.Status {
+	switch dec.(type) {
+	case nil, media.UnavailableDecoder:
+		return capability.Unconfigured
+	case media.FakeDecoder:
+		return capability.Fake
+	case *media.FfmpegDecoder:
+		return capability.Real
+	default:
+		return capability.Unknown
+	}
+}
+
+func playerSource(player media.Player) capability.Status {
+	switch player.(type) {
+	case nil, media.UnavailablePlayer:
+		return capability.Unconfigured
+	case *media.FakePlayer:
+		return capability.Fake
+	case *media.FfmpegPlayer:
+		return capability.Real
+	default:
+		return capability.Unknown
+	}
+}
+
+// Play 保留手动入口，但播放中拒绝抢占；自动点歌只能由 Scheduler 调用同一内部原语。
 func (s *Service) Play(ctx context.Context, name, script string) (State, error) {
+	return s.start(ctx, name, script, nil)
+}
+
+func (s *Service) start(ctx context.Context, name, script string, onDone func(error)) (State, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return State{}, ErrEmptyName
 	}
 	s.mu.Lock()
 	live := s.isLive
+	busy := s.state.Playing || s.cancel != nil
 	s.mu.Unlock()
 	if live == nil || !live() {
 		return State{}, ErrNotLive
+	}
+	if busy {
+		return State{}, ErrBusy
 	}
 	path, _, err := s.lib.Path(name)
 	if err != nil {
@@ -111,9 +165,9 @@ func (s *Service) Play(ctx context.Context, name, script string) (State, error) 
 	lines, source := readLyrics(path, script)
 
 	s.mu.Lock()
-	if s.cancel != nil {
-		s.cancel()
-		s.cancel = nil
+	if s.state.Playing || s.cancel != nil {
+		s.mu.Unlock()
+		return State{}, ErrBusy
 	}
 	s.epoch++
 	epoch := s.epoch
@@ -132,7 +186,7 @@ func (s *Service) Play(ctx context.Context, name, script string) (State, error) 
 		"file": name, "script": script, "epoch": epoch, "song_playing": true,
 		"caption_lines": lines, "lyrics_source": source,
 	})
-	go s.run(pctx, epoch, path, script, pcm)
+	go s.run(pctx, epoch, path, script, pcm, onDone)
 	return out, nil
 }
 
@@ -162,7 +216,7 @@ func (s *Service) decodePCM(ctx context.Context, path string) ([]byte, error) {
 	return pcm, nil
 }
 
-func (s *Service) run(ctx context.Context, epoch int64, path, script string, pcm []byte) {
+func (s *Service) run(ctx context.Context, epoch int64, path, script string, pcm []byte, onDone func(error)) {
 	var err error
 	if player, ok := s.player.(media.PCMPlayer); ok {
 		err = player.PlayPCM(ctx, pcm, script)
@@ -170,13 +224,21 @@ func (s *Service) run(ctx context.Context, epoch int64, path, script string, pcm
 		err = s.player.Play(ctx, path, script)
 	}
 	s.mu.Lock()
-	if s.epoch != epoch {
-		s.mu.Unlock()
+	current := s.epoch == epoch
+	if current {
+		s.state.Playing = false
+		s.cancel = nil
+	}
+	s.mu.Unlock()
+	if onDone != nil {
+		if !current && err == nil {
+			err = ErrStopped
+		}
+		onDone(err)
+	}
+	if !current {
 		return
 	}
-	s.state.Playing = false
-	s.cancel = nil
-	s.mu.Unlock()
 	if err != nil {
 		s.publish(context.WithoutCancel(ctx), "song.error", map[string]any{"file": path, "error": err.Error()})
 		return

@@ -39,14 +39,21 @@ func (m *MemoryStore) TxCreateDecisionWithEffects(_ context.Context, d Decision,
 			return exist, out, false, nil
 		}
 	}
+	keys := make(map[string]struct{}, len(effects))
+	for _, e := range effects {
+		if _, dup := m.byIdem[e.EffectIdempotencyKey]; dup {
+			return Decision{}, nil, false, ErrDuplicateSource
+		}
+		if _, dup := keys[e.EffectIdempotencyKey]; dup {
+			return Decision{}, nil, false, ErrDuplicateSource
+		}
+		keys[e.EffectIdempotencyKey] = struct{}{}
+	}
 	m.decisions[d.ID] = d
 	if d.SourceEventRowID != "" {
 		m.bySource[d.SourceEventRowID] = d.ID
 	}
 	for _, e := range effects {
-		if _, dup := m.byIdem[e.EffectIdempotencyKey]; dup {
-			return Decision{}, nil, false, ErrDuplicateSource
-		}
 		m.effects[e.ID] = e
 		m.byIdem[e.EffectIdempotencyKey] = e.ID
 	}
@@ -195,11 +202,65 @@ func (m *MemoryStore) MarkUnknown(_ context.Context, id, reason string, nowMs in
 	if !ok {
 		return nil
 	}
+	if e.Status != EffectDispatching {
+		return nil
+	}
 	e.Status = EffectUnknown
 	e.ReconcileStatus = ReconcilePending
 	e.LastError = reason
 	m.effects[id] = e
 	return nil
+}
+
+func (m *MemoryStore) Reconcile(_ context.Context, id string, action ReconcileAction, receiptID, reason string, nowMs int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.effects[id]
+	if !ok || e.Status != EffectUnknown {
+		return ErrInvalidReconcile
+	}
+	e.ReconcileStatus = ReconcileResolved
+	e.ReconciledAtMs = nowMs
+	e.LeaseOwner = ""
+	e.LeaseUntilMs = 0
+	switch action {
+	case ReconcileActionSucceeded:
+		e.Status = EffectReconcileSucceeded
+		e.DownstreamReceiptID = receiptID
+		e.TerminalReason = reason
+		e.FinishedAtMs = nowMs
+	case ReconcileActionFailed:
+		e.Status = EffectReconcileFailed
+		e.TerminalReason = reason
+		e.FinishedAtMs = nowMs
+	case ReconcileActionRequeue:
+		e.Status = EffectPending
+		e.NextRetryAtMs = 0
+		e.DispatchID = ""
+		e.LastError = reason
+	default:
+		return ErrInvalidReconcile
+	}
+	m.effects[id] = e
+	return nil
+}
+
+func (m *MemoryStore) ListEffects(_ context.Context, status string) ([]Effect, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Effect, 0)
+	for _, e := range m.effects {
+		if status == "" || e.Status == status {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAtMs == out[j].CreatedAtMs {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAtMs < out[j].CreatedAtMs
+	})
+	return out, nil
 }
 
 func (m *MemoryStore) CountDecisions(_ context.Context) (int, error) {
