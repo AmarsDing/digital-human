@@ -16,6 +16,7 @@ describe('avatars 客户端', () => {
       ['avatar_not_synced', '同步'],
       ['avatar_expired', '过期'],
       ['voice_not_found', '音色'],
+      ['tts_unavailable', '语音合成服务尚未配置'],
       ['vidu_key_unconfigured', 'Vidu Key'],
       ['revision_conflict', '并发'],
       ['slug_conflict', 'slug'],

@@ -100,7 +100,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     id: 'voice',
     title: '声音',
     effective: 'immediate',
-    note: '音色切换即时生效；喂流帧长在下次连线生效。OmniVoice 边车未接入前只能查看。',
+    note: '音色切换当场生效（准备模式下用于下一场）；喂流帧长在下一场生效。OmniVoice 边车未接入前只能查看。',
     fields: [
       { key: 'voice_id', label: '音色预设', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' },
       { key: 'preview_text', label: '试听文本', type: 'text' },

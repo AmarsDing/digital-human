@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { classifyApiError } from '../../services/api/client'
 import NtConfirmDialog from '../ui/NtConfirmDialog.vue'
 import {
@@ -14,15 +14,14 @@ import {
   type Voice
 } from '../../services/api/panels'
 
-const props = defineProps<{ voiceId: string }>()
-const emit = defineEmits<{
-  (e: 'select', id: string): void
-  (e: 'preview', text: string): void
-}>()
+const props = withDefaults(defineProps<{ voiceId: string; liveMode?: boolean }>(), { liveMode: false })
+const emit = defineEmits<{ (e: 'preview', text: string): void }>()
 
 const voices = ref<Voice[]>([])
 const current = ref('')
 const activeBase = ref('')
+const fakeVoice = computed(() => activeBase.value.startsWith('fake-'))
+const voiceUnavailable = computed(() => !activeBase.value || activeBase.value.startsWith('unavailable:'))
 const files = ref<MediaFile[]>([])
 const filesDir = ref('')
 const folder = ref('')
@@ -65,20 +64,20 @@ async function load(): Promise<void> {
 
 async function apply(id = draft.value): Promise<void> {
   const name = id.trim()
-  if (!name) return
+  if (!name || props.liveMode) return
   error.value = ''
   try {
     await setVoice(name)
     current.value = name
     draft.value = name
-    emit('select', name)
+    note.value = '音色接口已生效，将用于下一场；未修改设置草稿。'
   } catch (err) {
     error.value = classifyApiError(err).message
   }
 }
 
 async function preview(): Promise<void> {
-  if (!previewText.value.trim()) return
+  if (fakeVoice.value || voiceUnavailable.value || !previewText.value.trim()) return
   previewing.value = true
   error.value = ''
   try {
@@ -158,6 +157,9 @@ onBeforeUnmount(stopAudio)
 
 <template>
   <div class="voice">
+    <p class="note" data-testid="voice-scope">
+      {{ props.liveMode ? '当场音色已冻结；下播后在准备模式配置的音色将用于下一场。' : '准备模式：音色接口生效后用于下一场，不写入设置草稿。' }}
+    </p>
     <div class="bar">
       <span class="mono">当前：{{ current || props.voiceId || '未设置' }}</span>
       <button type="button" class="mini" :disabled="loading" @click="load">刷新</button>
@@ -168,7 +170,7 @@ onBeforeUnmount(stopAudio)
     <p v-if="!loading && voices.length === 0" class="note">后端未返回可用音色（OmniVoice fake 端口已就绪，待真实边车）。</p>
     <ul v-if="!loading && voices.length > 0" class="list">
       <li v-for="v in voices" :key="v.name" :class="{ active: v.name === current }">
-        <button type="button" class="item" @click="apply(v.name)">
+        <button type="button" class="item" :disabled="props.liveMode" @click="apply(v.name)">
           <span>{{ v.label || v.name }}</span>
           <span class="mono">{{ v.name }}</span>
         </button>
@@ -176,16 +178,18 @@ onBeforeUnmount(stopAudio)
     </ul>
     <label class="row">
       <span>音色 ID</span>
-      <input v-model="draft" type="text" placeholder="voice preset id" @keyup.enter="apply()" />
-      <button type="button" :disabled="!draft.trim()" @click="apply()">应用</button>
+      <input v-model="draft" type="text" placeholder="voice preset id" :disabled="props.liveMode" @keyup.enter="apply()" />
+      <button type="button" :disabled="props.liveMode || !draft.trim()" @click="apply()">应用</button>
     </label>
     <label class="row">
       <span>试听文本</span>
       <input v-model="previewText" type="text" />
     </label>
-    <button class="preview" type="button" :disabled="previewing || !previewText.trim()" @click="preview">
+    <button class="preview" type="button" :disabled="fakeVoice || voiceUnavailable || previewing || !previewText.trim()" @click="preview">
       {{ previewing ? '合成中…' : '试听' }}
     </button>
+    <p v-if="fakeVoice" class="note" data-testid="voice-capability">fake 音色库仅用于开发预览，真实试听不可用，待真实 OmniVoice 边车接入。</p>
+    <p v-else-if="voiceUnavailable" class="note" role="status">语音合成服务尚未配置，暂不能试听。请先配置语音服务，再刷新音色库。</p>
     <p class="mono base">音色库：{{ activeBase || '—' }}</p>
 
     <section class="files">
@@ -212,6 +216,7 @@ onBeforeUnmount(stopAudio)
       title="删除音频文件"
       :message="`将删除「${pendingDelete}」，删除后不可恢复。确定继续？`"
       confirm-text="删除"
+      dangerous
       @confirm="removeFile(pendingDelete)"
       @cancel="pendingDelete = ''"
     />
@@ -253,6 +258,7 @@ onBeforeUnmount(stopAudio)
 }
 .item {
   display: flex;
+  min-height: 44px;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
@@ -294,7 +300,7 @@ onBeforeUnmount(stopAudio)
 .row button,
 .mini,
 .preview {
-  height: 32px;
+  min-height: 44px;
   padding: 0 10px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);

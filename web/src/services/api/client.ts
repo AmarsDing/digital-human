@@ -111,6 +111,8 @@ function safeParse(text: string): unknown {
 export function classifyApiError(err: unknown): { code: string; message: string } {
   if (err instanceof ApiError) {
     switch (err.code) {
+      case 'tts_unavailable':
+        return { code: err.code, message: '语音合成服务尚未配置，请先配置后再试听' }
       case 'draft_revision_conflict':
       case 'draft_fencing_conflict':
       case 'draft_owner_conflict':
