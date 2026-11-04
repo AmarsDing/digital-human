@@ -553,17 +553,20 @@ func parseGiftText(text string) (item string, num int) {
 // providePersona F38 人设兼容壳（v3 §1.2 拍板：avatar 档案服务为 Persona 行唯一写方）。
 // 存储层委托 SwitchableAvatarStore（AvatarBackedStore），四路由语义不变；
 // 档案字段（vidu_*/refs/greeting 等）由 avatar 侧独占，兼容壳读改写保留不抹除。
-// 切换后旁路回写 settings persona.active_id 仅供抽屉显示，不构成第二条 prompt 写通路。
+// 切换后旁路回写 settings persona.active_id 仅供抽屉显示。
 func providePersona(avatarStore *repo.SwitchableAvatarStore, st *settings.Service) *persona.Service {
 	svc := persona.NewService(persona.NewAvatarBackedStore(avatarStore))
 	svc.SetActiveSync(func(ctx context.Context, id string) {
 		_ = st.Patch(ctx, "persona", map[string]any{"active_id": id})
 	})
+	svc.SetPromptFallback(func(ctx context.Context) string {
+		return settingStr(st, ctx, "llm", "system")
+	})
 	return svc
 }
 
 // provideChat F15 会话编排单例：Streamer 每次调用取 settings.llm 快照（热改立即生效）；
-// ProfileResolver 用 persona.Service（G05 单一来源，无 active 时返回空串）。
+// ProfileResolver 用 persona.Service（G05 人设优先，llm.system 为第二来源）。
 func provideChat(st *settings.Service, p *persona.Service) *chat.Manager {
 	cli := llm.NewClient(func() llm.Config {
 		ctx := context.Background()

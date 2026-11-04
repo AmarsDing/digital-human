@@ -154,9 +154,9 @@ func TestLLMAPIKeyMaskedAndPreserved(t *testing.T) {
 	}
 }
 
-// TestSaveStripsDeadPromptKeys G3-3：llm.system / persona.content 后端零消费方，
-// Save 必须剥离（告警日志），不得落库成死数据；其余键不受影响。
-func TestSaveStripsDeadPromptKeys(t *testing.T) {
+// TestSaveKeepsSecondaryPromptAndStripsDeadPersonaContent：llm.system 是 G05 第二来源，
+// 必须持久化；persona.content 仍是死键，必须剥离。
+func TestSaveKeepsSecondaryPromptAndStripsDeadPersonaContent(t *testing.T) {
 	svc := NewService(NewMemoryStore())
 	ctx := context.Background()
 	groups, rev, err := svc.Get(ctx)
@@ -181,8 +181,8 @@ func TestSaveStripsDeadPromptKeys(t *testing.T) {
 	for _, g := range after {
 		switch g.ID {
 		case "llm":
-			if _, has := g.Values["system"]; has {
-				t.Fatalf("llm.system 必须被剥离: %+v", g.Values)
+			if g.Values["system"] != "你是猫娘" {
+				t.Fatalf("llm.system 第二来源必须保留: %+v", g.Values)
 			}
 			if g.Values["base_url"] == nil {
 				t.Fatal("llm 其余键不得受影响")

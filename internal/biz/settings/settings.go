@@ -49,7 +49,7 @@ func DefaultGroups() []Group {
 		}},
 		{ID: "llm", Title: "LLM", Effective: "next_session", Values: map[string]any{
 			"base_url": "https://api.deepseek.com", "api_key": "", "model": "", "temperature": 0.7,
-			"fallback_models": []any{},
+			"fallback_models": []any{}, "system": "",
 		}},
 		{ID: "rtc", Title: "自备 RTC", Effective: "next_session", Values: map[string]any{
 			"mode": "managed", "provider": "artc",
@@ -260,10 +260,9 @@ func (s *Service) Save(ctx context.Context, groups []Group, base int64) (int64, 
 	return rev, reload, err
 }
 
-// deadKeys G3-3：llm.system / persona.content 后端零消费方（v3 单一 prompt 写通路
-// 为 avatar 档案），PUT/Patch 写入一律剥离并告警，避免落库成死数据。
+// deadKeys：persona.content 后端零消费方，PUT/Patch 写入一律剥离并告警。
+// llm.system 是 G05 的第二 prompt 来源，不在此列。
 var deadKeys = map[string][]string{
-	"llm":     {"system"},
 	"persona": {"content"},
 }
 

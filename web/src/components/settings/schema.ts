@@ -177,7 +177,7 @@ export const GROUP_SPECS: GroupSpec[] = [
       { key: 'api_key_tail8', label: 'Key 尾号', type: 'secret', hint: '只读' },
       { key: 'temperature', label: 'temperature', type: 'number', min: 0, max: 2, step: 0.1 },
       { key: 'max_tokens', label: 'max_tokens', type: 'number', min: 64, max: 32768 },
-      { key: 'system', label: 'System Prompt', type: 'readonly', hint: '人设提示词已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' }
+      { key: 'system', label: '全局 System Prompt', type: 'textarea', hint: '第二来源；档案人设优先，相同内容自动去重' }
     ],
     defaults: {
       base_url: '',

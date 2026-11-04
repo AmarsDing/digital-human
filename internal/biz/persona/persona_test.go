@@ -175,7 +175,7 @@ func TestSystemPromptSingleSource(t *testing.T) {
 	if _, err := svc.Select(ctx, "p1"); err != nil {
 		t.Fatal(err)
 	}
-	// 后台 llm.system 写入任意值——不得生效。
+	// 未装配第二来源时保持兼容：settings 不会隐式进入 prompt。
 	st := settings.NewService(settings.NewMemoryStore())
 	if err := st.Patch(ctx, "llm", map[string]any{"system": "后台设定-不得生效"}); err != nil {
 		t.Fatal(err)
@@ -186,7 +186,7 @@ func TestSystemPromptSingleSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(fs.got) != 1 || fs.got[0][0].Role != "system" || fs.got[0][0].Content != "档案设定v1" {
-		t.Fatalf("系统提示词必须只来自档案: %+v", fs.got)
+		t.Fatalf("未装配第二来源时必须只来自档案: %+v", fs.got)
 	}
 	// 改档案 system_prompt → chat 立即生效。
 	mustSave(t, svc, "p1", "档案设定v2")
@@ -197,5 +197,50 @@ func TestSystemPromptSingleSource(t *testing.T) {
 	}
 	if len(fs2.got) != 1 || fs2.got[0][0].Content != "档案设定v2" {
 		t.Fatalf("档案 prompt 修改必须生效: %+v", fs2.got)
+	}
+}
+
+func TestMergeSystemPrompts(t *testing.T) {
+	tests := []struct {
+		name      string
+		primary   string
+		secondary string
+		want      string
+	}{
+		{name: "双来源固定人设优先", primary: "人设规则", secondary: "全局规则", want: "人设规则\n\n全局规则"},
+		{name: "仅人设", primary: " 人设规则\n", want: "人设规则"},
+		{name: "人设空回退全局", secondary: " 全局规则\n", want: "全局规则"},
+		{name: "修剪后相同去重", primary: " 相同规则\n", secondary: "相同规则", want: "相同规则"},
+		{name: "全空不拼分隔符", primary: " \n", secondary: "\t", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := MergeSystemPrompts(tt.primary, tt.secondary); got != tt.want {
+				t.Fatalf("MergeSystemPrompts(%q, %q) = %q, want %q", tt.primary, tt.secondary, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSystemPromptUsesConfiguredSecondarySource(t *testing.T) {
+	ctx := context.Background()
+	st := settings.NewService(settings.NewMemoryStore())
+	if err := st.Patch(ctx, "llm", map[string]any{"system": "全局规则"}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(NewMemoryStore())
+	svc.SetPromptFallback(func(ctx context.Context) string {
+		v, _ := st.Value(ctx, "llm", "system").(string)
+		return v
+	})
+	if got := svc.SystemPrompt(ctx); got != "全局规则" {
+		t.Fatalf("无 active 时应使用第二来源, got %q", got)
+	}
+	mustSave(t, svc, "p1", "人设规则")
+	if _, err := svc.Select(ctx, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.SystemPrompt(ctx); got != "人设规则\n\n全局规则" {
+		t.Fatalf("双来源合并 = %q", got)
 	}
 }

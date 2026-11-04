@@ -1,6 +1,5 @@
 // Package persona 人设 CRUD 与切换（F38/G04/G05）：Ent Persona 表为存储，无 PG 时内存兜底。
-// v3 约束：system_prompt 唯一真相源是本服务；chat 只经 ProfileResolver（SystemPrompt）只读，
-// 不新增任何 settings 侧 prompt 写通路。语义对齐蓝本 src/personas.py 与 bridge.py:1090-1140。
+// chat 只经 ProfileResolver 只读；G05 将 active 人设作为主 prompt，并可装配一个次来源。
 package persona
 
 import (
@@ -67,12 +66,17 @@ type Service struct {
 	// syncActive 切换成功后的旁路同步（装配层用于回写 settings persona.active_id 供 UI 显示）；
 	// nil 容忍，同步失败不影响切换结果。
 	syncActive func(ctx context.Context, id string)
+	// promptFallback 是 G05 次来源；nil 时保持仅人设的兼容行为。
+	promptFallback func(ctx context.Context) string
 }
 
 func NewService(store Store) *Service { return &Service{store: store} }
 
 // SetActiveSync 注册切换后的旁路同步钩子（只调用一次，通常在装配层）。
 func (s *Service) SetActiveSync(fn func(ctx context.Context, id string)) { s.syncActive = fn }
+
+// SetPromptFallback 装配第二 prompt 来源；只调用一次，通常在装配层。
+func (s *Service) SetPromptFallback(fn func(ctx context.Context) string) { s.promptFallback = fn }
 
 // Storage 返回当前存储标识（"memory" | "ent"），供列表响应携带。
 func (s *Service) Storage() string { return s.store.Backend() }
@@ -168,18 +172,35 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.store.Delete(ctx, id)
 }
 
-// SystemPrompt 实现 chat.ProfileResolver（G05 单一真相源）：
-// 返回 active 人设的 system_prompt；无 active、存储错误或 prompt 为空时返回空串（nil 容忍语义）。
+// MergeSystemPrompts 固定主来源在前、次来源在后；各自修剪空白，完全相同则去重。
+// 全空返回空串，不产生分隔符或畸形 system 消息。
+func MergeSystemPrompts(primary, secondary string) string {
+	primary = strings.TrimSpace(primary)
+	secondary = strings.TrimSpace(secondary)
+	if primary == "" {
+		return secondary
+	}
+	if secondary == "" || secondary == primary {
+		return primary
+	}
+	return primary + "\n\n" + secondary
+}
+
+// SystemPrompt 实现 chat.ProfileResolver（G05）：active 人设优先，第二来源补充。
+// 无 active、存储错误或主 prompt 为空时仍可使用第二来源；未装配第二来源时返回主来源。
 func (s *Service) SystemPrompt(ctx context.Context) string {
+	primary := ""
 	active, err := s.store.ActiveID(ctx)
-	if err != nil || active == "" {
-		return ""
+	if err == nil && active != "" {
+		if p, getErr := s.store.Get(ctx, active); getErr == nil {
+			primary = p.SystemPrompt
+		}
 	}
-	p, err := s.store.Get(ctx, active)
-	if err != nil {
-		return ""
+	secondary := ""
+	if s.promptFallback != nil {
+		secondary = s.promptFallback(ctx)
 	}
-	return strings.TrimSpace(p.SystemPrompt)
+	return MergeSystemPrompts(primary, secondary)
 }
 
 func truncateRunes(s string, n int) string {
