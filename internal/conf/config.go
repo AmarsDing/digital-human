@@ -3,10 +3,13 @@ package conf
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/teamwork/digital-human/internal/engine/tts"
 )
 
 // Config 是进程唯一配置入口；敏感值（Vidu Key / RTC secret / 采集器 secret）不写进 yaml。
@@ -117,9 +120,10 @@ type RTC struct {
 // Engine 选择真实引擎或显式 dev fake；默认 real，缺凭据即 fail-closed。
 // 凭据只从环境变量注入，不写入 yaml。
 type Engine struct {
-	Mode          string `yaml:"mode"` // real | dev
-	ViduKey       string `yaml:"-"`
-	OmniVoiceAddr string `yaml:"-"`
+	Mode          string          `yaml:"mode"` // real | dev
+	ViduKey       string          `yaml:"-"`
+	OmniVoiceAddr string          `yaml:"-"`
+	CloudTTS      tts.CloudConfig `yaml:"cloud_tts"`
 	// RecordingEnabled F34 云录制开关；也可用环境变量 DH_RECORDING_ENABLED 注入。
 	RecordingEnabled bool `yaml:"recording_enabled"`
 	// ViduBaseURL / ViduWSURL 仅联调/验收覆盖用（默认 https://api.vidu.cn 与其 wss）。
@@ -207,6 +211,42 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("DH_OMNIVOICE_ADDR"); v != "" {
 		c.Engine.OmniVoiceAddr = v
+	}
+	if v := os.Getenv("DH_CLOUD_TTS_PROVIDER"); v != "" {
+		c.Engine.CloudTTS.Provider = strings.ToLower(v)
+	}
+	if v := os.Getenv("DH_CLOUD_TTS_BASE_URL"); v != "" {
+		c.Engine.CloudTTS.BaseURL = v
+	}
+	if v := os.Getenv("DH_CLOUD_TTS_MODEL"); v != "" {
+		c.Engine.CloudTTS.Model = v
+	}
+	if v := os.Getenv("DH_CLOUD_TTS_API_KEY"); v != "" {
+		c.Engine.CloudTTS.APIKey = v
+	}
+	if v := os.Getenv("DH_CLOUD_TTS_VOICE"); v != "" {
+		c.Engine.CloudTTS.Voice = v
+	}
+	if v := os.Getenv("DH_CLOUD_TTS_SAMPLE_RATE"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("DH_CLOUD_TTS_SAMPLE_RATE: %w", err)
+		}
+		c.Engine.CloudTTS.SampleRate = n
+	}
+	if v := os.Getenv("DH_CLOUD_TTS_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("DH_CLOUD_TTS_TIMEOUT: %w", err)
+		}
+		c.Engine.CloudTTS.Timeout = d
+	}
+	if v := os.Getenv("DH_CLOUD_TTS_PROBE_CACHE_TTL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return nil, fmt.Errorf("DH_CLOUD_TTS_PROBE_CACHE_TTL: %w", err)
+		}
+		c.Engine.CloudTTS.ProbeCacheTTL = d
 	}
 	if v := os.Getenv("DH_RECORDING_ENABLED"); v != "" {
 		c.Engine.RecordingEnabled = v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
@@ -314,6 +354,13 @@ func (c *Config) Validate() error {
 		c.Engine.Mode = "real"
 	default:
 		return fmt.Errorf("unknown engine.mode %q（仅支持 real|dev）", c.Engine.Mode)
+	}
+	if c.Engine.Mode == "real" && c.Engine.CloudTTS.Provider != "" {
+		cloud, err := c.Engine.CloudTTS.Normalize()
+		if err != nil {
+			return fmt.Errorf("engine.cloud_tts: %w", err)
+		}
+		c.Engine.CloudTTS = cloud
 	}
 	switch c.RTC.Mode {
 	case "disabled", "dev", "managed":
