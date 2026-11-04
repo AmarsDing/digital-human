@@ -82,10 +82,11 @@ func InitApp(cfgPath string, version2 VersionInfo) (*App, func(), error) {
 	nonceStore := provideNonces(data)
 	recognizer, cleanup2 := provideVoiceASR(config)
 	voiceConfig := voiceConfigFrom(config)
-	service := provideSettings(data, logger)
 	switchableAvatarStore := provideAvatarStore(data, logger)
+	service := provideSettings(data, logger)
 	personaService := providePersona(switchableAvatarStore, service)
-	manager := provideChat(service, personaService)
+	client := provideLLMClient(service)
+	manager := provideChat(personaService, client)
 	eventSink := provideSink(data)
 	mainRealDeps := provideRealDeps(config)
 	controller := provideController(config, mainRealDeps, logger)
@@ -110,7 +111,7 @@ func InitApp(cfgPath string, version2 VersionInfo) (*App, func(), error) {
 	}
 	patronService := provideGiftPatrons(data, danmakuService, service, liveManager, bus, logger, mainInteractionRuntime)
 	switchableSongRequestStore := provideSongRequests(data, logger)
-	mainPanelRuntime := providePanelRuntime(bus, service, danmakuService, sessionStore, liveManager, config, mainRealDeps, controller, billingService, personaService, avatarService, switchableAvatarStore, imageService, syncService, manager, coordinator, vidukeysService, recorder, patronService, mainInteractionRuntime, switchableSongRequestStore)
+	mainPanelRuntime := providePanelRuntime(bus, service, danmakuService, sessionStore, liveManager, config, mainRealDeps, controller, billingService, personaService, avatarService, switchableAvatarStore, imageService, syncService, manager, coordinator, client, vidukeysService, recorder, patronService, mainInteractionRuntime, switchableSongRequestStore)
 	capabilitySource := provideCapabilities(config, mainPanelRuntime, publisher, sessionStore, data)
 	statusService := provideVoiceStatus(recognizer, voiceConfig, service, capabilitySource, liveManager)
 	issuer := provideRTCIssuer(config)
@@ -605,8 +606,8 @@ func providePersona(avatarStore *repo.SwitchableAvatarStore, st *settings.Servic
 
 // provideChat F15 会话编排单例：Streamer 每次调用取 settings.llm 快照（热改立即生效）；
 // ProfileResolver 用 persona.Service（G05 人设优先，llm.system 为第二来源）。
-func provideChat(st *settings.Service, p *persona.Service) *chat.Manager {
-	cli := llm.NewClient(func() llm.Config {
+func provideLLMClient(st *settings.Service) *llm.Client {
+	return llm.NewClient(func() llm.Config {
 		ctx := context.Background()
 		cfg := llm.Config{
 			BaseURL:     settingStr(st, ctx, "llm", "base_url"),
@@ -623,6 +624,9 @@ func provideChat(st *settings.Service, p *persona.Service) *chat.Manager {
 		}
 		return cfg
 	})
+}
+
+func provideChat(p *persona.Service, cli *llm.Client) *chat.Manager {
 	return chat.NewManager(cli, p)
 }
 
@@ -714,16 +718,27 @@ func provideHealth(version2 VersionInfo, cfg *conf.Config, d *data.Data, m *live
 	return h
 }
 
+func provideKouboActionGen(store choreo.Store, streamer koubo.ActionStreamer, llmConfigured bool) koubo.ActionGen {
+	if llmConfigured {
+		return koubo.NewLLMActionGen(store, streamer)
+	}
+	return koubo.NewRuleActionGen(store)
+}
+
 // panelRuntime 持有 M3 面板依赖与共享调度器，避免多个 *media.Library 在 wire 中同名冲突。
 type panelRuntime struct {
-	deps          server.PanelDeps
-	scheduler     *action.Scheduler
-	songScheduler *song.Scheduler
-	dm            *danmaku.Service
-	player        media.Player
-	koubo         *koubo.Service
+	deps           server.PanelDeps
+	scheduler      *action.Scheduler
+	songScheduler  *song.Scheduler
+	dm             *danmaku.Service
+	player         media.Player
+	koubo          *koubo.Service
+	actionGen      koubo.ActionGen
+	actionGenProbe func(context.Context) error
 	// sender/synth §2.2 能力矩阵探测源（装配点显式化：类型即能力证据）。
 	sender         action.Sender
+	remote         action.Remote
+	actionProbe    func(context.Context) error
 	synth          tts2.Synth
 	contentStorage []contentpkg.StorageProbe
 }
@@ -745,6 +760,7 @@ func providePanelRuntime(
 	avatarSync *avatar.SyncService,
 	chatMgr *chat.Manager,
 	voiceCoordinator *voice.Coordinator,
+	llmClient *llm.Client,
 	vkeys *vidukeys.Service,
 	recorder live.Recorder,
 	patrons *patron.Service,
@@ -760,11 +776,26 @@ func providePanelRuntime(
 	var dec media.Decoder
 	var player media.Player
 	var synth tts2.Synth
+	var remote action.Remote
+	var actionProbe func(context.Context) error
+	var sender action.Sender
 	if cfg.Engine.Mode == "dev" {
 		dec = media.FakeDecoder{}
 		player = media.NewFakePlayer()
 		synth = tts2.NewFakeSynth()
+		sender = action.NewFakeSender()
+		remote = action.NewMemoryRemote()
 	} else {
+		if deps != nil && deps.vidu != nil {
+			remote = vidu.NewActionRemote(deps.vidu)
+			actionProbe = func(ctx context.Context) error {
+				_, err := remote.Libraries(ctx)
+				return err
+			}
+		}
+		if realSender, ok := ctrl.(action.Sender); ok {
+			sender = realSender
+		}
 		if deps != nil {
 			synth = tts.NewSynthAdapter(deps.tts, "")
 		} else {
@@ -788,8 +819,6 @@ func providePanelRuntime(
 		}
 	}
 
-	remote := action.NewMemoryRemote()
-	sender := action.NewFakeSender()
 	sched := action.NewScheduler(sender, bus, action.DefaultConfig())
 
 	sched.SetVIP(func(user string) bool {
@@ -800,7 +829,8 @@ func providePanelRuntime(
 	})
 	actions := action.NewService(remote, sched)
 
-	chor := choreo.NewService(choreo.NewFileStore(filepath.Join("storage", "choreo.json")), sched)
+	choreoStore := choreo.NewFileStore(filepath.Join("storage", "choreo.json"))
+	chor := choreo.NewService(choreoStore, sched)
 	sched.SetPauseChoreo(func(d time.Duration) { chor.Pause(d) })
 
 	songs := song.NewService(songLib, dec, player, bus, isLive)
@@ -826,7 +856,12 @@ func providePanelRuntime(
 		return snap.SessionID, snap.Phase == live.PhaseLive || snap.Phase == live.PhaseStarting
 	})
 
-	kou := koubo.NewService(koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")), synth, player, koubo.FakeActionGen{}, filepath.Join("storage", "koubo"), isLive)
+	actionGen := provideKouboActionGen(choreoStore, llmClient, settingStr(st, context.Background(), "llm", "api_key") != "")
+	actionGenProbe := func(ctx context.Context) error {
+		_, err := actionGen.Generate(ctx, "点头")
+		return err
+	}
+	kou := koubo.NewService(koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")), synth, player, actionGen, filepath.Join("storage", "koubo"), isLive)
 	kou.SetSynthParamsFn(func() (string, float64) {
 		ctx := context.Background()
 		return settingStr(st, ctx, "voice", "voice_id"), settingFloat(st, ctx, "voice", "speed")
@@ -847,13 +882,17 @@ func providePanelRuntime(
 	refsSvc.SetDir("storage/refs")
 
 	return &panelRuntime{
-		scheduler:     sched,
-		songScheduler: songScheduler,
-		dm:            dm,
-		player:        player,
-		koubo:         kou,
-		sender:        sender,
-		synth:         synth,
+		scheduler:      sched,
+		songScheduler:  songScheduler,
+		dm:             dm,
+		player:         player,
+		koubo:          kou,
+		actionGen:      actionGen,
+		actionGenProbe: actionGenProbe,
+		sender:         sender,
+		remote:         remote,
+		actionProbe:    actionProbe,
+		synth:          synth,
 		deps: server.PanelDeps{
 			TTS:          tts2.NewService(audioLib, synth, st),
 			Actions:      actions,
@@ -1162,6 +1201,32 @@ func (p *cachedTTSHealth) status(ctx context.Context) capability.Status {
 	return p.cached
 }
 
+// cachedCapabilityProbe 缓存真实外部依赖的成功与失败，避免每次 preflight 重复打网络。
+type cachedCapabilityProbe struct {
+	mu    sync.Mutex
+	ttl   time.Duration
+	probe func(context.Context) error
+	now   func() time.Time
+	last  time.Time
+	err   error
+}
+
+func newCachedCapabilityProbe(ttl time.Duration, probe func(context.Context) error) *cachedCapabilityProbe {
+	return &cachedCapabilityProbe{ttl: ttl, probe: probe, now: time.Now}
+}
+
+func (p *cachedCapabilityProbe) check(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.now()
+	if !p.last.IsZero() && now.Sub(p.last) < p.ttl {
+		return p.err
+	}
+	p.err = p.probe(ctx)
+	p.last = now
+	return p.err
+}
+
 // provideCapabilities B2 §2.2：能力矩阵由装配点显式计算——按实际装配的实现类型给
 // 状态词，绝不只按配置存在报 real；探测未做的一律 unknown。
 func provideCapabilities(
@@ -1177,22 +1242,44 @@ func provideCapabilities(
 			ttsHealth = newCachedTTSHealth(synth)
 		}
 	}
+	var actionProbe *cachedCapabilityProbe
+	if rt != nil && rt.actionProbe != nil {
+		actionProbe = newCachedCapabilityProbe(5*time.Second, rt.actionProbe)
+	}
+	var actionGenProbe *cachedCapabilityProbe
+	if rt != nil && rt.actionGenProbe != nil {
+		actionGenProbe = newCachedCapabilityProbe(5*time.Second, rt.actionGenProbe)
+	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
-
+		remoteState := capability.Unconfigured
+		if rt != nil {
+			switch rt.remote.(type) {
+			case *action.MemoryRemote:
+				remoteState = capability.Fake
+			case nil, action.UnavailableRemote:
+				remoteState = capability.Unconfigured
+			default:
+				remoteState = capability.Unknown
+				if actionProbe != nil && actionProbe.check(ctx) == nil {
+					remoteState = capability.Real
+				}
+			}
+		}
+		mx["action_remote"] = remoteState
+		senderState := capability.Unconfigured
 		if rt != nil && rt.sender != nil {
 			switch rt.sender.(type) {
 			case *action.FakeSender:
-				mx["action_sender"] = capability.Fake
-				mx["action_remote"] = capability.Fake
+				senderState = capability.Fake
 			default:
-				mx["action_sender"] = capability.Unknown
-				mx["action_remote"] = capability.Unknown
+				senderState = capability.Unknown
+				if remoteState == capability.Real {
+					senderState = capability.Real
+				}
 			}
-		} else {
-			mx["action_sender"] = capability.Unconfigured
-			mx["action_remote"] = capability.Unconfigured
 		}
+		mx["action_sender"] = senderState
 
 		if rt != nil && rt.player != nil {
 			switch rt.player.(type) {
@@ -1237,7 +1324,25 @@ func provideCapabilities(
 		default:
 			mx["vidu"] = capability.Unknown
 		}
-		mx["koubo_actiongen"] = capability.Fake
+		mx["koubo_actiongen"] = capability.Unconfigured
+		if rt != nil && rt.actionGen != nil {
+			switch rt.actionGen.(type) {
+			case koubo.FakeActionGen, *koubo.FakeActionGen:
+				mx["koubo_actiongen"] = capability.Fake
+			case *koubo.RuleActionGen:
+				mx["koubo_actiongen"] = capability.Real
+				if actionGenProbe != nil && actionGenProbe.check(ctx) != nil {
+					mx["koubo_actiongen"] = capability.Unknown
+				}
+			case *koubo.LLMActionGen:
+				mx["koubo_actiongen"] = capability.Unknown
+				if actionGenProbe != nil && actionGenProbe.check(ctx) == nil {
+					mx["koubo_actiongen"] = capability.Real
+				}
+			default:
+				mx["koubo_actiongen"] = capability.Unknown
+			}
+		}
 
 		mx["content_storage"] = capability.Fake
 		if rt != nil && len(rt.contentStorage) > 0 {

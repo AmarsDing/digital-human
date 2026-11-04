@@ -157,6 +157,28 @@ func (m *MemoryRemote) DeleteAction(_ context.Context, id string) error {
 	return nil
 }
 
+// UnavailableRemote 在真实 Vidu 动作库未装配时 fail-closed，避免退化为内存 CRUD。
+type UnavailableRemote struct{}
+
+func (UnavailableRemote) Libraries(context.Context) ([]Library, error) {
+	return nil, errors.New("action_remote_unconfigured: Vidu 动作库未配置")
+}
+func (UnavailableRemote) CreateLibrary(context.Context, string, string) (Library, error) {
+	return Library{}, errors.New("action_remote_unconfigured: Vidu 动作库未配置")
+}
+func (UnavailableRemote) DeleteLibrary(context.Context, string) error {
+	return errors.New("action_remote_unconfigured: Vidu 动作库未配置")
+}
+func (UnavailableRemote) Actions(context.Context, string) ([]Action, error) {
+	return nil, errors.New("action_remote_unconfigured: Vidu 动作库未配置")
+}
+func (UnavailableRemote) CreateAction(context.Context, string, string, string) (Action, error) {
+	return Action{}, errors.New("action_remote_unconfigured: Vidu 动作库未配置")
+}
+func (UnavailableRemote) DeleteAction(context.Context, string) error {
+	return errors.New("action_remote_unconfigured: Vidu 动作库未配置")
+}
+
 // Sender 是 type9 指令出口；真实实现写 Vidu 信令。
 type Sender interface {
 	SendCommand(ctx context.Context, text string) error
@@ -521,6 +543,9 @@ type Service struct {
 }
 
 func NewService(remote Remote, sched *Scheduler) *Service {
+	if remote == nil {
+		remote = UnavailableRemote{}
+	}
 	return &Service{remote: remote, sched: sched}
 }
 

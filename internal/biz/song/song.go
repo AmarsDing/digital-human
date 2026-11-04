@@ -7,6 +7,7 @@ package song
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -49,6 +50,9 @@ type Service struct {
 	state  State
 	cancel context.CancelFunc
 	epoch  int64
+
+	cacheDigest [sha256.Size]byte
+	cachePCM    []byte
 }
 
 func NewService(lib *media.Library, dec media.Decoder, player media.Player, bus *eventbus.Bus, isLive func() bool) *Service {
@@ -100,7 +104,7 @@ func (s *Service) Play(ctx context.Context, name, script string) (State, error) 
 	if err != nil {
 		return State{}, ErrNotFound
 	}
-	pcm, err := s.dec.Decode(ctx, path)
+	pcm, err := s.decodePCM(ctx, path)
 	if err != nil {
 		return State{}, err
 	}
@@ -124,17 +128,47 @@ func (s *Service) Play(ctx context.Context, name, script string) (State, error) 
 	s.mu.Unlock()
 
 	_ = s.player.Stop(context.WithoutCancel(ctx))
-	_ = pcm
 	s.publish(ctx, "song.playing", map[string]any{
 		"file": name, "script": script, "epoch": epoch, "song_playing": true,
 		"caption_lines": lines, "lyrics_source": source,
 	})
-	go s.run(pctx, epoch, path, script)
+	go s.run(pctx, epoch, path, script, pcm)
 	return out, nil
 }
 
-func (s *Service) run(ctx context.Context, epoch int64, path, script string) {
-	err := s.player.Play(ctx, path, script)
+// decodePCM 以文件内容 SHA-256 为缓存键；只保留最近一项，避免 PCM 无界增长。
+func (s *Service) decodePCM(ctx context.Context, path string) ([]byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(raw)
+	s.mu.Lock()
+	if s.cachePCM != nil && s.cacheDigest == digest {
+		pcm := s.cachePCM
+		s.mu.Unlock()
+		return pcm, nil
+	}
+	s.mu.Unlock()
+
+	pcm, err := s.dec.Decode(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	s.cacheDigest = digest
+	s.cachePCM = pcm
+	s.mu.Unlock()
+	return pcm, nil
+}
+
+func (s *Service) run(ctx context.Context, epoch int64, path, script string, pcm []byte) {
+	var err error
+	if player, ok := s.player.(media.PCMPlayer); ok {
+		err = player.PlayPCM(ctx, pcm, script)
+	} else {
+		err = s.player.Play(ctx, path, script)
+	}
 	s.mu.Lock()
 	if s.epoch != epoch {
 		s.mu.Unlock()
