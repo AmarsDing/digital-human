@@ -288,6 +288,8 @@ func (p *Preflight) run(ctx context.Context, req PreflightRequest, issueToken bo
 			draftErr = "snapshot_incomplete"
 		case d.SnapshotHash != contentpkg.HashSnapshot(d.Snapshot):
 			draftErr = "snapshot_hash_mismatch"
+		case d.SchemaVersion >= 2 && !draftAvatarMatches(d.Snapshot, req.PersonaID, personaRev):
+			draftErr = "draft_avatar_changed: 形象或版本与草稿不一致，请重新保存并提交"
 		default:
 			var revs map[string]int64
 			revs, err = inspectAssetRefs(d.Snapshot)
@@ -586,6 +588,17 @@ func inspectAssetRefs(snapshot map[string]any) (map[string]int64, error) {
 		return nil, err
 	}
 	return revisions, nil
+}
+
+// v2 草稿由准备页创建，必须绑定本次解析出的真实档案版本。
+func draftAvatarMatches(snapshot map[string]any, personaID string, revision int64) bool {
+	ref, ok := snapshot["avatar"].(map[string]any)
+	if !ok || personaID == "" || revision <= 0 {
+		return false
+	}
+	id, _ := ref["id"].(string)
+	rev, valid := revisionNumber(ref["revision"])
+	return valid && id == personaID && rev == revision
 }
 
 func revisionNumber(value any) (int64, bool) {
