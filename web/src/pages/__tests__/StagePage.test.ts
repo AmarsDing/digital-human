@@ -29,6 +29,8 @@ vi.mock('vue-router', async () => {
 import StagePage from '../StagePage.vue'
 import VideoStage from '../../components/stage/VideoStage.vue'
 import { useLiveStore } from '../../stores/live'
+import { useEventsStore } from '../../stores/events'
+import type { WireEvent } from '../../services/api/types'
 import { useAvatarsStore } from '../../stores/avatars'
 import { useUiPrefs } from '../../stores/uiPrefs'
 import PanelDock from '../../components/stage/PanelDock.vue'
@@ -41,6 +43,10 @@ function activeAvatar(revision: number) {
 
 function offlineFetch(): Promise<Response> {
   return Promise.resolve({ ok: false, status: 503, text: async () => '{}' } as Response)
+}
+
+function stageEvent(type: string, seq: number, payload: Record<string, unknown>): WireEvent {
+  return { seq, event_id: `e-${seq}`, session_id: 's1', type, ts_ms: 1000 + seq, epoch: 1, payload }
 }
 
 describe('StagePage 双模式与单工作区', () => {
@@ -76,6 +82,60 @@ describe('StagePage 双模式与单工作区', () => {
     await flushPromises()
     expect(w.find('.stage-mode').text()).toContain('直播中')
     expect(w.find('.stage-mode').text()).toContain('本场已冻结')
+    w.unmount()
+  })
+})
+
+describe('StagePage 歌词字幕仲裁', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn(offlineFetch))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('歌词优先于口播，切歌时完整替换旧歌词', async () => {
+    const events = useEventsStore()
+    const w = shallowMount(StagePage)
+    await flushPromises()
+    const stage = w.findComponent(VideoStage)
+
+    events.accept(stageEvent('transcript.final', 1, { text: '口播一', index: 0 }))
+    await flushPromises()
+    expect(stage.props('caption')).toBe('口播一')
+
+    events.accept(stageEvent('song.playing', 2, { song_playing: true, caption_lines: ['歌词一', '歌词二'] }))
+    await flushPromises()
+    expect(stage.props('caption')).toBe('歌词一\n歌词二')
+
+    events.accept(stageEvent('transcript.final', 3, { text: '口播二', index: 1 }))
+    await flushPromises()
+    expect(stage.props('caption')).toBe('歌词一\n歌词二')
+
+    events.accept(stageEvent('song.playing', 4, { song_playing: true, caption_lines: ['切歌歌词'] }))
+    await flushPromises()
+    expect(stage.props('caption')).toBe('切歌歌词')
+    w.unmount()
+  })
+
+  it.each(['song.stopped', 'song.ended'])('%s 后清除歌词并恢复当前口播，不残留旧字幕', async (type) => {
+    const events = useEventsStore()
+    const w = shallowMount(StagePage)
+    await flushPromises()
+    const stage = w.findComponent(VideoStage)
+
+    events.accept(stageEvent('transcript.final', 1, { text: '当前口播', index: 0 }))
+    events.accept(stageEvent('song.playing', 2, { song_playing: true, caption_lines: ['旧歌词'] }))
+    await flushPromises()
+    expect(stage.props('caption')).toBe('旧歌词')
+
+    events.accept(stageEvent(type, 3, { song_playing: false }))
+    await flushPromises()
+    expect(stage.props('caption')).toBe('当前口播')
+    expect(stage.props('caption')).not.toContain('旧歌词')
     w.unmount()
   })
 })

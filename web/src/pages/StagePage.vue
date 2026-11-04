@@ -27,6 +27,7 @@ import type { RtcCreds } from '../components/rtc/types'
 import { toCreds, refreshDelay, degradeOnRefreshError } from '../components/rtc/creds'
 import { getRtcToken } from '../services/api/live'
 import { classifyApiError } from '../services/api/client'
+import type { WireEvent } from '../services/api/types'
 import { getLedger, listAvatars, getRecord, setRecord, fetchRecord, type Ledger } from '../services/api/panels'
 import { useAvatarsStore } from '../stores/avatars'
 import { createVisibilityPolling } from '../utils/polling'
@@ -100,10 +101,23 @@ async function loadRtc(): Promise<void> {
   }
 }
 
+const lyricCaption = ref('')
 const caption = computed(() => {
+  if (lyricCaption.value) return lyricCaption.value
   const last = transcript.lines[transcript.lines.length - 1]
   return last?.text || ''
 })
+
+function applyLyricEvent(e: WireEvent): void {
+  if (e.type === 'song.playing') {
+    const lines = e.payload?.caption_lines
+    lyricCaption.value = Array.isArray(lines)
+      ? lines.map((line) => String(line).trim()).filter(Boolean).join('\n')
+      : ''
+    return
+  }
+  if (e.type === 'song.stopped' || e.type === 'song.ended') lyricCaption.value = ''
+}
 
 const captionCfg = computed(() => {
   const g = settings.groupById('captions')
@@ -270,6 +284,7 @@ watch(
     for (const e of events.drain()) {
       live.applyEvent(e)
       transcript.applyEvent(e)
+      applyLyricEvent(e)
     }
   }
 )
