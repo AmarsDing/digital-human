@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ComposerBar from '../ComposerBar.vue'
+import VoiceControl from '../VoiceControl.vue'
 
 function mountBar(canSpeak: boolean, busy = false) {
-  return mount(ComposerBar, { props: { canSpeak, busy } })
+  return mount(ComposerBar, {
+    props: { canSpeak, busy, sessionId: 's-1', epoch: 7 },
+    global: { stubs: { VoiceControl: true } }
+  })
 }
 
 describe('ComposerBar', () => {
-  it('语音主入口常驻可见，未接入时明确禁用', () => {
+  it('语音主入口常驻可见并接收当前场次参数', () => {
     const w = mountBar(true)
-    const voice = w.get('button[aria-label="语音交互待接入"]')
-    expect(voice.isVisible()).toBe(true)
-    expect(voice.attributes('disabled')).toBeDefined()
+    const voice = w.findComponent(VoiceControl)
+    expect(voice.exists()).toBe(true)
+    expect(voice.props()).toMatchObject({ sessionId: 's-1', epoch: 7, canSpeak: true })
   })
 
   it('未开播时禁用输入与发送', () => {

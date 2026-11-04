@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import NtSelect from '../ui/NtSelect.vue'
+import VoiceControl from './VoiceControl.vue'
 import { sendChat } from '../../services/api/panels'
 import { classifyApiError } from '../../services/api/client'
 
-const props = defineProps<{ canSpeak: boolean; busy?: boolean; error?: string }>()
+const props = withDefaults(defineProps<{
+  canSpeak: boolean
+  sessionId?: string
+  epoch?: number
+  busy?: boolean
+  error?: string
+}>(), {
+  sessionId: '',
+  epoch: 0
+})
 const emit = defineEmits<{
   (e: 'say', text: string, mode: 'sentence' | 'whole'): void
   (e: 'command', text: string): void
@@ -74,15 +84,12 @@ function keydown(e: KeyboardEvent): void {
 
 <template>
   <div class="composer">
-    <button
-      type="button"
+    <VoiceControl
       class="composer__voice"
-      disabled
-      aria-label="语音交互待接入"
-      title="语音交互待接入"
-    >
-      语音<span class="composer__voice-hint"> · 待接入</span>
-    </button>
+      :session-id="sessionId"
+      :epoch="epoch"
+      :can-speak="canSpeak"
+    />
     <textarea
       ref="inputRef"
       v-model="text"
@@ -124,20 +131,7 @@ function keydown(e: KeyboardEvent): void {
   background: var(--nt-data-bg);
 }
 .composer__voice {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0 10px;
-  border: 1px solid var(--nt-accent-border);
-  border-radius: var(--nt-radius-m);
-  background: var(--nt-accent-soft);
-  color: var(--nt-accent);
-  font: inherit;
-  font-size: var(--nt-fs-caption);
-  white-space: nowrap;
-}
-.composer__voice:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
+  min-width: 0;
 }
 .composer__input {
   width: 100%;
@@ -152,7 +146,6 @@ function keydown(e: KeyboardEvent): void {
   resize: vertical;
 }
 .composer__input:focus-visible,
-.composer__voice:focus-visible,
 .composer__btns button:focus-visible {
   outline: 2px solid var(--nt-accent);
   outline-offset: 4px;
@@ -219,9 +212,6 @@ function keydown(e: KeyboardEvent): void {
   .composer__voice {
     grid-column: 1;
     grid-row: 1;
-  }
-  .composer__voice-hint {
-    display: none;
   }
   .composer__input {
     grid-column: 2;

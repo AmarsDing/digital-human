@@ -10,3 +10,9 @@ export function wsEventsUrl(afterSeq: number, sessionId = ''): string {
   const sid = sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : ''
   return `${proto}//${window.location.host}${apiPath(`/ws/v1/events?after_seq=${afterSeq}${sid}`)}`
 }
+
+export function wsVoiceUrl(sessionId: string, clientId: string): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const query = `session_id=${encodeURIComponent(sessionId)}&client_id=${encodeURIComponent(clientId)}`
+  return `${proto}//${window.location.host}${apiPath(`/ws/v1/voice?${query}`)}`
+}

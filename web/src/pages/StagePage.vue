@@ -630,6 +630,8 @@ async function doClearTranscript(): Promise<void> {
       ref="composerRef"
       class="page__composer"
       :can-speak="live.isLive"
+      :session-id="live.status?.sessionId || ''"
+      :epoch="live.status?.feed?.epoch ?? 0"
       :busy="live.busy"
       :error="live.error"
       @say="(t, m) => live.say(t, m)"

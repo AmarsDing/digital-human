@@ -28,12 +28,12 @@ vi.mock('vue-router', async () => {
 
 import StagePage from '../StagePage.vue'
 import VideoStage from '../../components/stage/VideoStage.vue'
+import ComposerBar from '../../components/stage/ComposerBar.vue'
 import { useLiveStore } from '../../stores/live'
 import { useEventsStore } from '../../stores/events'
 import type { WireEvent } from '../../services/api/types'
 import { useAvatarsStore } from '../../stores/avatars'
 import { useUiPrefs } from '../../stores/uiPrefs'
-import PanelDock from '../../components/stage/PanelDock.vue'
 import GroupPanelDock from '../../components/stage/GroupPanelDock.vue'
 import TaskControlDock from '../../components/stage/TaskControlDock.vue'
 import MetricsPopover from '../../components/stage/MetricsPopover.vue'
@@ -111,6 +111,17 @@ describe('StagePage 双模式与单工作区', () => {
     w.unmount()
   })
 
+  it('把当前场次与 epoch 传给输入区语音控制', async () => {
+    const live = useLiveStore()
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    live.status = { phase: 'live', sessionId: 's1', feed: { epoch: 7 } } as never
+    await flushPromises()
+    expect(w.findComponent(ComposerBar).props()).toMatchObject({ sessionId: 's1', epoch: 7, canSpeak: true })
+    w.unmount()
+  })
+
   it('从设置手动切到播出中时同步到动作面板', async () => {
     const prefs = useUiPrefs()
     const w = shallowMount(StagePage, { global: { stubs: { TaskControlDock } } })
@@ -121,7 +132,7 @@ describe('StagePage 双模式与单工作区', () => {
     await flushPromises()
 
     expect(prefs.activeWorkspaceTab).toBe('command')
-    expect(w.findComponent(GroupPanelDock).props('items')).toEqual(['command', 'danmaku', 'songs'])
+    expect(w.findComponent(GroupPanelDock).props()).toMatchObject({ items: ['command', 'danmaku', 'songs'] })
     w.unmount()
   })
 
@@ -203,11 +214,15 @@ describe('StagePage 歌词字幕仲裁', () => {
   })
 })
 
-describe('PanelDock 工作区 Tabs', () => {
+describe('GroupPanelDock 工作区 Tabs', () => {
   it('方向键只移动焦点，Enter 才激活目标面板', async () => {
-    const w = mount(PanelDock, {
+    const w = mount(GroupPanelDock, {
       attachTo: document.body,
-      props: { active: 'voice', pendingCount: 0, rightOpen: true }
+      props: {
+        active: 'voice',
+        items: ['voice', 'command', 'danmaku', 'koubo', 'refs', 'songs'],
+        pendingCount: 0
+      }
     })
     const tabs = w.findAll('[role="tab"]')
     expect(tabs.length).toBe(6)
