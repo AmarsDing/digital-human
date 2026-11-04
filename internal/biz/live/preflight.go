@@ -323,7 +323,19 @@ func (p *Preflight) run(ctx context.Context, req PreflightRequest, issueToken bo
 		} else if mode != ModePublicLive {
 			st, blocking = CheckWarn, false // local-preview：fake/unconfigured/unknown 显式标注可见但不阻断
 		}
-		add(code, st, blocking, "capability_probe", target, "capability="+string(s))
+		detail := "capability=" + string(s)
+		if code == "action_sender" && s != capability.Real {
+			detail += "; action_sender_" + string(s)
+			switch s {
+			case capability.Unconfigured:
+				detail += "; 动作下发通道未配置，请配置 Vidu Key 并确认真实引擎装配"
+			case capability.Fake:
+				detail += "; 当前为 dev 假动作下发，仅允许本地预览"
+			default:
+				detail += "; 动作下发通道当前不可用，请检查 Vidu 网络、凭据与真实建场状态"
+			}
+		}
+		add(code, st, blocking, "capability_probe", target, detail)
 	}
 	capCheck("action_sender", "actions")
 	capCheck("koubo_actiongen", "koubo")

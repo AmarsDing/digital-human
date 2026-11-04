@@ -121,6 +121,33 @@ func TestPreflightUnknownBlocks(t *testing.T) {
 	}
 }
 
+func TestPreflightActionUnconfiguredHasPreciseBlockReason(t *testing.T) {
+	caps := allRealCaps
+	pf := NewPreflight(nil, func(ctx context.Context) capability.Matrix {
+		mx := caps(ctx)
+		mx["action_sender"] = capability.Unconfigured
+		mx["action_remote"] = capability.Unconfigured
+		return mx
+	}, nil, nil)
+	pf.SetDraftSource(&fakeDraftSource{draft: committedDraft(1)})
+	res := runPreflight(t, pf, context.Background(), PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 1})
+	if res.Ready {
+		t.Fatal("动作能力 unconfigured 必须阻断 public-live")
+	}
+	found := false
+	for _, check := range res.Checks {
+		if check.Code == "action_sender" {
+			found = true
+			if check.Status != CheckFail || !strings.Contains(check.Detail, "action_sender_unconfigured") || !strings.Contains(check.Detail, "动作下发通道未配置") {
+				t.Fatalf("动作阻断原因不精确: %+v", check)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("缺少 action_sender 检查")
+	}
+}
+
 // TestPublicStartRequiresToken B1/§7.6-2：public-live 无 token / 错 token 直接拒绝，
 // 不创建场次（无 session 残留）。
 func TestPublicStartRequiresToken(t *testing.T) {

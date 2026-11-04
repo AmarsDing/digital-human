@@ -789,6 +789,16 @@ func (c *ViduController) LiveID() string {
 	return c.liveID
 }
 
+// SendCommand 通过当前场 type9 信令下发动作文本。返回成功仅表示已写入信令，
+// Vidu 未提供动作执行回执时，不代表数字人已经执行该动作。
+func (c *ViduController) SendCommand(ctx context.Context, text string) error {
+	sig := c.currentSig()
+	if sig == nil {
+		return vidu.ErrNotReady
+	}
+	return sig.SendInputText(ctx, text)
+}
+
 // PromptOperation 是当前场 type11 参考图操作出口（v3 §3.3 时序，G3-1 生产链路）；
 // 未开播/信令未就绪返回 vidu.ErrNotReady（refs 侧据此如实降级 refs_push_failed）。
 func (c *ViduController) PromptOperation(ctx context.Context, opType string, images []map[string]any) error {

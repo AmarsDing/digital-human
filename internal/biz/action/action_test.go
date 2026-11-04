@@ -36,6 +36,16 @@ func TestLibrariesCRUD(t *testing.T) {
 	}
 }
 
+func TestServiceWithoutRemoteFailsClosed(t *testing.T) {
+	svc := NewService(nil, nil)
+	if _, err := svc.Libraries(context.Background()); err == nil {
+		t.Fatal("真实动作库未装配时必须报错，不得使用内存数据或 panic")
+	}
+	if err := svc.DeleteLibrary(context.Background(), "lib1"); err == nil {
+		t.Fatal("Remote 口未装配时删除必须 fail-closed")
+	}
+}
+
 func TestManualSameCommandIsDeferred(t *testing.T) {
 	s, snd := newSched()
 	defer s.Close()

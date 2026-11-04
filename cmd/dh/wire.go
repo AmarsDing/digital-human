@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -701,6 +702,8 @@ type panelRuntime struct {
 	koubo         *koubo.Service
 	// sender/synth §2.2 能力矩阵探测源（装配点显式化：类型即能力证据）。
 	sender         action.Sender
+	remote         action.Remote
+	actionProbe    func(context.Context) error
 	synth          tts.Synth
 	contentStorage []contentpkg.StorageProbe
 }
@@ -736,11 +739,26 @@ func providePanelRuntime(
 	var dec media.Decoder
 	var player media.Player
 	var synth tts.Synth
+	var remote action.Remote
+	var actionProbe func(context.Context) error
+	var sender action.Sender
 	if cfg.Engine.Mode == "dev" {
 		dec = media.FakeDecoder{}
 		player = media.NewFakePlayer()
 		synth = tts.NewFakeSynth()
+		sender = action.NewFakeSender()
+		remote = action.NewMemoryRemote()
 	} else {
+		if deps != nil && deps.vidu != nil {
+			remote = enginevidu.NewActionRemote(deps.vidu)
+			actionProbe = func(ctx context.Context) error {
+				_, err := remote.Libraries(ctx)
+				return err
+			}
+		}
+		if realSender, ok := ctrl.(action.Sender); ok {
+			sender = realSender
+		}
 		if deps != nil {
 			synth = enginetts.NewSynthAdapter(deps.tts, "")
 		} else {
@@ -764,8 +782,6 @@ func providePanelRuntime(
 		}
 	}
 
-	remote := action.NewMemoryRemote()
-	sender := action.NewFakeSender() // §2.2：当前唯一实现为 fake，能力矩阵如实标注
 	sched := action.NewScheduler(sender, bus, action.DefaultConfig())
 	// F26：贵宾判定首次生产接线——弹幕 Ingest 的 vip 标记登记进本场贵宾名单。
 	// F29：贵宾名单（patrons）同为 VIP 判定来源之一（nick/uid 命中即贵宾）。
@@ -785,8 +801,7 @@ func providePanelRuntime(
 	song.RegisterInteractionHandler(ix.disp, songRequests, songScheduler)
 	sched.SetSongPlaying(func() bool { return songs.Status().Playing })
 
-	// 规则优先：点歌/动作先判定，普通聊天才进入 LLM。动作发送仍为 fake，
-	// 因此不装配任何 Allowed+real 的动作映射，预检也会阻断公开开播。
+	// 规则优先：点歌/动作先判定，普通聊天才进入 LLM；动作出口按 dev/real 如实装配。
 	files, _ := songLib.List()
 	ruleSongs := make(map[string]string, len(files)*2)
 	fileNames := make([]string, 0, len(files))
@@ -839,6 +854,8 @@ func providePanelRuntime(
 		player:        player,
 		koubo:         kou,
 		sender:        sender,
+		remote:        remote,
+		actionProbe:   actionProbe,
 		synth:         synth,
 		deps: server.PanelDeps{
 			TTS:          tts.NewService(audioLib, synth, st),
@@ -1118,6 +1135,32 @@ func wireInteractionRules(
 	})
 }
 
+// cachedCapabilityProbe 缓存真实外部依赖的成功与失败，避免每次 preflight 重复打网络。
+type cachedCapabilityProbe struct {
+	mu    sync.Mutex
+	ttl   time.Duration
+	probe func(context.Context) error
+	now   func() time.Time
+	last  time.Time
+	err   error
+}
+
+func newCachedCapabilityProbe(ttl time.Duration, probe func(context.Context) error) *cachedCapabilityProbe {
+	return &cachedCapabilityProbe{ttl: ttl, probe: probe, now: time.Now}
+}
+
+func (p *cachedCapabilityProbe) check(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.now()
+	if !p.last.IsZero() && now.Sub(p.last) < p.ttl {
+		return p.err
+	}
+	p.err = p.probe(ctx)
+	p.last = now
+	return p.err
+}
+
 // provideCapabilities B2 §2.2：能力矩阵由装配点显式计算——按实际装配的实现类型给
 // 状态词，绝不只按配置存在报 real；探测未做的一律 unknown。
 func provideCapabilities(
@@ -1127,22 +1170,40 @@ func provideCapabilities(
 	sessions live.SessionStore,
 	d *data.Data,
 ) live.CapabilitySource {
+	var actionProbe *cachedCapabilityProbe
+	if rt != nil && rt.actionProbe != nil {
+		actionProbe = newCachedCapabilityProbe(5*time.Second, rt.actionProbe)
+	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
-		// action_sender / action_remote：当前唯一实现为 fake（NewFakeSender/NewMemoryRemote）。
+		remoteState := capability.Unconfigured
+		if rt != nil {
+			switch rt.remote.(type) {
+			case *action.MemoryRemote:
+				remoteState = capability.Fake
+			case nil, action.UnavailableRemote:
+				remoteState = capability.Unconfigured
+			default:
+				remoteState = capability.Unknown
+				if actionProbe != nil && actionProbe.check(ctx) == nil {
+					remoteState = capability.Real
+				}
+			}
+		}
+		mx["action_remote"] = remoteState
+		senderState := capability.Unconfigured
 		if rt != nil && rt.sender != nil {
 			switch rt.sender.(type) {
 			case *action.FakeSender:
-				mx["action_sender"] = capability.Fake
-				mx["action_remote"] = capability.Fake
+				senderState = capability.Fake
 			default:
-				mx["action_sender"] = capability.Unknown // 未探测不默认 real
-				mx["action_remote"] = capability.Unknown
+				senderState = capability.Unknown
+				if remoteState == capability.Real {
+					senderState = capability.Real
+				}
 			}
-		} else {
-			mx["action_sender"] = capability.Unconfigured
-			mx["action_remote"] = capability.Unconfigured
 		}
+		mx["action_sender"] = senderState
 		// song_player（§2.2：fake/unconfigured/真实实现运行时待探测=unknown）。
 		if rt != nil && rt.player != nil {
 			switch rt.player.(type) {

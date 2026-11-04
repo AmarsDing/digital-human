@@ -42,6 +42,7 @@ type fakeWS struct {
 	conns  int
 	inits  int
 	type7  int
+	type9  int
 	type10 int
 	bin    int
 	ping   int
@@ -92,6 +93,8 @@ func newFakeWS(t *testing.T) *fakeWS {
 			switch s.Type {
 			case vidu.TypeInterrupt:
 				f.type7++
+			case vidu.TypeInputText:
+				f.type9++
 			case vidu.TypeOutputText:
 				f.type10++
 			case vidu.TypePromptOperation:
@@ -139,6 +142,12 @@ func (f *fakeWS) counts() (conns, inits, type7, type10, bin, ping int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.conns, f.inits, f.type7, f.type10, f.bin, f.ping
+}
+
+func (f *fakeWS) countType9() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.type9
 }
 
 // type11Stats 返回 type11 帧数与最近一帧 payload（G3-1 断言用）。
@@ -693,6 +702,23 @@ func TestStartActionForbiddenStillFails(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("calls=%d want 2（首次 + 降级一次，不得无限重建）", calls)
 	}
+}
+
+func TestSendCommandForwardsType9WithoutClaimingExecution(t *testing.T) {
+	ws := newFakeWS(t)
+	ctl := newTestController(t, ws, stubTTS{wav: audio.WavBytes(audio.TonePCM(100))}, nil)
+	if err := ctl.SendCommand(context.Background(), "挥手"); !errors.Is(err, vidu.ErrNotReady) {
+		t.Fatalf("未开播下发 err=%v want ErrNotReady", err)
+	}
+	if _, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-action"}); err != nil {
+		t.Fatal(err)
+	}
+	defer ctl.Stop(context.Background(), "done")
+	if err := ctl.SendCommand(context.Background(), "挥手"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 2*time.Second, func() bool { return ws.countType9() >= 1 }, "type9 action command")
+	// SendCommand 成功仅表示 type9 已写入信令；协议无执行回执时不得生成“已执行”状态。
 }
 
 // TestPromptOperationForwardsType11 G3-1：控制器 type11 出口把参考图操作

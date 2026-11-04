@@ -54,6 +54,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -715,6 +716,8 @@ type panelRuntime struct {
 	koubo         *koubo.Service
 	// sender/synth §2.2 能力矩阵探测源（装配点显式化：类型即能力证据）。
 	sender         action.Sender
+	remote         action.Remote
+	actionProbe    func(context.Context) error
 	synth          tts2.Synth
 	contentStorage []contentpkg.StorageProbe
 }
@@ -750,11 +753,26 @@ func providePanelRuntime(
 	var dec media.Decoder
 	var player media.Player
 	var synth tts2.Synth
+	var remote action.Remote
+	var actionProbe func(context.Context) error
+	var sender action.Sender
 	if cfg.Engine.Mode == "dev" {
 		dec = media.FakeDecoder{}
 		player = media.NewFakePlayer()
 		synth = tts2.NewFakeSynth()
+		sender = action.NewFakeSender()
+		remote = action.NewMemoryRemote()
 	} else {
+		if deps != nil && deps.vidu != nil {
+			remote = vidu.NewActionRemote(deps.vidu)
+			actionProbe = func(ctx context.Context) error {
+				_, err := remote.Libraries(ctx)
+				return err
+			}
+		}
+		if realSender, ok := ctrl.(action.Sender); ok {
+			sender = realSender
+		}
 		if deps != nil {
 			synth = tts.NewSynthAdapter(deps.tts, "")
 		} else {
@@ -778,8 +796,6 @@ func providePanelRuntime(
 		}
 	}
 
-	remote := action.NewMemoryRemote()
-	sender := action.NewFakeSender()
 	sched := action.NewScheduler(sender, bus, action.DefaultConfig())
 
 	sched.SetVIP(func(user string) bool {
@@ -843,6 +859,8 @@ func providePanelRuntime(
 		player:        player,
 		koubo:         kou,
 		sender:        sender,
+		remote:        remote,
+		actionProbe:   actionProbe,
 		synth:         synth,
 		deps: server.PanelDeps{
 			TTS:          tts2.NewService(audioLib, synth, st),
@@ -1116,6 +1134,32 @@ func wireInteractionRules(
 	})
 }
 
+// cachedCapabilityProbe 缓存真实外部依赖的成功与失败，避免每次 preflight 重复打网络。
+type cachedCapabilityProbe struct {
+	mu    sync.Mutex
+	ttl   time.Duration
+	probe func(context.Context) error
+	now   func() time.Time
+	last  time.Time
+	err   error
+}
+
+func newCachedCapabilityProbe(ttl time.Duration, probe func(context.Context) error) *cachedCapabilityProbe {
+	return &cachedCapabilityProbe{ttl: ttl, probe: probe, now: time.Now}
+}
+
+func (p *cachedCapabilityProbe) check(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.now()
+	if !p.last.IsZero() && now.Sub(p.last) < p.ttl {
+		return p.err
+	}
+	p.err = p.probe(ctx)
+	p.last = now
+	return p.err
+}
+
 // provideCapabilities B2 §2.2：能力矩阵由装配点显式计算——按实际装配的实现类型给
 // 状态词，绝不只按配置存在报 real；探测未做的一律 unknown。
 func provideCapabilities(
@@ -1125,22 +1169,40 @@ func provideCapabilities(
 	sessions live.SessionStore,
 	d *data.Data,
 ) live.CapabilitySource {
+	var actionProbe *cachedCapabilityProbe
+	if rt != nil && rt.actionProbe != nil {
+		actionProbe = newCachedCapabilityProbe(5*time.Second, rt.actionProbe)
+	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
-
+		remoteState := capability.Unconfigured
+		if rt != nil {
+			switch rt.remote.(type) {
+			case *action.MemoryRemote:
+				remoteState = capability.Fake
+			case nil, action.UnavailableRemote:
+				remoteState = capability.Unconfigured
+			default:
+				remoteState = capability.Unknown
+				if actionProbe != nil && actionProbe.check(ctx) == nil {
+					remoteState = capability.Real
+				}
+			}
+		}
+		mx["action_remote"] = remoteState
+		senderState := capability.Unconfigured
 		if rt != nil && rt.sender != nil {
 			switch rt.sender.(type) {
 			case *action.FakeSender:
-				mx["action_sender"] = capability.Fake
-				mx["action_remote"] = capability.Fake
+				senderState = capability.Fake
 			default:
-				mx["action_sender"] = capability.Unknown
-				mx["action_remote"] = capability.Unknown
+				senderState = capability.Unknown
+				if remoteState == capability.Real {
+					senderState = capability.Real
+				}
 			}
-		} else {
-			mx["action_sender"] = capability.Unconfigured
-			mx["action_remote"] = capability.Unconfigured
 		}
+		mx["action_sender"] = senderState
 
 		if rt != nil && rt.player != nil {
 			switch rt.player.(type) {
@@ -1198,10 +1260,11 @@ func provideCapabilities(
 
 		if pub == nil {
 			mx["push_gate"] = capability.Unconfigured
-		} else if pub.Status().State == publish.StatePushing {
-			mx["push_gate"] = capability.Real
+			mx["douyin_publish"] = capability.Unconfigured
 		} else {
-			mx["push_gate"] = capability.Unknown
+			status := publishCapabilityStatus(pub.Status())
+			mx["push_gate"] = status
+			mx["douyin_publish"] = status
 		}
 		// storage_persistent：Ent 已安装且本次 PG 探测可达才算 real；不可达必须 fail-closed。
 		var postgresProbe func(context.Context) data.Status
