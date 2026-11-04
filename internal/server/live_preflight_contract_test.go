@@ -20,11 +20,16 @@ import (
 )
 
 type preflightContractGate struct {
+	state  publish.State
 	target publish.TargetVerification
 }
 
 func (g preflightContractGate) Status() publish.Status {
-	return publish.Status{State: publish.StatePushing, TargetVerification: g.target}
+	state := g.state
+	if state == "" {
+		state = publish.StatePushing
+	}
+	return publish.Status{State: state, TargetVerification: g.target}
 }
 
 type preflightHTTPFixture struct {
@@ -248,6 +253,67 @@ func TestLiveHTTPModeSpoofReturns409(t *testing.T) {
 	t.Logf("spoofed Start local-preview response: status=%d body=%v", resp.StatusCode, body)
 	if snap := f.mgr.Snapshot(); snap.SessionID != "" || snap.Phase != live.PhaseIdle {
 		t.Fatalf("mode 拒绝后不得创建场次: %+v", snap)
+	}
+}
+
+func TestLiveHTTPPreflightPushGateCapabilityStates(t *testing.T) {
+	tests := []struct {
+		name         string
+		gate         preflightContractGate
+		capability   capability.Status
+		wantReady    bool
+		wantStatus   live.CheckStatus
+		wantDetail   string
+		wantBlocking bool
+	}{
+		{
+			name: "从未推流 unknown", gate: preflightContractGate{state: publish.StateIdle, target: publish.TargetUnknown},
+			capability: capability.Unknown, wantStatus: live.CheckFail, wantBlocking: true,
+			wantDetail: "capability=unknown; publish: 推流未建立，拒绝开播: 当前状态 idle，请先在平台接入面板点击「开始推流」",
+		},
+		{
+			name: "本地协议 fake", gate: preflightContractGate{target: publish.TargetLocal},
+			capability: capability.Fake, wantStatus: live.CheckFail, wantBlocking: true,
+			wantDetail: "capability=fake; [publish_target_unverified] 需先完成一次真实抖音推流验证",
+		},
+		{
+			name: "真实抖音 real", gate: preflightContractGate{target: publish.TargetDouyin},
+			capability: capability.Real, wantReady: true, wantStatus: live.CheckPass, wantBlocking: true,
+			wantDetail: "capability=real",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pf := live.NewPreflight(nil, func(context.Context) capability.Matrix {
+				return capability.Matrix{
+					"action_sender": capability.Real, "song_player": capability.Real,
+					"tts": capability.Real, "vidu": capability.Real, "koubo_actiongen": capability.Real,
+					"content_storage": capability.Real, "push_gate": tt.capability,
+				}
+			}, func() (publish.PushGate, bool) { return tt.gate, false }, func() bool { return true })
+			pf.SetDraftSource(contractDraftSource{})
+			f := startPreflightContractHTTP(t, nil, pf)
+			defer f.stop()
+
+			resp, body := postLive(t, f.base, "/api/v1/live/preflight", "", map[string]any{
+				"mode": "public-live", "draft_id": "d1", "expected_revision": 3,
+			})
+			t.Logf("%s %s\n%s", resp.Proto, resp.Status, body["_raw"])
+			if resp.StatusCode != http.StatusOK || body["ready"] != tt.wantReady {
+				t.Fatalf("preflight ready 不符合预期: status=%d body=%v", resp.StatusCode, body)
+			}
+			for _, raw := range body["checks"].([]any) {
+				check := raw.(map[string]any)
+				if check["code"] != "push_gate" {
+					continue
+				}
+				if check["status"] != string(tt.wantStatus) || check["blocking"] != tt.wantBlocking || check["detail"] != tt.wantDetail {
+					t.Fatalf("push_gate 三态契约不符: got=%v want status=%s blocking=%v detail=%q", check, tt.wantStatus, tt.wantBlocking, tt.wantDetail)
+				}
+				return
+			}
+			t.Fatal("缺少 push_gate 检查")
+		})
 	}
 }
 

@@ -332,29 +332,30 @@ func (p *Preflight) run(ctx context.Context, req PreflightRequest, issueToken bo
 	capCheck("tts", "tts")
 	capCheck("vidu", "vidu")
 
-	// push_gate：public 必须已装配且推流检查通过（§7.6-5）；local-preview 未装配为 warn。
+	// push_gate：能力矩阵与真实 PushGate 同源读取；状态可见，public 仍由 CheckStartLive fail-closed。
+	pushCapability := "capability=" + string(mx.Get("push_gate"))
 	if p.pushGate != nil {
 		g, allowUnpushed := p.pushGate()
 		switch {
 		case g == nil:
 			if mode == ModePublicLive {
-				add("push_gate", CheckFail, true, "push_gate", "publish", "push_gate_not_wired")
+				add("push_gate", CheckFail, true, "push_gate", "publish", pushCapability+"; push_gate_not_wired")
 			} else {
-				add("push_gate", CheckWarn, false, "push_gate", "publish", "push_gate_not_wired")
+				add("push_gate", CheckWarn, false, "push_gate", "publish", pushCapability+"; push_gate_not_wired")
 			}
 		default:
 			if err := publish.CheckStartLive(g, allowUnpushed && mode == ModeLocalPreview); err != nil {
 				if mode == ModePublicLive {
-					add("push_gate", CheckFail, true, "push_gate", "publish", err.Error())
+					add("push_gate", CheckFail, true, "push_gate", "publish", pushCapability+"; "+err.Error())
 				} else {
-					add("push_gate", CheckWarn, false, "push_gate", "publish", err.Error())
+					add("push_gate", CheckWarn, false, "push_gate", "publish", pushCapability+"; "+err.Error())
 				}
 			} else {
-				add("push_gate", CheckPass, true, "push_gate", "publish", "")
+				add("push_gate", CheckPass, true, "push_gate", "publish", pushCapability)
 			}
 		}
 	} else {
-		add("push_gate", CheckUnknown, mode == ModePublicLive, "push_gate", "publish", "probe_unconfigured")
+		add("push_gate", CheckUnknown, mode == ModePublicLive, "push_gate", "publish", pushCapability+"; probe_unconfigured")
 	}
 
 	// storage_persistent：§2.2 SessionStore/EventSink——内存实现只能 local-preview，
