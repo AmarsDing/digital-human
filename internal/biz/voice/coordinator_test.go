@@ -48,10 +48,11 @@ func (f *fakeChat) ChatWithTokenHook(ctx context.Context, key, text string, sink
 }
 
 type fakeSpeaker struct {
-	mu         sync.Mutex
-	texts      []string
-	interrupts []bool
-	cancel     chan struct{}
+	mu            sync.Mutex
+	texts         []string
+	interrupts    []bool
+	cancel        chan struct{}
+	cancelSuccess bool
 }
 
 func (f *fakeSpeaker) Snapshot() live.Snapshot {
@@ -72,6 +73,9 @@ func (f *fakeSpeaker) Say(ctx context.Context, text, _ string) (string, error) {
 	if f.cancel != nil {
 		<-ctx.Done()
 		close(f.cancel)
+		if f.cancelSuccess {
+			return "u-late", nil
+		}
 		return "", ctx.Err()
 	}
 	return "u-1", nil
@@ -666,6 +670,52 @@ func TestCancelledVoiceTurnCannotEmitQueuedSpeech(t *testing.T) {
 			return
 		}
 	}
+}
+
+func TestCancelledVoiceTurnDuringSayDoesNotPublishSpeaking(t *testing.T) {
+	speaker := &fakeSpeaker{cancel: make(chan struct{}), cancelSuccess: true}
+	c, bus := newTestCoordinator(t, NewFakeRecognizer("你好"), &fakeChat{}, speaker)
+	events, unsubscribe := bus.SubscribeFor("s-1", 0)
+	defer unsubscribe()
+	turn := beginTestTurn(t, c, "browser-1")
+	if err := turn.WriteAudio(loudFrames(20)); err != nil {
+		t.Fatal(err)
+	}
+	turn.End()
+	waitForVoiceTest(t, func() bool {
+		speaker.mu.Lock()
+		defer speaker.mu.Unlock()
+		return len(speaker.texts) == 1
+	}, "Say to start")
+	turn.Cancel("interrupted")
+	waitTurn(t, turn)
+	select {
+	case <-speaker.cancel:
+	case <-time.After(time.Second):
+		t.Fatal("in-flight Say was not cancelled")
+	}
+	for {
+		select {
+		case e := <-events:
+			if e.Type == "voice.speaking" {
+				t.Fatal("cancelled voice turn published voice.speaking after Say returned")
+			}
+		case <-time.After(50 * time.Millisecond):
+			return
+		}
+	}
+}
+
+func waitForVoiceTest(t *testing.T, condition func() bool, message string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for %s", message)
 }
 
 func TestASRWriteFailureIsUnavailable(t *testing.T) {

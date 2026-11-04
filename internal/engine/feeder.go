@@ -65,59 +65,139 @@ func NewFeeder(cfg FeedConfig) *Feeder {
 	return &Feeder{pacer: p, write: cfg.WriteTimeout, warn: audio.NewLagWarner(cfg.WarnWindow), cfg: cfg}
 }
 
-// Feed 喂完一轮语音。t0 每轮独立（静默期不喂流，不能用全局连续流假设）。
-// stop 为 true（被打断/已停播）时在下一帧前退出。
+// feedSession 在一轮语音内共享绝对时基，只暂存不足一个完整块的尾部。
+type feedSession struct {
+	feeder   *Feeder
+	ctx      context.Context
+	sender   PCMSender
+	stop     func() bool
+	t0       time.Time
+	playedMS int64
+	pending  []byte
+	res      FeedResult
+	done     bool
+}
+
+func (f *Feeder) newFeedSession(ctx context.Context, sender PCMSender, stop func() bool) *feedSession {
+	return &feedSession{feeder: f, ctx: ctx, sender: sender, stop: stop, t0: f.pacer.Clock().Now()}
+}
+
+// Write 立即发送所有完整块，网络分片边界不影响 PCM 分块和喂流节奏。
+func (s *feedSession) Write(pcm []byte) error {
+	if err := s.ctx.Err(); err != nil {
+		s.Discard()
+		return err
+	}
+	if s.done {
+		return ErrFeedStopped
+	}
+	chunkBytes := s.feeder.pacer.ChunkBytes()
+	if len(s.pending) > 0 {
+		need := chunkBytes - len(s.pending)
+		if len(pcm) < need {
+			s.pending = append(s.pending, pcm...)
+			return nil
+		}
+		s.pending = append(s.pending, pcm[:need]...)
+		pcm = pcm[need:]
+		if err := s.send(s.pending); err != nil {
+			s.Discard()
+			return err
+		}
+		s.pending = nil
+	}
+	for len(pcm) >= chunkBytes {
+		if err := s.send(pcm[:chunkBytes]); err != nil {
+			s.Discard()
+			return err
+		}
+		pcm = pcm[chunkBytes:]
+	}
+	if len(pcm) > 0 {
+		s.pending = append([]byte(nil), pcm...)
+	}
+	return nil
+}
+
+// Finish 在正常结束时发送尾帧；取消或写失败时尾部已由 Discard 丢弃。
+func (s *feedSession) Finish() (FeedResult, error) {
+	if err := s.ctx.Err(); err != nil {
+		s.Discard()
+		return s.res, err
+	}
+	if s.done {
+		return s.res, ErrFeedStopped
+	}
+	if len(s.pending) > 0 {
+		if err := s.send(s.pending); err != nil {
+			s.Discard()
+			return s.res, err
+		}
+	}
+	s.pending = nil
+	s.done = true
+	if s.res.Bytes > 0 {
+		s.res.Drift = s.feeder.pacer.Clock().Now().Sub(audio.Deadline(s.t0, s.playedMS))
+	}
+	return s.res, nil
+}
+
+func (s *feedSession) Discard() {
+	s.pending = nil
+	s.done = true
+}
+
+func (s *feedSession) send(chunk []byte) error {
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
+	if s.stop != nil && s.stop() {
+		return ErrFeedInterrupted
+	}
+	writeCtx, cancel := context.WithTimeout(s.ctx, s.feeder.write)
+	err := s.sender.SendPCM(writeCtx, chunk)
+	cancel()
+	if err != nil {
+		// 单帧失败终止本轮，不重发（蓝本 engine.py:1737-1740）。
+		return err
+	}
+
+	s.res.Frames++
+	s.res.Bytes += len(chunk)
+	s.playedMS += audio.MSForBytes(len(chunk))
+	delay := s.feeder.pacer.Wait(s.t0, s.playedMS)
+	class := audio.Classify(delay)
+	switch class {
+	case audio.LagLate:
+		s.res.Late++
+	case audio.LagWarn:
+		s.res.Late++
+		if s.feeder.warn.ShouldWarn(s.feeder.pacer.Clock().Now(), delay) {
+			s.res.Warn++
+			if s.feeder.cfg.OnWarn != nil {
+				s.feeder.cfg.OnWarn(-delay)
+			}
+		}
+	}
+	if delay < 0 {
+		if lag := -delay; lag > s.res.MaxLag {
+			s.res.MaxLag = lag
+		}
+		if s.feeder.cfg.OnLate != nil {
+			s.feeder.cfg.OnLate(delay)
+		}
+	}
+	return nil
+}
+
+// Feed 喂完一轮语音；旧整段入口复用同一个会话实现。
 func (f *Feeder) Feed(ctx context.Context, sender PCMSender, pcm []byte, stop func() bool) (FeedResult, error) {
-	var res FeedResult
 	if len(pcm) == 0 {
-		return res, nil
+		return FeedResult{}, nil
 	}
-	t0 := f.pacer.Clock().Now()
-	playedMS := int64(0)
-
-	for _, chunk := range audio.SplitPCM(pcm, f.pacer.ChunkBytes()) {
-		if err := ctx.Err(); err != nil {
-			return res, err
-		}
-		if stop != nil && stop() {
-			return res, ErrFeedInterrupted
-		}
-
-		writeCtx, cancel := context.WithTimeout(ctx, f.write)
-		err := sender.SendPCM(writeCtx, chunk)
-		cancel()
-		if err != nil {
-			// 单帧失败终止本轮，不重发（蓝本 engine.py:1737-1740）。
-			return res, err
-		}
-
-		res.Frames++
-		res.Bytes += len(chunk)
-		playedMS += audio.MSForBytes(len(chunk))
-
-		delay := f.pacer.Wait(t0, playedMS)
-		class := audio.Classify(delay)
-		switch class {
-		case audio.LagLate:
-			res.Late++
-		case audio.LagWarn:
-			res.Late++
-			if f.warn.ShouldWarn(f.pacer.Clock().Now(), delay) {
-				res.Warn++
-				if f.cfg.OnWarn != nil {
-					f.cfg.OnWarn(-delay)
-				}
-			}
-		}
-		if delay < 0 {
-			if lag := -delay; lag > res.MaxLag {
-				res.MaxLag = lag
-			}
-			if f.cfg.OnLate != nil {
-				f.cfg.OnLate(delay)
-			}
-		}
+	session := f.newFeedSession(ctx, sender, stop)
+	if err := session.Write(pcm); err != nil {
+		return session.res, err
 	}
-	res.Drift = f.pacer.Clock().Now().Sub(audio.Deadline(t0, playedMS))
-	return res, nil
+	return session.Finish()
 }

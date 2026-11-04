@@ -33,6 +33,12 @@ func (s stubTTS) Synthesize(context.Context, tts.JobRequest) ([]byte, error) {
 	return s.wav, nil
 }
 
+type streamingSynthesizerFunc func(context.Context, tts.JobRequest, func(context.Context, []byte) error) error
+
+func (f streamingSynthesizerFunc) SynthesizeStream(ctx context.Context, req tts.JobRequest, emit func(context.Context, []byte) error) error {
+	return f(ctx, req, emit)
+}
+
 // fakeWS 服务端按连接记录：type7/type10/二进制帧/ping 次数，可控 conn_init 行为。
 type fakeWS struct {
 	srv *httptest.Server
@@ -299,6 +305,111 @@ func TestControllerStartSayFeedsPCM(t *testing.T) {
 	st := ctl.RuntimeStatus(context.Background())
 	if !st.FeedKnown || !st.WSKnown || st.WSState != "connected" {
 		t.Fatalf("runtime status: %+v", st)
+	}
+}
+
+func TestControllerSayStreamsFirstDeltaBeforeSynthesisCompletes(t *testing.T) {
+	ws := newFakeWS(t)
+	release := make(chan struct{})
+	var fallbackCalls atomic.Int32
+	fallback := synthesizerFunc(func(context.Context, tts.JobRequest) ([]byte, error) {
+		fallbackCalls.Add(1)
+		return nil, errors.New("non-streaming fallback must not be called")
+	})
+	stream := streamingSynthesizerFunc(func(ctx context.Context, _ tts.JobRequest, emit func(context.Context, []byte) error) error {
+		if err := emit(ctx, audio.TonePCM(100)); err != nil {
+			return err
+		}
+		<-release
+		return nil
+	})
+	ctl := newTestController(t, ws, fallback, func(cfg *ViduConfig) { cfg.StreamTTS = stream })
+	if _, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-stream"}); err != nil {
+		t.Fatal(err)
+	}
+	defer ctl.Stop(context.Background(), "done")
+
+	said := make(chan error, 1)
+	go func() {
+		_, err := ctl.Say(context.Background(), "流式口播", "chat")
+		said <- err
+	}()
+	waitFor(t, time.Second, func() bool {
+		_, _, _, _, bin, _ := ws.counts()
+		return bin >= 1
+	}, "first PCM delta before streaming synthesis returns")
+	if fallbackCalls.Load() != 0 {
+		t.Fatal("configured streaming synthesizer was bypassed")
+	}
+	close(release)
+	if err := <-said; err != nil {
+		t.Fatalf("streamed Say: %v", err)
+	}
+}
+
+func TestNewViduControllerRejectsMissingSynthesizers(t *testing.T) {
+	_, err := NewViduController(ViduConfig{Client: fakeViduHTTP(t)})
+	if err == nil {
+		t.Fatal("controller without batch or streaming synthesizer must fail closed")
+	}
+}
+
+func TestControllerPreemptCancelsStreamingUpstreamAndDropsLatePCM(t *testing.T) {
+	ws := newFakeWS(t)
+	firstStarted := make(chan struct{})
+	firstCancelled := make(chan struct{})
+	lateWrite := make(chan error, 1)
+	var calls atomic.Int32
+	stream := streamingSynthesizerFunc(func(ctx context.Context, _ tts.JobRequest, emit func(context.Context, []byte) error) error {
+		if calls.Add(1) == 1 {
+			if err := emit(ctx, audio.TonePCM(100)); err != nil {
+				return err
+			}
+			close(firstStarted)
+			<-ctx.Done()
+			close(firstCancelled)
+			lateWrite <- emit(context.Background(), audio.TonePCM(100))
+			return ctx.Err()
+		}
+		return emit(ctx, audio.TonePCM(100))
+	})
+	ctl := newTestController(t, ws, nil, func(cfg *ViduConfig) { cfg.StreamTTS = stream })
+	if _, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-preempt-stream"}); err != nil {
+		t.Fatal(err)
+	}
+	defer ctl.Stop(context.Background(), "done")
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := ctl.Say(context.Background(), "第一句流式口播", "chat")
+		firstDone <- err
+	}()
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first streaming Say did not emit")
+	}
+	if _, err := ctl.Say(context.Background(), "第二句抢占", "chat"); err != nil {
+		t.Fatalf("preempting Say: %v", err)
+	}
+	select {
+	case <-firstCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("preemption did not cancel streaming upstream context")
+	}
+	if err := <-lateWrite; !errors.Is(err, context.Canceled) {
+		t.Fatalf("late emit error = %v, want context.Canceled", err)
+	}
+	if err := <-firstDone; err != nil {
+		t.Fatalf("preempted Say should finish as an interruption, got %v", err)
+	}
+	waitFor(t, time.Second, func() bool {
+		_, _, _, _, bin, _ := ws.counts()
+		return bin == 2
+	}, "exactly one PCM chunk from each Say")
+	_, _, _, _, bin, _ := ws.counts()
+	if bin != 2 {
+		t.Fatalf("PCM frames = %d, want 2; cancelled upstream fed late audio", bin)
 	}
 }
 

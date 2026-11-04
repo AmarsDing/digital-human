@@ -53,6 +53,7 @@ type ViduConfig struct {
 	Client          *vidu.Client
 	WS              vidu.WSOptions
 	TTS             Synthesizer
+	StreamTTS       StreamingSynthesizer
 	GreetingDecoder media.Decoder
 	Voice           string
 	Logger          *slog.Logger
@@ -216,7 +217,7 @@ func NewViduController(cfg ViduConfig) (*ViduController, error) {
 	if cfg.Client == nil {
 		return nil, errors.New("engine: vidu client is required")
 	}
-	if cfg.TTS == nil {
+	if cfg.TTS == nil && cfg.StreamTTS == nil {
 		return nil, errors.New("engine: tts synthesizer is required")
 	}
 	cfg.applyDefaults()
@@ -426,7 +427,7 @@ func (c *ViduController) Say(ctx context.Context, text, mode string) (string, er
 		return "", errors.New("engine: signaling unavailable")
 	}
 	// type10 口播文本先行。
-	if err := sig.SendOutputText(ctx, text); err != nil && !errors.Is(err, vidu.ErrNotReady) {
+	if err := sig.SendOutputText(taskCtx, text); err != nil && !errors.Is(err, vidu.ErrNotReady) {
 		return "", err
 	}
 
@@ -437,19 +438,33 @@ func (c *ViduController) Say(ctx context.Context, text, mode string) (string, er
 	if voice == "" {
 		voice = c.cfg.Voice
 	}
-	wav, err := c.cfg.TTS.Synthesize(ctx, tts.JobRequest{Text: text, VoiceID: voice, Format: "wav"})
-	if err != nil {
-		return "", err
-	}
-	pcm, err := audio.PCMFromWav(wav)
-	if err != nil {
-		return "", fmt.Errorf("engine: tts wav 不合规: %w", err)
-	}
+	req := tts.JobRequest{Text: text, VoiceID: voice, Format: "wav"}
 	sender := &leaseSender{sig: sig, lease: lease, onSent: c.noteFed}
-	_, err = c.feed.Feed(ctx, sender, pcm, func() bool {
-		return !lease.Valid() || c.isStopped()
-	})
-	if err != nil && !errors.Is(err, ErrFeedInterrupted) && !errors.Is(err, ErrFeedStopped) {
+	stop := func() bool { return !lease.Valid() || c.isStopped() }
+	if c.cfg.StreamTTS != nil {
+		session := c.feed.newFeedSession(taskCtx, sender, stop)
+		err = c.cfg.StreamTTS.SynthesizeStream(taskCtx, req, func(_ context.Context, pcm []byte) error {
+			return session.Write(pcm)
+		})
+		if err == nil {
+			_, err = session.Finish()
+		} else {
+			session.Discard()
+		}
+	} else {
+		var wav []byte
+		wav, err = c.cfg.TTS.Synthesize(taskCtx, req)
+		if err == nil {
+			var pcm []byte
+			pcm, err = audio.PCMFromWav(wav)
+			if err != nil {
+				err = fmt.Errorf("engine: tts wav 不合规: %w", err)
+			} else {
+				_, err = c.feed.Feed(taskCtx, sender, pcm, stop)
+			}
+		}
+	}
+	if err != nil && !errors.Is(err, ErrFeedInterrupted) && !errors.Is(err, ErrFeedStopped) && lease.Valid() && !c.isStopped() {
 		return "", err
 	}
 	c.mu.Lock()
