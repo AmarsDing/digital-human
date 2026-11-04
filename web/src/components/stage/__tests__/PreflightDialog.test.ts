@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PreflightDialog from '../PreflightDialog.vue'
+import NtButton from '../../ui/NtButton.vue'
 import type { LivePreflightResult } from '../../../services/api/live'
 
 function result(ready: boolean): LivePreflightResult {
@@ -53,6 +54,29 @@ describe('PreflightDialog', () => {
     expect(start.attributes('disabled')).toBeUndefined()
     await start.trigger('click')
     expect(w.emitted('start')).toHaveLength(1)
+    w.unmount()
+  })
+
+  it('摘要只按 status 统计失败、提醒和待验证，开始直播使用 primary', () => {
+    const preflight = result(false)
+    preflight.checks = (['pass', 'warn', 'fail', 'unknown', 'running'] as const).map((status, index) => ({
+      code: `check-${index}`,
+      status,
+      blocking: status === 'fail',
+      source: 'test',
+      detail: status === 'pass' ? 'fail warn unknown' : '',
+      observedAtMs: 1000
+    }))
+    const w = mount(PreflightDialog, {
+      props: { open: true, result: preflight, busy: false, error: '' }
+    })
+
+    const summary = w.get('.preflight-summary')
+    expect(summary.text()).toContain('失败 1')
+    expect(summary.text()).toContain('提醒 1')
+    expect(summary.text()).toContain('待验证 2')
+    const start = w.findAllComponents(NtButton).find((button) => button.text() === '开始直播')!
+    expect(start.props('variant')).toBe('primary')
     w.unmount()
   })
 })

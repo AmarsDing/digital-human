@@ -39,6 +39,7 @@ import { registerStageHotkeys } from '../utils/hotkeys'
 const router = useRouter()
 const preparation = usePreparationStore()
 const preflightOpen = ref(false)
+const preflightBusy = ref(false)
 const live = useLiveStore()
 const events = useEventsStore()
 const transcript = useTranscriptStore()
@@ -421,12 +422,17 @@ async function start(): Promise<void> {
 }
 
 async function checkBeforeStart(): Promise<void> {
-  if (live.busy || live.isLive) return
+  if (live.busy || live.isLive || preflightBusy.value) return
   preflightOpen.value = true
-  await preparation.load()
-  const draft = preparation.selected
-  const personaId = draft?.snapshot.avatar?.id || activeAvatarId.value
-  await live.runPreflight({ personaId, draftId: draft?.draft_id, expectedRevision: draft?.revision })
+  preflightBusy.value = true
+  try {
+    await preparation.load()
+    const draft = preparation.selected
+    const personaId = draft?.snapshot.avatar?.id || activeAvatarId.value
+    await live.runPreflight({ personaId, draftId: draft?.draft_id, expectedRevision: draft?.revision })
+  } finally {
+    preflightBusy.value = false
+  }
 }
 
 watch(() => preparation.selected, () => live.invalidatePreflight())
@@ -532,7 +538,7 @@ async function doClearTranscript(): Promise<void> {
       </div>
     </div>
 
-    <PreflightDialog :open="preflightOpen" :result="live.preflight" :busy="live.busy" :error="live.error"
+    <PreflightDialog :open="preflightOpen" :result="live.preflight" :busy="live.busy || preflightBusy" :error="live.error"
       @close="preflightOpen = false" @retry="checkBeforeStart" @prepare="router.push('/prepare')"
       @start="preflightOpen = false; start()" />
     <main class="deck" :style="deckStyle">
@@ -554,6 +560,9 @@ async function doClearTranscript(): Promise<void> {
           :caption-offset-px="captionCfg.offsetPx"
           :busy="live.busy"
           :error="live.error || events.error"
+          :preflight="live.preflight"
+          :preflight-busy="preflightBusy"
+          @preflight="checkBeforeStart"
           @start="start"
           @stop="stopCtl.requestStopLive('video-stage')"
           @open-settings="drawerOpen = true"

@@ -2,8 +2,10 @@
 import { computed } from 'vue'
 import RtcPlayer from '../rtc/RtcPlayer.vue'
 import type { RtcCreds } from '../rtc/types'
+import type { LivePreflightResult } from '../../services/api/live'
 import { phaseLabel as phaseText } from '../../utils/labels'
 import LiveStageBadge from './LiveStageBadge.vue'
+import NtButton from '../ui/NtButton.vue'
 
 const props = defineProps<{
   phase: string
@@ -22,10 +24,13 @@ const props = defineProps<{
   captionOffsetPx: number
   busy: boolean
   error: string
+  preflight?: LivePreflightResult | null
+  preflightBusy?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'start'): void
   (e: 'stop'): void
+  (e: 'preflight'): void
   (e: 'open-settings'): void
   (e: 'rtc-state', state: string): void
 }>()
@@ -37,6 +42,11 @@ const canStart = computed(
   () => !props.busy && (props.phase === 'idle' || props.phase === 'ended' || props.phase === 'error')
 )
 const canStop = computed(() => !props.busy && (props.phase === 'starting' || props.phase === 'live'))
+const failCount = computed(() => props.preflight?.checks.filter((check) => check.status === 'fail').length ?? 0)
+const warnCount = computed(() => props.preflight?.checks.filter((check) => check.status === 'warn').length ?? 0)
+const pendingCount = computed(
+  () => props.preflight?.checks.filter((check) => check.status === 'unknown' || check.status === 'running').length ?? 0
+)
 
 const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
 </script>
@@ -82,17 +92,34 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
     </div>
 
     <footer class="stage__foot">
+      <div v-if="preflight || preflightBusy" class="stage__preflight-summary" role="status" aria-live="polite">
+        <span>本次会话预检 · {{ preflightBusy ? '检测中…' : preflight?.ready ? '可开播' : '未通过' }}</span>
+        <span v-if="preflight">失败 {{ failCount }} · 提醒 {{ warnCount }} · 待验证 {{ pendingCount }}</span>
+      </div>
       <div class="stage__actions">
-        <button
+        <NtButton
+          v-if="phase === 'idle' || phase === 'ended' || phase === 'error'"
           type="button"
-          class="btn btn--primary"
+          class="stage__preflight"
+          :disabled="busy || preflightBusy"
+          :aria-busy="preflightBusy"
+          @click="emit('preflight')"
+        >
+          {{ preflightBusy ? '预检中…' : '开播预检' }}
+        </NtButton>
+        <NtButton
+          type="button"
+          variant="primary"
+          class="stage__start"
           :disabled="!canStart"
           :aria-busy="busy"
           @click="emit('start')"
         >
           {{ busy || phase === 'starting' ? '连线中…' : '开始直播（F9）' }}
-        </button>
-        <button type="button" class="btn" :disabled="!canStop" @click="emit('stop')">停止直播（F10）</button>
+        </NtButton>
+        <NtButton type="button" variant="danger" class="stage__stop" :disabled="!canStop" @click="emit('stop')">
+          停止直播（F10）
+        </NtButton>
       </div>
       <p v-if="error" class="stage__error" role="alert" aria-live="assertive">{{ error }}</p>
       <p v-if="phase === 'live' && !creds" class="stage__hint">
@@ -215,30 +242,19 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
   border-top: 1px solid var(--nt-border-1);
   background: var(--nt-data-bg);
 }
+.stage__preflight-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-right: auto;
+  color: var(--nt-text-2);
+  font-size: var(--nt-fs-caption);
+  font-variant-numeric: tabular-nums;
+}
 .stage__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-.btn {
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: var(--nt-radius-m);
-  border: 1px solid var(--nt-border-1);
-  background: var(--nt-data-raised);
-  color: var(--nt-text-1);
-  font: inherit;
-  font-size: var(--nt-fs-caption);
-  cursor: pointer;
-}
-.btn--primary {
-  border-color: var(--nt-accent-border);
-  background: var(--nt-accent-soft);
-  color: var(--nt-accent);
-}
-.btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 .stage__error {
   margin: 0;
@@ -277,9 +293,8 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
   .stage__actions {
     width: 100%;
   }
-  .stage__actions .btn {
+  .stage__actions > * {
     flex: 1;
-    padding: 0 8px;
   }
 }
 </style>

@@ -291,6 +291,22 @@ describe('StagePage 统一 preflight 开播入口', () => {
     w.unmount()
   })
 
+  it('舞台预检入口只运行预检，不直接调用 Start', async () => {
+    h.listAvatars.mockResolvedValue(activeAvatar(7))
+    const live = useLiveStore()
+    const preflight = vi.spyOn(live, 'runPreflight').mockResolvedValue(true)
+    const start = vi.spyOn(live, 'start').mockResolvedValue(true)
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    w.findComponent(VideoStage).vm.$emit('preflight')
+    await flushPromises()
+
+    expect(preflight).toHaveBeenCalledWith({ personaId: '', draftId: undefined, expectedRevision: undefined })
+    expect(start).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
   it('预检缺字段时把具体字段错误传给开播 UI', async () => {
     h.listAvatars.mockResolvedValue(activeAvatar(7))
     const live = useLiveStore()

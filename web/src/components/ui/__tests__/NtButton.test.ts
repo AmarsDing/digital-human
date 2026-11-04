@@ -26,4 +26,9 @@ describe('NtButton', () => {
     const w = mount(NtButton)
     expect(w.get('button').attributes('type')).toBe('button')
   })
+
+  it('danger 使用既有危险语义变体类', () => {
+    const w = mount(NtButton, { props: { variant: 'danger' }, slots: { default: '停止直播' } })
+    expect(w.get('button').classes()).toContain('nt-btn--danger')
+  })
 })
