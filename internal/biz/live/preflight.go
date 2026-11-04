@@ -335,6 +335,17 @@ func (p *Preflight) run(ctx context.Context, req PreflightRequest, issueToken bo
 				detail += "; 动作下发通道当前不可用，请检查 Vidu 网络、凭据与真实建场状态"
 			}
 		}
+		if code == "koubo_actiongen" && s != capability.Real {
+			detail += "; koubo_actiongen_" + string(s)
+			switch s {
+			case capability.Unconfigured:
+				detail += "; 口播动作生成器或 choreo 动作内容未配置"
+			case capability.Fake:
+				detail += "; 当前为假动作生成，仅允许本地预览"
+			default:
+				detail += "; 口播动作生成当前不可用，请检查 choreo 内容与 LLM 配置"
+			}
+		}
 		add(code, st, blocking, "capability_probe", target, detail)
 	}
 	capCheck("action_sender", "actions")

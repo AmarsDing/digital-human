@@ -82,6 +82,7 @@ func InitApp(cfgPath string, version VersionInfo) (*App, func(), error) {
 		provideDanmaku,
 		provideSettings,
 		providePersona,
+		provideLLMClient,
 		provideChat,
 		provideViduKeys,
 		provideDanmakuWorker,
@@ -581,8 +582,8 @@ func providePersona(avatarStore *repo.SwitchableAvatarStore, st *settings.Servic
 
 // provideChat F15 会话编排单例：Streamer 每次调用取 settings.llm 快照（热改立即生效）；
 // ProfileResolver 用 persona.Service（G05 人设优先，llm.system 为第二来源）。
-func provideChat(st *settings.Service, p *persona.Service) *chat.Manager {
-	cli := llm.NewClient(func() llm.Config {
+func provideLLMClient(st *settings.Service) *llm.Client {
+	return llm.NewClient(func() llm.Config {
 		ctx := context.Background()
 		cfg := llm.Config{
 			BaseURL:     settingStr(st, ctx, "llm", "base_url"),
@@ -599,6 +600,9 @@ func provideChat(st *settings.Service, p *persona.Service) *chat.Manager {
 		}
 		return cfg
 	})
+}
+
+func provideChat(p *persona.Service, cli *llm.Client) *chat.Manager {
 	return chat.NewManager(cli, p)
 }
 
@@ -692,14 +696,23 @@ func provideHealth(version VersionInfo, cfg *conf.Config, d *data.Data, m *live.
 	return h
 }
 
+func provideKouboActionGen(store choreo.Store, streamer koubo.ActionStreamer, llmConfigured bool) koubo.ActionGen {
+	if llmConfigured {
+		return koubo.NewLLMActionGen(store, streamer)
+	}
+	return koubo.NewRuleActionGen(store)
+}
+
 // panelRuntime 持有 M3 面板依赖与共享调度器，避免多个 *media.Library 在 wire 中同名冲突。
 type panelRuntime struct {
-	deps          server.PanelDeps
-	scheduler     *action.Scheduler
-	songScheduler *song.Scheduler
-	dm            *danmaku.Service
-	player        media.Player
-	koubo         *koubo.Service
+	deps           server.PanelDeps
+	scheduler      *action.Scheduler
+	songScheduler  *song.Scheduler
+	dm             *danmaku.Service
+	player         media.Player
+	koubo          *koubo.Service
+	actionGen      koubo.ActionGen
+	actionGenProbe func(context.Context) error
 	// sender/synth §2.2 能力矩阵探测源（装配点显式化：类型即能力证据）。
 	sender         action.Sender
 	remote         action.Remote
@@ -724,6 +737,7 @@ func providePanelRuntime(
 	avatarImages *avatar.ImageService,
 	avatarSync *avatar.SyncService,
 	chatMgr *chat.Manager,
+	llmClient *llm.Client,
 	vkeys *vidukeys.Service,
 	recorder live.Recorder,
 	patrons *patron.Service,
@@ -793,7 +807,8 @@ func providePanelRuntime(
 	})
 	actions := action.NewService(remote, sched)
 
-	chor := choreo.NewService(choreo.NewFileStore(filepath.Join("storage", "choreo.json")), sched)
+	choreoStore := choreo.NewFileStore(filepath.Join("storage", "choreo.json"))
+	chor := choreo.NewService(choreoStore, sched)
 	sched.SetPauseChoreo(func(d time.Duration) { chor.Pause(d) })
 
 	songs := song.NewService(songLib, dec, player, bus, isLive)
@@ -820,9 +835,14 @@ func providePanelRuntime(
 		return snap.SessionID, snap.Phase == live.PhaseLive || snap.Phase == live.PhaseStarting
 	})
 
+	actionGen := provideKouboActionGen(choreoStore, llmClient, settingStr(st, context.Background(), "llm", "api_key") != "")
+	actionGenProbe := func(ctx context.Context) error {
+		_, err := actionGen.Generate(ctx, "点头")
+		return err
+	}
 	kou := koubo.NewService(
 		koubo.NewFileStore(filepath.Join("storage", "koubo", "project.json")),
-		synth, player, koubo.FakeActionGen{}, filepath.Join("storage", "koubo"), isLive,
+		synth, player, actionGen, filepath.Join("storage", "koubo"), isLive,
 	)
 	kou.SetSynthParamsFn(func() (string, float64) {
 		ctx := context.Background()
@@ -848,15 +868,17 @@ func providePanelRuntime(
 	refsSvc.SetDir("storage/refs")
 
 	return &panelRuntime{
-		scheduler:     sched,
-		songScheduler: songScheduler,
-		dm:            dm,
-		player:        player,
-		koubo:         kou,
-		sender:        sender,
-		remote:        remote,
-		actionProbe:   actionProbe,
-		synth:         synth,
+		scheduler:      sched,
+		songScheduler:  songScheduler,
+		dm:             dm,
+		player:         player,
+		koubo:          kou,
+		actionGen:      actionGen,
+		actionGenProbe: actionGenProbe,
+		sender:         sender,
+		remote:         remote,
+		actionProbe:    actionProbe,
+		synth:          synth,
 		deps: server.PanelDeps{
 			TTS:          tts.NewService(audioLib, synth, st),
 			Actions:      actions,
@@ -1174,6 +1196,10 @@ func provideCapabilities(
 	if rt != nil && rt.actionProbe != nil {
 		actionProbe = newCachedCapabilityProbe(5*time.Second, rt.actionProbe)
 	}
+	var actionGenProbe *cachedCapabilityProbe
+	if rt != nil && rt.actionGenProbe != nil {
+		actionGenProbe = newCachedCapabilityProbe(5*time.Second, rt.actionGenProbe)
+	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
 		remoteState := capability.Unconfigured
@@ -1247,7 +1273,25 @@ func provideCapabilities(
 		default:
 			mx["vidu"] = capability.Unknown
 		}
-		mx["koubo_actiongen"] = capability.Fake
+		mx["koubo_actiongen"] = capability.Unconfigured
+		if rt != nil && rt.actionGen != nil {
+			switch rt.actionGen.(type) {
+			case koubo.FakeActionGen, *koubo.FakeActionGen:
+				mx["koubo_actiongen"] = capability.Fake
+			case *koubo.RuleActionGen:
+				mx["koubo_actiongen"] = capability.Real
+				if actionGenProbe != nil && actionGenProbe.check(ctx) != nil {
+					mx["koubo_actiongen"] = capability.Unknown
+				}
+			case *koubo.LLMActionGen:
+				mx["koubo_actiongen"] = capability.Unknown
+				if actionGenProbe != nil && actionGenProbe.check(ctx) == nil {
+					mx["koubo_actiongen"] = capability.Real
+				}
+			default:
+				mx["koubo_actiongen"] = capability.Unknown
+			}
+		}
 		// 未配置目录时明确使用内存/fake；磁盘实现必须每次都通过真实读写探测才是 real。
 		mx["content_storage"] = capability.Fake
 		if rt != nil && len(rt.contentStorage) > 0 {
