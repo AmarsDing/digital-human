@@ -56,7 +56,8 @@ describe('应用挂载（P0 白屏防回归）', () => {
     expect(wrapper.find('#q-app .dh-shell').exists()).toBe(true)
     expect(wrapper.find('#q-app .page').exists()).toBe(true)
     expect(wrapper.find('#q-app .stage').exists()).toBe(true)
-    expect(wrapper.text()).toContain('小雅 · 数字人直播台')
+    expect(wrapper.find('#q-app .dh-top').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('小雅 · 数字人直播台')
     expect(wrapper.text()).toContain('开始直播')
 
     wrapper.unmount()

@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import VideoStage from '../components/stage/VideoStage.vue'
 import ComposerBar from '../components/stage/ComposerBar.vue'
 import RightRail from '../components/stage/RightRail.vue'
-import StatsBar from '../components/stage/StatsBar.vue'
+import MetricsPopover from '../components/stage/MetricsPopover.vue'
 import PanelDock from '../components/stage/PanelDock.vue'
 import VoicePanel from '../components/panels/VoicePanel.vue'
 import CommandPanel from '../components/panels/CommandPanel.vue'
@@ -46,6 +46,8 @@ const platform = usePlatformStore()
 const danmakuRt = useDanmakuRuntimeStore()
 
 const drawerOpen = ref(false)
+const toolsOpen = ref(false)
+const activeAvatarName = ref('')
 const rightOpen = ref(true)
 const tokenInput = ref('')
 const rtcState = ref('')
@@ -231,48 +233,6 @@ const stats = computed(() => [
   { id: 'lag', label: '音频延迟', value: `${live.lagMs}ms`, hint: live.feedOwner ? '持有喂流' : '未持有喂流' }
 ])
 
-// ── F48 统计条：开关走 prefs.stats（页面工具栏按钮）；拖动位置记忆 prefs.statsPos。
-// {0,0} = 停靠底部通栏；拖动后转 fixed 浮动。双击把手复位。
-const statsBarRef = ref<HTMLElement | null>(null)
-const statsDragPos = ref<{ x: number; y: number } | null>(null)
-const statsFloating = computed(() => !!(statsDragPos.value || prefs.statsPos.x > 0 || prefs.statsPos.y > 0))
-const statsShown = computed(() => statsDragPos.value ?? prefs.statsPos)
-let statsDrag: { px: number; py: number; ox: number; oy: number } | null = null
-
-function statsDragDown(e: PointerEvent): void {
-  const docked = prefs.statsPos.x === 0 && prefs.statsPos.y === 0
-  const rect = docked ? statsBarRef.value?.getBoundingClientRect() : undefined
-  const ox = rect ? rect.left : prefs.statsPos.x
-  const oy = rect ? rect.top : prefs.statsPos.y
-  statsDrag = { px: e.clientX, py: e.clientY, ox, oy }
-  statsDragPos.value = { x: ox, y: oy }
-  window.addEventListener('pointermove', statsDragMove)
-  window.addEventListener('pointerup', statsDragUp)
-  e.preventDefault()
-}
-
-function statsDragMove(e: PointerEvent): void {
-  if (!statsDrag) return
-  statsDragPos.value = {
-    x: Math.max(0, statsDrag.ox + e.clientX - statsDrag.px),
-    y: Math.max(0, statsDrag.oy + e.clientY - statsDrag.py)
-  }
-}
-
-function statsDragUp(): void {
-  if (statsDrag && statsDragPos.value) prefs.setStatsPos(statsDragPos.value.x, statsDragPos.value.y)
-  statsDrag = null
-  statsDragPos.value = null
-  window.removeEventListener('pointermove', statsDragMove)
-  window.removeEventListener('pointerup', statsDragUp)
-}
-
-function statsReset(): void {
-  statsDrag = null
-  statsDragPos.value = null
-  prefs.resetStatsPos()
-}
-
 const deckStyle = computed(() => ({ '--rail-w': `${prefs.rightW}px` }))
 const stageMode = computed(() => (['starting', 'live', 'stopping'].includes(live.phase) ? 'live' : 'prepare'))
 
@@ -320,6 +280,7 @@ watch(
 
 onMounted(() => {
   prefs.load()
+  void loadActiveAvatarName()
   void live.load().then(loadCost)
   void settings.load()
   void loadRecord()
@@ -359,14 +320,21 @@ onBeforeUnmount(() => {
   events.disconnect()
   unregisterHotkeys?.()
   document.removeEventListener('visibilitychange', onVisible)
-  window.removeEventListener('pointermove', statsDragMove)
-  window.removeEventListener('pointerup', statsDragUp)
 })
 
 function onVisible(): void {
   if (document.visibilityState === 'visible') {
     void live.load()
     void events.connect(live.status?.sessionId || '')
+  }
+}
+
+async function loadActiveAvatarName(): Promise<void> {
+  try {
+    const r = await listAvatars(1, 100)
+    activeAvatarName.value = r.avatars.find((a) => a.is_active)?.name || ''
+  } catch {
+    activeAvatarName.value = ''
   }
 }
 
@@ -378,6 +346,7 @@ async function start(): Promise<void> {
     const r = await listAvatars(1, 100)
     const selected = r.avatars.find((a) => a.is_active)
     activeAvatarId.value = selected?.persona_id ?? ''
+    activeAvatarName.value = selected?.name || ''
     if (selected) {
       const personaId = selected.persona_id
       const revision = selected.revision
@@ -463,50 +432,6 @@ async function doClearTranscript(): Promise<void> {
 
 <template>
   <div class="page">
-    <header class="page__head">
-      <div class="page__brand">
-        <strong>小雅 · 数字人直播台</strong>
-        <span class="page__sub">M3 前端 · 面板已接真实接口，空态/错误态显式呈现</span>
-      </div>
-      <div class="page__tools">
-        <div class="token">
-          <input v-model="tokenInput" type="password" placeholder="lan Bearer（本机模式留空）" @keyup.enter="applyToken" />
-          <button type="button" @click="applyToken">应用</button>
-        </div>
-        <!-- F34/N2 录播（蓝本 stage 1662-1674）：开关 + 运行态徽标 + 手动再拉 -->
-        <div class="record-ctl">
-          <button
-            type="button"
-            class="tool"
-            :class="{ 'tool--on': recEnabled }"
-            :disabled="recBusy"
-            :aria-pressed="recEnabled"
-            @click="toggleRecord"
-          >⏺ 录播{{ recEnabled ? '开' : '关' }}</button>
-          <span
-            v-if="recordState !== 'none' && recordState !== 'unavailable'"
-            class="record-ctl__state"
-            :class="`is-${recordState}`"
-            aria-live="polite"
-          >{{ recordStateLabel }}</span>
-          <button v-if="canFetchRecord" type="button" class="tool" :disabled="recBusy" @click="doFetchRecord">拉取录播</button>
-        </div>
-        <button type="button" class="tool" @click="router.push('/avatars')">数字人档案</button>
-        <button type="button" class="tool" data-testid="sessions-link" @click="router.push('/sessions')">场次复盘</button>
-        <button type="button" class="tool" @click="router.push('/platform')">平台接入</button>
-        <button type="button" class="tool" @click="router.push('/settings')">全部设置</button>
-        <button type="button" class="tool" @click="drawerOpen = true">快捷设置</button>
-        <!-- F48：统计条开关（s2s.stage.stats），拖动记忆走 statsPos -->
-        <button
-          type="button"
-          class="tool"
-          :class="{ 'tool--on': prefs.stats }"
-          :aria-pressed="prefs.stats"
-          @click="prefs.setStats(!prefs.stats)"
-        >统计{{ prefs.stats ? '开' : '关' }}</button>
-      </div>
-    </header>
-
     <p v-if="recHint" class="page__rec-hint" aria-live="polite">{{ recHint }}</p>
 
     <div v-if="auth.error" class="auth-banner" role="alert">
@@ -535,7 +460,50 @@ async function doClearTranscript(): Promise<void> {
     <div class="stage-mode" :data-mode="stageMode" aria-live="polite">
       <strong>{{ stageMode === 'live' ? '直播中' : '准备' }}</strong>
       <span>{{ stageMode === 'live' ? '本场已冻结；形象、人设与音色修改仅作用于下一场' : '配置与开播预检仅作用于下一场' }}</span>
+      <span v-if="activeAvatarName" class="stage-mode__avatar">当前形象：{{ activeAvatarName }}</span>
+      <div class="stage-mode__actions">
+        <MetricsPopover :items="stats" />
+        <button
+          type="button"
+          class="stage-mode__tool"
+          :aria-label="toolsOpen ? '收起直播工具' : '展开直播工具'"
+          :aria-expanded="toolsOpen"
+          aria-controls="stage-utilities"
+          @click="toolsOpen = !toolsOpen"
+        >直播工具</button>
+      </div>
     </div>
+
+    <section v-show="toolsOpen" id="stage-utilities" class="page__utilities" aria-label="直播工具">
+      <div class="page__tools">
+        <div class="token">
+          <input v-model="tokenInput" type="password" placeholder="lan Bearer（本机模式留空）" @keyup.enter="applyToken" />
+          <button type="button" @click="applyToken">应用</button>
+        </div>
+        <div class="record-ctl">
+          <button
+            type="button"
+            class="tool"
+            :class="{ 'tool--on': recEnabled }"
+            :disabled="recBusy"
+            :aria-pressed="recEnabled"
+            @click="toggleRecord"
+          >⏺ 录播{{ recEnabled ? '开' : '关' }}</button>
+          <span
+            v-if="recordState !== 'none' && recordState !== 'unavailable'"
+            class="record-ctl__state"
+            :class="`is-${recordState}`"
+            aria-live="polite"
+          >{{ recordStateLabel }}</span>
+          <button v-if="canFetchRecord" type="button" class="tool" :disabled="recBusy" @click="doFetchRecord">拉取录播</button>
+        </div>
+        <button type="button" class="tool" @click="router.push('/avatars')">数字人档案</button>
+        <button type="button" class="tool" data-testid="sessions-link" @click="router.push('/sessions')">场次复盘</button>
+        <button type="button" class="tool" @click="router.push('/platform')">平台接入</button>
+        <button type="button" class="tool" @click="router.push('/settings')">全部设置</button>
+        <button type="button" class="tool" @click="drawerOpen = true">快捷设置</button>
+      </div>
+    </section>
 
     <main class="deck" :style="deckStyle">
       <div class="deck__stage">
@@ -619,24 +587,7 @@ async function doClearTranscript(): Promise<void> {
       @interrupt="live.interrupt()"
     />
 
-    <!-- F48：统计条可关（prefs.stats）、可拖动记忆（prefs.statsPos；双击把手复位） -->
-    <div
-      v-if="prefs.stats"
-      ref="statsBarRef"
-      class="page__stats"
-      :class="{ 'page__stats--float': statsFloating }"
-      :style="statsFloating ? { left: `${statsShown.x}px`, top: `${statsShown.y}px` } : undefined"
-    >
-      <button
-        type="button"
-        class="page__stats-grip"
-        aria-label="拖动统计条，双击复位"
-        title="拖动统计条（双击复位）"
-        @pointerdown="statsDragDown"
-        @dblclick="statsReset"
-      >⠿</button>
-      <StatsBar class="page__stats-bar" :items="stats" />
-    </div>
+
 
     <SettingsDrawer :open="drawerOpen" @close="drawerOpen = false" />
     <!-- 唯一下播控制器确认框（v2 §3.2）：下播不自动停推。 -->
@@ -676,27 +627,6 @@ async function doClearTranscript(): Promise<void> {
   padding: 12px 16px 16px;
   background: var(--nt-space-bg);
   overflow-x: hidden;
-}
-.page__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.page__brand {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.page__brand strong {
-  color: var(--nt-text-1);
-  font-size: var(--nt-fs-title);
-}
-.page__sub {
-  color: var(--nt-text-3);
-  font-size: var(--nt-fs-micro);
 }
 .page__tools {
   display: flex;
@@ -806,6 +736,43 @@ async function doClearTranscript(): Promise<void> {
 .stage-mode strong {
   color: var(--nt-accent);
 }
+.stage-mode__avatar {
+  color: var(--nt-text-1);
+  font-weight: 600;
+}
+.stage-mode__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.stage-mode__tool {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--nt-border-1);
+  border-radius: var(--nt-radius-m);
+  background: var(--nt-data-raised);
+  color: var(--nt-text-1);
+  font: inherit;
+  cursor: pointer;
+}
+.page__utilities {
+  padding: 10px;
+  border: 1px solid var(--nt-border-1);
+  border-radius: var(--nt-radius-l);
+  background: var(--nt-data-bg);
+}
+.page__utilities .page__tools {
+  justify-content: flex-start;
+}
+.tool:focus-visible,
+.token button:focus-visible,
+.token input:focus-visible,
+.stage-mode__tool:focus-visible {
+  outline: 2px solid var(--nt-accent);
+  outline-offset: 4px;
+}
 .workspace {
   display: flex;
   flex-direction: column;
@@ -853,9 +820,6 @@ async function doClearTranscript(): Promise<void> {
   .deck__rail {
     order: 3;
   }
-  .page__stats {
-    order: 4;
-  }
   .workspace__panel {
     flex: none;
     min-height: 0;
@@ -869,15 +833,6 @@ async function doClearTranscript(): Promise<void> {
 @media (max-width: 767px) {
   .page {
     padding: 8px;
-  }
-  .page__composer {
-    order: 1;
-  }
-  .deck__stage {
-    order: 2;
-  }
-  .page__head {
-    align-items: flex-start;
   }
   .page__tools {
     justify-content: flex-start;
@@ -895,17 +850,11 @@ async function doClearTranscript(): Promise<void> {
   .record-ctl {
     flex-wrap: wrap;
   }
-  .page__stats {
-    overflow-x: auto;
-  }
 }
 
 @media (max-width: 359px) {
   .page {
     gap: 6px;
-  }
-  .page__brand strong {
-    font-size: var(--nt-fs-panel);
   }
   .stage-mode {
     align-items: flex-start;
@@ -913,20 +862,16 @@ async function doClearTranscript(): Promise<void> {
     gap: 4px;
     padding: 6px 8px;
   }
+  .stage-mode__actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
   .deck:not(.deck--no-rail) {
     grid-template-rows: auto auto;
   }
   .deck__stage {
     min-height: 156px;
-  }
-  .page__stats-bar :deep(.stats) {
-    overflow-x: auto;
-  }
-  .page__stats-bar :deep(.stats__item) {
-    flex: 0 0 72px;
-  }
-  .page__stats-bar :deep(.stats__hint) {
-    display: none;
   }
 }
 .deck__stage > :first-child {
@@ -939,49 +884,10 @@ async function doClearTranscript(): Promise<void> {
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
-.page__composer,
-.page__stats {
-  flex: none;
-}
 .page__composer {
+  flex: none;
   position: relative;
   z-index: 5;
-}
-/* F48：统计条拖动把手 + 浮动位 */
-.page__stats {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
-}
-.page__stats--float {
-  position: fixed;
-  z-index: 30;
-  width: min(720px, calc(100vw - 16px));
-}
-.page__stats-grip {
-  flex: none;
-  align-self: stretch;
-  width: 44px;
-  min-height: 44px;
-  border: 1px solid var(--nt-border-1);
-  border-radius: var(--nt-radius-m);
-  background: var(--nt-data-raised);
-  color: var(--nt-text-3);
-  font: inherit;
-  cursor: grab;
-  touch-action: none;
-}
-.page__stats-grip:active {
-  cursor: grabbing;
-}
-.page__stats-grip:focus-visible {
-  outline: 2px solid var(--nt-accent);
-  outline-offset: 4px;
-}
-.page__stats-bar {
-  flex: 1;
-  min-width: 0;
 }
 .auth-banner {
   display: flex;

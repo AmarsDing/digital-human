@@ -34,6 +34,7 @@ import type { WireEvent } from '../../services/api/types'
 import { useAvatarsStore } from '../../stores/avatars'
 import { useUiPrefs } from '../../stores/uiPrefs'
 import PanelDock from '../../components/stage/PanelDock.vue'
+import MetricsPopover from '../../components/stage/MetricsPopover.vue'
 import PanelShell from '../../components/panels/PanelShell.vue'
 import NtConfirmDialog from '../../components/ui/NtConfirmDialog.vue'
 
@@ -72,6 +73,33 @@ describe('StagePage 双模式与单工作区', () => {
     expect(sessions.exists()).toBe(true)
     await sessions.trigger('click')
     expect(h.push).toHaveBeenCalledWith('/sessions')
+    w.unmount()
+  })
+
+  it('主路径默认收起直播工具与六格统计，工具仍可点击展开', async () => {
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    expect(w.find('.page__head').exists()).toBe(false)
+    expect(w.find('.page__stats').exists()).toBe(false)
+    expect(w.findComponent(MetricsPopover).exists()).toBe(true)
+    expect(w.get('.page__utilities').isVisible()).toBe(false)
+    await w.get('button[aria-label="展开直播工具"]').trigger('click')
+    expect(w.get('.stage-mode__tool').attributes('aria-expanded')).toBe('true')
+    expect(w.get('.page__utilities').attributes('style') ?? '').not.toContain('display: none')
+    w.unmount()
+  })
+
+  it.each(['蛋蛋', '小媛'])('当前形象名来自 active 档案：%s', async (name) => {
+    h.listAvatars.mockResolvedValue({
+      avatars: [{ persona_id: 'p1', is_active: true, revision: 7, name }],
+      total: 1,
+      storage: 'sqlite'
+    })
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    expect(w.get('.stage-mode__avatar').text()).toBe(`当前形象：${name}`)
     w.unmount()
   })
 
@@ -190,7 +218,7 @@ describe('StagePage 统一 preflight 开播入口', () => {
     )
     expect(recheck).toBeTypeOf('function')
     expect(await recheck!()).toBe(true)
-    expect(h.listAvatars).toHaveBeenCalledTimes(2)
+    expect(h.listAvatars).toHaveBeenCalledTimes(3)
     w.unmount()
   })
 
@@ -213,7 +241,10 @@ describe('StagePage 统一 preflight 开播入口', () => {
   })
 
   it('预检后 active revision 改变时复核失败', async () => {
-    h.listAvatars.mockResolvedValueOnce(activeAvatar(7)).mockResolvedValueOnce(activeAvatar(8))
+    h.listAvatars
+      .mockResolvedValueOnce(activeAvatar(7))
+      .mockResolvedValueOnce(activeAvatar(7))
+      .mockResolvedValueOnce(activeAvatar(8))
     const live = useLiveStore()
     let recheck: (() => boolean | Promise<boolean>) | undefined
     vi.spyOn(live, 'start').mockImplementation(async (_input, guard) => {

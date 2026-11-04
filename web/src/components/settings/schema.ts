@@ -113,7 +113,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     ],
     defaults: {
       voice_id: '',
-      preview_text: '你好，我是小雅。',
+      preview_text: '你好，这是一段语音试听。',
       speed: 1.0,
       frame_ms: '100',
       output_sentence: true

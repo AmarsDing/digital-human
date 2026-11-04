@@ -74,6 +74,15 @@ function keydown(e: KeyboardEvent): void {
 
 <template>
   <div class="composer">
+    <button
+      type="button"
+      class="composer__voice"
+      disabled
+      aria-label="语音交互待接入"
+      title="语音交互待接入"
+    >
+      语音<span class="composer__voice-hint"> · 待接入</span>
+    </button>
     <textarea
       ref="inputRef"
       v-model="text"
@@ -90,13 +99,13 @@ function keydown(e: KeyboardEvent): void {
     <div class="composer__side">
       <NtSelect v-model="channel" label="通道" :options="CHANNELS" />
       <NtSelect v-if="channel === 'say'" v-model="mode" label="模式" :options="MODES" />
-      <div class="composer__btns">
-        <button type="button" class="primary" :disabled="!canSpeak || busy || chatBusy || !text.trim()" @click="send">
-          {{ chatBusy ? '对话中…' : '发送' }}
-        </button>
-        <button type="button" :disabled="busy || chatBusy" @click="emit('interrupt')">打断</button>
-        <button type="button" class="danger" :disabled="busy" @click="emit('stop')">停止</button>
-      </div>
+    </div>
+    <div class="composer__btns">
+      <button type="button" class="primary" :disabled="!canSpeak || busy || chatBusy || !text.trim()" @click="send">
+        {{ chatBusy ? '对话中…' : '发送' }}
+      </button>
+      <button type="button" :disabled="busy || chatBusy" @click="emit('interrupt')">打断</button>
+      <button type="button" class="danger" :disabled="busy" @click="emit('stop')">停止</button>
     </div>
     <p v-if="hint" class="composer__hint" aria-live="polite">{{ hint }}</p>
     <p v-if="error" class="composer__error" role="alert" aria-live="assertive">{{ error }}</p>
@@ -106,14 +115,33 @@ function keydown(e: KeyboardEvent): void {
 <style scoped>
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
-  gap: 10px;
-  padding: 10px 12px;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto;
+  align-items: end;
+  gap: 8px;
+  padding: 8px;
   border: 1px solid var(--nt-border-1);
   border-radius: var(--nt-radius-l);
   background: var(--nt-data-bg);
 }
+.composer__voice {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--nt-accent-border);
+  border-radius: var(--nt-radius-m);
+  background: var(--nt-accent-soft);
+  color: var(--nt-accent);
+  font: inherit;
+  font-size: var(--nt-fs-caption);
+  white-space: nowrap;
+}
+.composer__voice:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
 .composer__input {
+  width: 100%;
+  min-width: 0;
   min-height: 64px;
   padding: 8px 10px;
   border-radius: var(--nt-radius-m);
@@ -123,27 +151,31 @@ function keydown(e: KeyboardEvent): void {
   font: inherit;
   resize: vertical;
 }
-.composer__input:focus {
-  outline: none;
-  border-color: var(--nt-accent-border);
-  box-shadow: 0 0 0 2px var(--nt-focus-ring);
+.composer__input:focus-visible,
+.composer__voice:focus-visible,
+.composer__btns button:focus-visible {
+  outline: 2px solid var(--nt-accent);
+  outline-offset: 4px;
 }
 .composer__input:disabled {
   opacity: 0.5;
 }
 .composer__side {
   display: flex;
-  flex-direction: column;
   gap: 8px;
+}
+.composer__side :deep(.nt-select) {
+  min-width: 84px;
 }
 .composer__btns {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(44px, 1fr));
   gap: 6px;
 }
 .composer__btns button {
-  height: 34px;
-  padding: 0 4px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 6px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);
   background: var(--nt-data-raised);
@@ -176,5 +208,39 @@ function keydown(e: KeyboardEvent): void {
   margin: 0;
   color: var(--nt-text-3);
   font-size: var(--nt-fs-micro);
+}
+@media (max-width: 799px) {
+  .composer {
+    grid-template-columns: auto minmax(40px, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+  }
+  .composer__voice {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .composer__voice-hint {
+    display: none;
+  }
+  .composer__input {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 16px;
+  }
+  .composer__side {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .composer__btns {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .composer__side :deep(select) {
+    min-height: 44px;
+    font-size: 16px;
+  }
 }
 </style>

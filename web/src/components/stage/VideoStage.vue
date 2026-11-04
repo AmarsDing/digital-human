@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import RtcPlayer from '../rtc/RtcPlayer.vue'
 import type { RtcCreds } from '../rtc/types'
 import { phaseLabel as phaseText } from '../../utils/labels'
+import LiveStageBadge from './LiveStageBadge.vue'
 
 const props = defineProps<{
   phase: string
@@ -37,26 +38,15 @@ const canStart = computed(
 )
 const canStop = computed(() => !props.busy && (props.phase === 'starting' || props.phase === 'live'))
 
-// 未开播不显 0:00，显 —（P2-4）。
-const duration = computed(() => {
-  if (props.phase === 'idle') return '—'
-  const s = Math.max(0, props.durationS)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  return h > 0
-    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-    : `${m}:${String(sec).padStart(2, '0')}`
-})
+const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
 </script>
 
 <template>
   <section class="stage">
     <header class="stage__bar">
       <div class="stage__left">
-        <span class="stage__pill" :data-phase="phase">{{ phaseLabel }}</span>
+        <span v-if="phase !== 'live'" class="stage__pill" :data-phase="phase">{{ phaseLabel }}</span>
         <span v-if="liveId" class="stage__id">{{ liveId }}</span>
-        <span class="stage__dur">{{ duration }}</span>
       </div>
       <div class="stage__right">
         <span class="stage__chip" :class="{ 'stage__chip--warn': degraded }">WS {{ wsState || '—' }}</span>
@@ -69,6 +59,13 @@ const duration = computed(() => {
     </header>
 
     <div class="stage__viewport">
+      <LiveStageBadge
+        v-if="phase === 'live'"
+        class="stage__live-badge"
+        :status="badgeStatus"
+        :elapsed-seconds="durationS"
+        :data-phase="phase"
+      />
       <RtcPlayer :creds="creds" @state="emit('rtc-state', $event)" />
       <div
         v-if="captionsEnabled && caption"
@@ -180,6 +177,13 @@ const duration = computed(() => {
   flex: 1;
   min-height: 320px;
   background: var(--nt-bg-0);
+}
+.stage__live-badge {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  left: 12px;
+  pointer-events: none;
 }
 .stage__caption {
   position: absolute;

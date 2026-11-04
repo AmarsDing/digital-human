@@ -7,6 +7,13 @@ function mountBar(canSpeak: boolean, busy = false) {
 }
 
 describe('ComposerBar', () => {
+  it('语音主入口常驻可见，未接入时明确禁用', () => {
+    const w = mountBar(true)
+    const voice = w.get('button[aria-label="语音交互待接入"]')
+    expect(voice.isVisible()).toBe(true)
+    expect(voice.attributes('disabled')).toBeDefined()
+  })
+
   it('未开播时禁用输入与发送', () => {
     const w = mountBar(false)
     expect(w.find('textarea').attributes('disabled')).toBeDefined()

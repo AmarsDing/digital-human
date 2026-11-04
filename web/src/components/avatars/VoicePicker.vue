@@ -14,7 +14,7 @@ const voices = ref<Voice[]>([])
 const options = ref<{ label: string; value: string }[]>([])
 const loading = ref(false)
 const previewing = ref(false)
-const previewText = ref('你好，我是小雅。')
+const previewText = ref('你好，这是一段语音试听。')
 const error = ref('')
 const sidecarDown = ref(false)
 
