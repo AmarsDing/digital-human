@@ -190,6 +190,27 @@ func TestErrorCodeMapping(t *testing.T) {
 	}
 }
 
+func TestCreateSessionCreditInsufficientMapsToInsufficientCredits(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":400,"reason":"CreditInsufficient","message":"insufficient credits","metadata":{"trace_id":"trace-credit-1"}}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv.URL, nil)
+	_, err := c.CreateSession(context.Background(), map[string]any{"managed_rtc": map[string]any{}})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != CodeInsufficient {
+		t.Fatalf("err=%v want %s", err, CodeInsufficient)
+	}
+	if apiErr.UpstreamCode != "CreditInsufficient" {
+		t.Fatalf("upstream code=%q want CreditInsufficient", apiErr.UpstreamCode)
+	}
+	if !strings.Contains(err.Error(), "trace-credit-1") {
+		t.Fatalf("err=%v want upstream trace_id", err)
+	}
+}
+
 func TestBadRequestKeepsUpstreamBodyPrefix(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

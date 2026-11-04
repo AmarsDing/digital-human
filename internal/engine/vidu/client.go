@@ -66,13 +66,14 @@ const (
 	DefaultRetryDelay          = time.Second
 )
 
-// APIError 保留上游 code/message 前 500 字，便于面板显示“被谁拒了”。
+// APIError 保留上游 code/message 前 500 字与 trace_id，便于面板显示“被谁拒了”。
 type APIError struct {
 	Code            string
 	Status          int
 	Message         string
 	UpstreamCode    string
 	UpstreamMessage string
+	UpstreamTraceID string
 	RetryAfter      time.Duration
 	// ActionForbidden 对应“创建时带 action 被 403”，引擎据此去掉 action 重建一次。
 	ActionForbidden bool
@@ -82,10 +83,14 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	if e.UpstreamCode != "" {
-		return fmt.Sprintf("vidu %s (status=%d code=%s): %s", e.Code, e.Status, e.UpstreamCode, e.UpstreamMessage)
+	trace := ""
+	if e.UpstreamTraceID != "" {
+		trace = " trace_id=" + e.UpstreamTraceID
 	}
-	return fmt.Sprintf("vidu %s (status=%d): %s", e.Code, e.Status, e.Message)
+	if e.UpstreamCode != "" {
+		return fmt.Sprintf("vidu %s (status=%d code=%s%s): %s", e.Code, e.Status, e.UpstreamCode, trace, e.UpstreamMessage)
+	}
+	return fmt.Sprintf("vidu %s (status=%d%s): %s", e.Code, e.Status, trace, e.Message)
 }
 
 // IsRetryable 仅用于 GET 的一次重试；POST 创建永不重试。
@@ -447,28 +452,40 @@ func mapTransportError(err error) error {
 
 func classify(status int, retryAfter string, raw []byte, isCreate bool, echoBody map[string]any) error {
 	var up struct {
-		Code    any    `json:"code"`
-		Message string `json:"message"`
+		Code     any    `json:"code"`
+		Reason   string `json:"reason"`
+		Message  string `json:"message"`
+		Metadata struct {
+			TraceID string `json:"trace_id"`
+		} `json:"metadata"`
 	}
 	_ = json.Unmarshal(raw, &up)
 	msg := strings.TrimSpace(string(raw))
 	if len(msg) > 500 {
 		msg = msg[:500]
 	}
-	e := &APIError{Status: status, Message: msg}
+	e := &APIError{Status: status, Message: msg, UpstreamTraceID: up.Metadata.TraceID}
 	if up.Message != "" {
 		e.UpstreamMessage = up.Message
 	}
-	switch v := up.Code.(type) {
-	case string:
-		e.UpstreamCode = v
-	case float64:
-		e.UpstreamCode = strconv.Itoa(int(v))
+	if up.Reason != "" {
+		e.UpstreamCode = up.Reason
+	} else {
+		switch v := up.Code.(type) {
+		case string:
+			e.UpstreamCode = v
+		case float64:
+			e.UpstreamCode = strconv.Itoa(int(v))
+		}
 	}
 
 	switch status {
 	case http.StatusBadRequest:
-		e.Code = CodeBadRequest
+		if up.Reason == "CreditInsufficient" {
+			e.Code = CodeInsufficient
+		} else {
+			e.Code = CodeBadRequest
+		}
 	case http.StatusUnauthorized:
 		e.Code = CodeAuthFailed
 	case http.StatusPaymentRequired:
