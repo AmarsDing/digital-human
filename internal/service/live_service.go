@@ -181,7 +181,13 @@ func mapLiveError(err error) error {
 	case errors.Is(err, live.ErrModeNotAllowed):
 		return kerrors.New(409, "mode_not_allowed", err.Error())
 	case errors.Is(err, live.ErrDraftRequired):
-		return kerrors.New(409, "draft_required", err.Error())
+		se := kerrors.New(409, "draft_required", err.Error())
+		se.Metadata = map[string]string{
+			"next_action": "list_drafts", "method": "GET",
+			"path": "/api/v1/live-drafts", "owner_id_required": "true",
+			"message": "请先携带 owner_id 查询草稿；已提交草稿用于预检，未提交草稿先调用 apply",
+		}
+		return se
 	case errors.Is(err, live.ErrPreflightExpired):
 		return kerrors.New(428, "preflight_expired", err.Error())
 	case errors.Is(err, live.ErrProfileChanged):

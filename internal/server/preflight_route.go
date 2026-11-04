@@ -22,12 +22,15 @@ func registerPreflightRoute(srv *khttp.Server, pf *live.Preflight) {
 	}
 	r := srv.Route("/")
 	r.POST("/api/v1/live/preflight", func(c khttp.Context) error {
-		var req live.PreflightRequest
+		var req struct {
+			live.PreflightRequest
+			OwnerID string `json:"owner_id"`
+		}
 		// 允许空 body（默认 mode=public-live）；解析失败按 400。
 		if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil && err != io.EOF {
 			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "bad_request"})
 		}
-		result, err := pf.Run(c.Request().Context(), req)
+		result, err := pf.Run(c.Request().Context(), req.PreflightRequest)
 		if err != nil {
 			reason := ""
 			switch {
@@ -38,7 +41,11 @@ func registerPreflightRoute(srv *khttp.Server, pf *live.Preflight) {
 			default:
 				return err
 			}
-			return c.JSON(http.StatusConflict, map[string]any{"ok": false, "reason": reason, "mode": result.Mode})
+			body := map[string]any{"ok": false, "reason": reason, "mode": result.Mode}
+			if errors.Is(err, live.ErrDraftRequired) {
+				body["next_action"] = pf.DraftRequiredGuidance(c.Request().Context(), req.OwnerID)
+			}
+			return c.JSON(http.StatusConflict, body)
 		}
 		return c.JSON(http.StatusOK, result)
 	})
