@@ -34,6 +34,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/song"
 	"github.com/teamwork/digital-human/internal/biz/tts"
 	"github.com/teamwork/digital-human/internal/biz/vidukeys"
+	"github.com/teamwork/digital-human/internal/biz/voice"
 	"github.com/teamwork/digital-human/internal/llm"
 	"github.com/teamwork/digital-human/pkg/logx"
 )
@@ -1457,8 +1458,10 @@ func badRequest(c khttp.Context, err error) error {
 // not_live → 409；LLM 未配置 fail-closed → 503；其余 LLM/播报失败 → 502。
 func mapChatErr(c khttp.Context, err error) error {
 	switch {
-	case errors.Is(err, ErrChatNotLive):
+	case errors.Is(err, ErrChatNotLive), errors.Is(err, voice.ErrNotLive):
 		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "not_live"})
+	case errors.Is(err, voice.ErrTurnActive):
+		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": "voice_turn_active"})
 	case errors.Is(err, llm.ErrLLMNotConfigured):
 		return c.JSON(http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "llm_not_configured"})
 	default:

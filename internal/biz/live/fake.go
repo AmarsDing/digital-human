@@ -50,6 +50,7 @@ func (f *FakeController) Stop(_ context.Context, reason string) error {
 	return nil
 }
 
-func (f *FakeController) Say(_ context.Context, text, mode string) (string, error) {
+func (f *FakeController) Say(ctx context.Context, text, mode string) (string, error) {
+	NotifyFirstPCM(ctx)
 	return uuid.NewString(), nil
 }

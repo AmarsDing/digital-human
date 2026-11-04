@@ -16,6 +16,7 @@ import (
 
 	"github.com/teamwork/digital-human/internal/biz/audit"
 	"github.com/teamwork/digital-human/internal/biz/live"
+	"github.com/teamwork/digital-human/internal/biz/voice"
 	"github.com/teamwork/digital-human/internal/conf"
 	"github.com/teamwork/digital-human/internal/publish"
 	"github.com/teamwork/digital-human/internal/relay"
@@ -32,7 +33,10 @@ func NewHTTPServer(
 	logger *slog.Logger,
 	bus *eventbus.Bus,
 	tickets TicketStore,
+	voiceTickets VoiceTicketStore,
 	nonces NonceStore,
+	voiceCoordinator *voice.Coordinator,
+	voiceStatus *voice.StatusService,
 	liveSvc *service.LiveService,
 	dmSvc *service.DanmakuService,
 	stSvc *service.SettingsService,
@@ -83,6 +87,7 @@ func NewHTTPServer(
 	r.GET("/ws/v1/events", func(c khttp.Context) error {
 		return serveEventsWS(c, cfg, bus, tickets, health, liveSvc)
 	})
+	registerVoiceRoutes(srv, cfg, voiceCoordinator, voiceStatus, voiceTickets)
 
 	livev1.RegisterLiveServiceHTTPServer(srv, liveSvc)
 	livev1.RegisterDanmakuServiceHTTPServer(srv, dmSvc)
@@ -131,8 +136,9 @@ func serverFiltersWithNonces(cfg *conf.Config, logger *slog.Logger, tickets Tick
 }
 
 const wsEventsPath = "/ws/v1/events"
+const wsVoicePath = "/ws/v1/voice"
 
-// timeoutFilter 只给非 WS 路由加短超时；/ws/v1/events 保留请求原始 context，
+// timeoutFilter 只给非 WS 路由加短超时；事件/语音 WS 保留请求原始 context，
 // 由 handler 监听 Done（客户端断开才结束），不会被 15s 定时器掐断。
 func timeoutFilter(d time.Duration) khttp.FilterFunc {
 	return func(next http.Handler) http.Handler {
@@ -140,7 +146,8 @@ func timeoutFilter(d time.Duration) khttp.FilterFunc {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == wsEventsPath || strings.HasPrefix(r.URL.Path, wsEventsPath+"/") {
+			if r.URL.Path == wsEventsPath || strings.HasPrefix(r.URL.Path, wsEventsPath+"/") ||
+				r.URL.Path == wsVoicePath || strings.HasPrefix(r.URL.Path, wsVoicePath+"/") {
 				next.ServeHTTP(w, r)
 				return
 			}

@@ -45,3 +45,39 @@ rtc:
   provider: "artc"
   room_prefix: "dh-"
   token_ttl: 10m
+
+# 运营语音阶段一：默认本地 CPU sherpa；模型路径为空或许可未确认时 ASR 明确 unconfigured。
+# fake 仅在 engine.mode=dev 且 provider=fake 时装配；cloud 当前无实现，始终 fail-closed。
+voice:
+  asr:
+    provider: "sherpa"
+    fake_text: "dev 模拟识别"
+    allow_local_sidecar: true
+    allow_cloud: false
+    model_license_acknowledged: false
+    python_bin: "python"
+    script_path: "internal/biz/voice/sherpa_sidecar.py"
+    model_type: "zipformer"
+    tokens: ""
+    encoder: ""
+    decoder: ""
+    joiner: ""
+    threads: 2
+    startup_timeout: 15s
+  asr_timeout: 5s
+  llm_timeout: 45s
+  turn_timeout: 90s
+  max_audio: 20s
+  partial_interval: 200ms
+  barge_in: 250ms
+  allow_continuous: true
+  interrupt_songs: false
+  persist_text: true
+  retain_audio: false
+  allow_cross_owner_preempt: false
+  coordinate_text_chat: true
+  vad:
+    silence: 600ms
+    min_speech: 300ms
+    min_start_speech: 120ms
+    absolute_dbfs: -45

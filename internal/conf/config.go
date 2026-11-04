@@ -23,7 +23,51 @@ type Config struct {
 	Collector Collector `yaml:"collector"`
 	Health    Health    `yaml:"health"`
 	// Live 深化方案 v2 §7.6 严格 Start 配置。
-	Live Live `yaml:"live"`
+	Live  Live  `yaml:"live"`
+	Voice Voice `yaml:"voice"`
+}
+
+// Voice 冻结语音阶段一策略。真实 sherpa 缺文件/许可确认时保持 unconfigured；
+// retain_audio 在保存与回看功能实现前只允许 false，避免配置被静默忽略。
+type Voice struct {
+	ASR                    VoiceASR      `yaml:"asr"`
+	ASRTimeout             time.Duration `yaml:"asr_timeout"`
+	LLMTimeout             time.Duration `yaml:"llm_timeout"`
+	TurnTimeout            time.Duration `yaml:"turn_timeout"`
+	MaxAudio               time.Duration `yaml:"max_audio"`
+	PartialInterval        time.Duration `yaml:"partial_interval"`
+	BargeIn                time.Duration `yaml:"barge_in"`
+	AllowContinuous        bool          `yaml:"allow_continuous"`
+	InterruptSongs         bool          `yaml:"interrupt_songs"`
+	PersistText            bool          `yaml:"persist_text"`
+	RetainAudio            bool          `yaml:"retain_audio"`
+	AllowCrossOwnerPreempt bool          `yaml:"allow_cross_owner_preempt"`
+	CoordinateTextChat     bool          `yaml:"coordinate_text_chat"`
+	VAD                    VoiceVAD      `yaml:"vad"`
+}
+
+type VoiceASR struct {
+	Provider                 string        `yaml:"provider"` // sherpa | fake | cloud
+	FakeText                 string        `yaml:"fake_text"`
+	AllowLocalSidecar        bool          `yaml:"allow_local_sidecar"`
+	AllowCloud               bool          `yaml:"allow_cloud"`
+	ModelLicenseAcknowledged bool          `yaml:"model_license_acknowledged"`
+	PythonBin                string        `yaml:"python_bin"`
+	ScriptPath               string        `yaml:"script_path"`
+	ModelType                string        `yaml:"model_type"`
+	Tokens                   string        `yaml:"tokens"`
+	Encoder                  string        `yaml:"encoder"`
+	Decoder                  string        `yaml:"decoder"`
+	Joiner                   string        `yaml:"joiner"`
+	Threads                  int           `yaml:"threads"`
+	StartupTimeout           time.Duration `yaml:"startup_timeout"`
+}
+
+type VoiceVAD struct {
+	Silence        time.Duration `yaml:"silence"`
+	MinSpeech      time.Duration `yaml:"min_speech"`
+	MinStartSpeech time.Duration `yaml:"min_start_speech"`
+	AbsoluteDBFS   float64       `yaml:"absolute_dbfs"`
 }
 
 // Live 开播模式配置。
@@ -223,6 +267,20 @@ func defaults() *Config {
 		Log:       Log{Level: "info", Format: "json"},
 		Stream:    Stream{Source: "synthetic", StageURL: "http://127.0.0.1:8795/stage"},
 		Collector: Collector{},
+		Voice: Voice{
+			ASR: VoiceASR{
+				Provider: "sherpa", FakeText: "dev 模拟识别", AllowLocalSidecar: true, AllowCloud: false,
+				ModelLicenseAcknowledged: false, PythonBin: "python",
+				ScriptPath: "internal/biz/voice/sherpa_sidecar.py", ModelType: "zipformer",
+				Threads: 2, StartupTimeout: 15 * time.Second,
+			},
+			ASRTimeout: 5 * time.Second, LLMTimeout: 45 * time.Second, TurnTimeout: 90 * time.Second,
+			MaxAudio: 20 * time.Second, PartialInterval: 200 * time.Millisecond, BargeIn: 250 * time.Millisecond,
+			AllowContinuous: true, InterruptSongs: false, PersistText: true, RetainAudio: false,
+			AllowCrossOwnerPreempt: false, CoordinateTextChat: true,
+			VAD: VoiceVAD{Silence: 600 * time.Millisecond, MinSpeech: 300 * time.Millisecond,
+				MinStartSpeech: 120 * time.Millisecond, AbsoluteDBFS: -45},
+		},
 	}
 }
 
@@ -274,6 +332,31 @@ func (c *Config) Validate() error {
 	case "", "synthetic", "stage":
 	default:
 		return fmt.Errorf("unknown stream.source %q（仅支持 synthetic|stage）", c.Stream.Source)
+	}
+	switch c.Voice.ASR.Provider {
+	case "sherpa", "fake", "cloud":
+	default:
+		return fmt.Errorf("unknown voice.asr.provider %q（仅支持 sherpa|fake|cloud）", c.Voice.ASR.Provider)
+	}
+	if c.Voice.RetainAudio {
+		return fmt.Errorf("voice.retain_audio=true 尚未实现保存/回看链路；必须显式保持 false")
+	}
+	for name, d := range map[string]time.Duration{
+		"voice.asr_timeout": c.Voice.ASRTimeout, "voice.llm_timeout": c.Voice.LLMTimeout,
+		"voice.turn_timeout": c.Voice.TurnTimeout, "voice.max_audio": c.Voice.MaxAudio,
+		"voice.barge_in": c.Voice.BargeIn, "voice.asr.startup_timeout": c.Voice.ASR.StartupTimeout,
+		"voice.vad.silence": c.Voice.VAD.Silence, "voice.vad.min_speech": c.Voice.VAD.MinSpeech,
+		"voice.vad.min_start_speech": c.Voice.VAD.MinStartSpeech,
+	} {
+		if d <= 0 {
+			return fmt.Errorf("%s 必须大于 0", name)
+		}
+	}
+	if c.Voice.PartialInterval < 0 {
+		return fmt.Errorf("voice.partial_interval 不得小于 0")
+	}
+	if c.Voice.ASR.Threads <= 0 {
+		return fmt.Errorf("voice.asr.threads 必须大于 0")
 	}
 	return nil
 }

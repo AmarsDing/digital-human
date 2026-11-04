@@ -21,6 +21,11 @@ func NewSynthAdapter(c *Client, voice string) *SynthAdapter {
 
 func (a *SynthAdapter) Name() string { return "omnivoice" }
 
+// Health 暴露 OmniVoice 的真实模型探测，能力矩阵不得仅凭适配器已装配就报 real。
+func (a *SynthAdapter) Health(ctx context.Context) (Health, error) {
+	return a.c.Health(ctx)
+}
+
 // Synth 合成并返回 24k/s16le/mono PCM。
 func (a *SynthAdapter) Synth(ctx context.Context, text, voice string) ([]byte, error) {
 	return a.SynthWithParams(ctx, text, voice, 0)

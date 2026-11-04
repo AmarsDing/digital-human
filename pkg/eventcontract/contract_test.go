@@ -60,6 +60,29 @@ func TestTranscriptEventsMatchContract(t *testing.T) {
 	}
 }
 
+func TestVoiceEventsMatchContract(t *testing.T) {
+	c := loadContract(t)
+	cases := map[string][]string{
+		"voice.listening":   {"turn_id", "client_turn_id", "mode"},
+		"voice.final":       {"turn_id", "text", "duration_ms", "asr_source", "timings"},
+		"voice.thinking":    {"turn_id", "timings"},
+		"voice.speaking":    {"turn_id", "utterance_id", "timings"},
+		"voice.first_audio": {"turn_id", "timings"},
+		"voice.completed":   {"turn_id", "reason", "timings"},
+		"voice.error":       {"turn_id", "stage", "error_code", "message", "retryable", "timings"},
+	}
+	for event, fields := range cases {
+		got, ok := c.Events[event]
+		if !ok {
+			t.Errorf("契约缺少事件 %q", event)
+			continue
+		}
+		if !reflect.DeepEqual(got, fields) {
+			t.Errorf("%s payload 不一致: json=%v go=%v", event, got, fields)
+		}
+	}
+}
+
 // 契约里声明的每个事件都必须有非空 payload 声明列表（或显式空数组），不得拼写漂移。
 func TestContractEventNamesNonEmpty(t *testing.T) {
 	c := loadContract(t)

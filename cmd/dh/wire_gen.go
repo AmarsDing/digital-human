@@ -35,6 +35,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/song"
 	tts2 "github.com/teamwork/digital-human/internal/biz/tts"
 	"github.com/teamwork/digital-human/internal/biz/vidukeys"
+	"github.com/teamwork/digital-human/internal/biz/voice"
 	"github.com/teamwork/digital-human/internal/conf"
 	"github.com/teamwork/digital-human/internal/data"
 	"github.com/teamwork/digital-human/internal/data/ent"
@@ -76,51 +77,58 @@ func InitApp(cfgPath string, version2 VersionInfo) (*App, func(), error) {
 		return nil, nil, err
 	}
 	ticketStore := provideTickets(config, data)
+	voiceTicketStore := provideVoiceTickets()
 	nonceStore := provideNonces(data)
+	recognizer, cleanup2 := provideVoiceASR(config)
+	voiceConfig := voiceConfigFrom(config)
+	service := provideSettings(data, logger)
+	switchableAvatarStore := provideAvatarStore(data, logger)
+	personaService := providePersona(switchableAvatarStore, service)
+	manager := provideChat(service, personaService)
 	eventSink := provideSink(data)
 	mainRealDeps := provideRealDeps(config)
 	controller := provideController(config, mainRealDeps, logger)
 	sessionStore := provideSessionStore(data)
 	store := provideIdempotency(data)
-	switchableAvatarStore := provideAvatarStore(data, logger)
-	service := provideAvatar(switchableAvatarStore)
+	avatarService := provideAvatar(switchableAvatarStore)
 	recorder := provideRecorder(config, mainRealDeps, logger)
 	billingService := provideBilling(data)
 	creditsPoller := provideCreditsPoller(config, mainRealDeps, billingService, bus, logger)
-	settingsService := provideSettings(data, logger)
-	personaService := providePersona(switchableAvatarStore, settingsService)
-	manager := provideChat(settingsService, personaService)
 	publisher := providePublisher(config, bus, logger)
-	liveManager := provideManager(config, bus, eventSink, controller, sessionStore, store, service, recorder, creditsPoller, manager, publisher, settingsService)
+	liveManager := provideManager(config, bus, eventSink, controller, sessionStore, store, avatarService, recorder, creditsPoller, manager, publisher, service)
+	coordinator := provideVoiceCoordinator(recognizer, voiceConfig, manager, liveManager, bus)
 	danmakuService := provideDanmaku(data)
 	imageService := provideAvatarImages(switchableAvatarStore)
 	syncService := provideAvatarSync(mainRealDeps, switchableAvatarStore, imageService, data, logger)
-	vidukeysService := provideViduKeys(config, data, mainRealDeps, settingsService, logger)
+	vidukeysService := provideViduKeys(config, data, mainRealDeps, service, logger)
 	mainInteractionRuntime, err := provideInteraction(data, liveManager)
 	if err != nil {
+		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
-	patronService := provideGiftPatrons(data, danmakuService, settingsService, liveManager, bus, logger, mainInteractionRuntime)
+	patronService := provideGiftPatrons(data, danmakuService, service, liveManager, bus, logger, mainInteractionRuntime)
 	switchableSongRequestStore := provideSongRequests(data, logger)
-	mainPanelRuntime := providePanelRuntime(bus, settingsService, danmakuService, sessionStore, liveManager, config, mainRealDeps, controller, billingService, personaService, service, switchableAvatarStore, imageService, syncService, manager, vidukeysService, recorder, patronService, mainInteractionRuntime, switchableSongRequestStore)
+	mainPanelRuntime := providePanelRuntime(bus, service, danmakuService, sessionStore, liveManager, config, mainRealDeps, controller, billingService, personaService, avatarService, switchableAvatarStore, imageService, syncService, manager, coordinator, vidukeysService, recorder, patronService, mainInteractionRuntime, switchableSongRequestStore)
+	capabilitySource := provideCapabilities(config, mainPanelRuntime, publisher, sessionStore, data)
+	statusService := provideVoiceStatus(recognizer, voiceConfig, service, capabilitySource, liveManager)
 	issuer := provideRTCIssuer(config)
 	liveService := provideLiveService(liveManager, mainPanelRuntime, issuer)
 	serviceDanmakuService := provideDanmakuService(danmakuService)
-	serviceSettingsService := provideSettingsService(settingsService)
-	capabilitySource := provideCapabilities(config, mainPanelRuntime, publisher, sessionStore, data)
+	settingsService := provideSettingsService(service)
 	health := provideHealth(version2, config, data, liveManager, capabilitySource)
 	auditService := provideAudit(data)
 	streamService := provideStreamService(publisher)
 	tracker := provideCollectorTracker(config)
 	collectorService := provideCollectorService(tracker)
 	contentpkgStore := provideContentpkgStore(data)
-	preflight := providePreflight(config, service, capabilitySource, publisher, sessionStore, liveManager, mainPanelRuntime, contentpkgStore)
+	preflight := providePreflight(config, avatarService, capabilitySource, publisher, sessionStore, liveManager, mainPanelRuntime, contentpkgStore)
 	contentpkgService := provideContentpkg(contentpkgStore, mainPanelRuntime)
-	server := provideHTTPServer(config, logger, bus, ticketStore, nonceStore, liveService, serviceDanmakuService, serviceSettingsService, health, version2, auditService, mainPanelRuntime, streamService, collectorService, tracker, preflight, contentpkgService)
-	worker := provideDanmakuWorker(danmakuService, settingsService, manager, liveManager, bus, logger)
+	server := provideHTTPServer(config, logger, bus, ticketStore, voiceTicketStore, nonceStore, coordinator, statusService, liveService, serviceDanmakuService, settingsService, health, version2, auditService, mainPanelRuntime, streamService, collectorService, tracker, preflight, contentpkgService)
+	worker := provideDanmakuWorker(danmakuService, service, manager, liveManager, bus, logger)
 	app := provideApp(server, data, logger, liveManager, worker, mainInteractionRuntime, contentpkgService, mainPanelRuntime)
 	return app, func() {
+		cleanup2()
 		cleanup()
 	}, nil
 }
@@ -735,6 +743,7 @@ func providePanelRuntime(
 	avatarImages *avatar.ImageService,
 	avatarSync *avatar.SyncService,
 	chatMgr *chat.Manager,
+	voiceCoordinator *voice.Coordinator,
 	vkeys *vidukeys.Service,
 	recorder live.Recorder,
 	patrons *patron.Service,
@@ -868,6 +877,9 @@ func providePanelRuntime(
 				if !isLive() {
 					return "", server.ErrChatNotLive
 				}
+				if cfg.Voice.CoordinateTextChat {
+					return voiceCoordinator.ChatText(ctx, text)
+				}
 				return chatMgr.Chat(ctx, "admin", text, func(ctx context.Context, s string) error {
 					_, err := mgr.Say(ctx, s, "chat")
 					return err
@@ -923,7 +935,10 @@ func provideHTTPServer(
 	logger *slog.Logger,
 	bus *eventbus.Bus,
 	tickets server.TicketStore,
+	voiceTickets server.VoiceTicketStore,
 	nonces server.NonceStore,
+	voiceCoordinator *voice.Coordinator,
+	voiceStatus *voice.StatusService,
 	liveSvc *service.LiveService,
 	dmSvc *service.DanmakuService,
 	stSvc *service.SettingsService,
@@ -936,8 +951,8 @@ func provideHTTPServer(
 	preflight *live.Preflight,
 	_ *contentpkg.Service,
 ) *http.Server {
-	return server.NewHTTPServer(cfg, logger, bus, tickets, nonces, liveSvc, dmSvc, stSvc, health, string(version2), auditSvc, rt.deps,
-		streamSvc, collectorSvc, collectorTracker, preflight)
+	return server.NewHTTPServer(cfg, logger, bus, tickets, voiceTickets, nonces, voiceCoordinator, voiceStatus,
+		liveSvc, dmSvc, stSvc, health, string(version2), auditSvc, rt.deps, streamSvc, collectorSvc, collectorTracker, preflight)
 }
 
 func provideApp(s *http.Server, d *data.Data, logger *slog.Logger, m *live.Manager, dmWorker *danmaku.Worker, ix *interactionRuntime, pkgs *contentpkg.Service, rt *panelRuntime) *App {
@@ -1158,11 +1173,18 @@ func provideCapabilities(
 		}
 
 		if rt != nil && rt.synth != nil {
-			switch rt.synth.(type) {
+			switch synth := rt.synth.(type) {
 			case *tts2.FakeSynth:
 				mx["tts"] = capability.Fake
 			case tts2.UnavailableSynth:
 				mx["tts"] = capability.Unconfigured
+			case *tts.SynthAdapter:
+				health, err := synth.Health(ctx)
+				if err == nil && health.OK {
+					mx["tts"] = capability.Real
+				} else {
+					mx["tts"] = capability.Unconfigured
+				}
 			default:
 				mx["tts"] = capability.Unknown
 			}
@@ -1198,10 +1220,11 @@ func provideCapabilities(
 
 		if pub == nil {
 			mx["push_gate"] = capability.Unconfigured
-		} else if pub.Status().State == publish.StatePushing {
-			mx["push_gate"] = capability.Real
+			mx["douyin_publish"] = capability.Unconfigured
 		} else {
-			mx["push_gate"] = capability.Unknown
+			status := publishCapabilityStatus(pub.Status())
+			mx["push_gate"] = status
+			mx["douyin_publish"] = status
 		}
 		// storage_persistent：Ent 已安装且本次 PG 探测可达才算 real；不可达必须 fail-closed。
 		var postgresProbe func(context.Context) data.Status

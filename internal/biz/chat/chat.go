@@ -91,6 +91,11 @@ func NewManager(s Streamer, r ProfileResolver, opts ...Option) *Manager {
 // Chat 进行一轮对话：组装 system(可选)+历史+本轮 user → 流式消费 → 合并交 sink。
 // 返回本轮完整回复文本（strip_think 后）。流式/下游失败时返回错误且不写入记忆。
 func (m *Manager) Chat(ctx context.Context, key, userText string, sink SentenceSink) (string, error) {
+	return m.ChatWithTokenHook(ctx, key, userText, sink, nil)
+}
+
+// ChatWithTokenHook 在首个真实 LLM 文本增量到达时回调，供语音回合测量首 token 延迟。
+func (m *Manager) ChatWithTokenHook(ctx context.Context, key, userText string, sink SentenceSink, onToken func()) (string, error) {
 	m.mu.Lock()
 	hist := append([]llm.Message(nil), m.sessions[key]...)
 	m.mu.Unlock()
@@ -112,9 +117,16 @@ func (m *Manager) Chat(ctx context.Context, key, userText string, sink SentenceS
 	mg := &merger{first: m.mergeFirst, min: m.mergeMin}
 	var full strings.Builder
 	var sinkErr error
+	tokenSeen := false
 	for s := range stream {
 		if s.Err != nil {
 			return "", s.Err
+		}
+		if s.Text != "" && !tokenSeen {
+			tokenSeen = true
+			if onToken != nil {
+				onToken()
+			}
 		}
 		full.WriteString(s.Text)
 		if sinkErr != nil {

@@ -32,6 +32,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/settings"
 	"github.com/teamwork/digital-human/internal/biz/song"
 	"github.com/teamwork/digital-human/internal/biz/tts"
+	"github.com/teamwork/digital-human/internal/biz/voice"
 	"github.com/teamwork/digital-human/internal/conf"
 	"github.com/teamwork/digital-human/internal/service"
 	"github.com/teamwork/digital-human/pkg/eventbus"
@@ -101,6 +102,7 @@ func TestRealRouteTableRequiresAuth(t *testing.T) {
 		khttp.Filter(serverFilters(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), tickets, nil)...),
 	)
 	registerPanelRoutes(srv, deps)
+	registerVoiceRoutes(srv, cfg, nil, &voice.StatusService{}, NewMemoryVoiceTicketStore())
 	livev1.RegisterLiveServiceHTTPServer(srv, service.NewLiveService(mgr, nil, dm, nil))
 	configv1.RegisterSettingsServiceHTTPServer(srv, service.NewSettingsService(st))
 
@@ -128,6 +130,7 @@ func TestRealRouteTableRequiresAuth(t *testing.T) {
 		panelRoute{Method: "POST", Path: "/api/v1/live/stop"},
 		panelRoute{Method: "POST", Path: "/api/v1/live/say"},
 		panelRoute{Method: "POST", Path: "/api/v1/settings"},
+		panelRoute{Method: "POST", Path: "/api/v1/voice/ticket"},
 	)
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -171,6 +174,7 @@ func TestRealRouteTableRequiresAuth(t *testing.T) {
 		"/api/v1/avatars/some-id",
 		"/api/v1/avatars/some-id/image",
 		"/api/v1/avatars/some-id/assets/some-asset/image",
+		"/api/v1/voice/status",
 	} {
 		req, _ := http.NewRequest(http.MethodGet, base+p, nil)
 		resp, err := client.Do(req)

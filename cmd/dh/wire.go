@@ -41,6 +41,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/song"
 	"github.com/teamwork/digital-human/internal/biz/tts"
 	"github.com/teamwork/digital-human/internal/biz/vidukeys"
+	"github.com/teamwork/digital-human/internal/biz/voice"
 	"github.com/teamwork/digital-human/internal/conf"
 	"github.com/teamwork/digital-human/internal/data"
 	"github.com/teamwork/digital-human/internal/data/ent"
@@ -82,6 +83,11 @@ func InitApp(cfgPath string, version VersionInfo) (*App, func(), error) {
 		provideSettings,
 		providePersona,
 		provideChat,
+		provideVoiceASR,
+		voiceConfigFrom,
+		provideVoiceTickets,
+		provideVoiceCoordinator,
+		provideVoiceStatus,
 		provideViduKeys,
 		provideDanmakuWorker,
 		provideInteraction,
@@ -721,6 +727,7 @@ func providePanelRuntime(
 	avatarImages *avatar.ImageService,
 	avatarSync *avatar.SyncService,
 	chatMgr *chat.Manager,
+	voiceCoordinator *voice.Coordinator,
 	vkeys *vidukeys.Service,
 	recorder live.Recorder,
 	patrons *patron.Service,
@@ -860,11 +867,14 @@ func providePanelRuntime(
 			AvatarSync:   avatarSync,
 			// G04：人设 select 后立即清当前场次 LLM 记忆，消除 restart_required。
 			ResetLLM: mgr.ResetLlm,
-			// N1 管理员对话调试：未开播 fail-closed 409（对齐蓝本 engine.chat）；
-			// admin 会话 key 与弹幕 dm_worker 的 sessionID key 天然隔离；sink 接口播上屏。
+			// N1 管理员对话：默认与语音共享回合协调器和 session:operator 记忆；
+			// coordinate_text_chat=false 仅保留旧 admin 调试通路，不与语音争抢。
 			Chat: func(ctx context.Context, text string) (string, error) {
 				if !isLive() {
 					return "", server.ErrChatNotLive
+				}
+				if cfg.Voice.CoordinateTextChat {
+					return voiceCoordinator.ChatText(ctx, text)
 				}
 				return chatMgr.Chat(ctx, "admin", text, func(ctx context.Context, s string) error {
 					_, err := mgr.Say(ctx, s, "chat")
@@ -922,7 +932,10 @@ func provideHTTPServer(
 	logger *slog.Logger,
 	bus *eventbus.Bus,
 	tickets server.TicketStore,
+	voiceTickets server.VoiceTicketStore,
 	nonces server.NonceStore,
+	voiceCoordinator *voice.Coordinator,
+	voiceStatus *voice.StatusService,
 	liveSvc *service.LiveService,
 	dmSvc *service.DanmakuService,
 	stSvc *service.SettingsService,
@@ -936,8 +949,8 @@ func provideHTTPServer(
 	preflight *live.Preflight, // 顺序锚点：providePreflight 先于本函数执行（rt.deps.Preflight 已注入）
 	_ *contentpkg.Service, // 顺序锚点：provideContentpkg 必须先注入 rt.deps.Contentpkg，再注册 live-drafts 路由
 ) *khttp.Server {
-	return server.NewHTTPServer(cfg, logger, bus, tickets, nonces, liveSvc, dmSvc, stSvc, health, string(version), auditSvc, rt.deps,
-		streamSvc, collectorSvc, collectorTracker, preflight)
+	return server.NewHTTPServer(cfg, logger, bus, tickets, voiceTickets, nonces, voiceCoordinator, voiceStatus,
+		liveSvc, dmSvc, stSvc, health, string(version), auditSvc, rt.deps, streamSvc, collectorSvc, collectorTracker, preflight)
 }
 
 func provideApp(s *khttp.Server, d *data.Data, logger *slog.Logger, m *live.Manager, dmWorker *danmaku.Worker, ix *interactionRuntime, pkgs *contentpkg.Service, rt *panelRuntime) *App {
@@ -1160,12 +1173,19 @@ func provideCapabilities(
 		}
 		// tts。
 		if rt != nil && rt.synth != nil {
-			switch rt.synth.(type) {
+			switch synth := rt.synth.(type) {
 			case *tts.FakeSynth:
 				mx["tts"] = capability.Fake
 			case tts.UnavailableSynth:
 				mx["tts"] = capability.Unconfigured
-			default: // SynthAdapter 等真实实现：未端到端探测 → unknown
+			case *enginetts.SynthAdapter:
+				health, err := synth.Health(ctx)
+				if err == nil && health.OK {
+					mx["tts"] = capability.Real
+				} else {
+					mx["tts"] = capability.Unconfigured
+				}
+			default:
 				mx["tts"] = capability.Unknown
 			}
 		} else {

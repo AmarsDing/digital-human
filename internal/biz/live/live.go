@@ -96,6 +96,7 @@ type EventSink interface {
 
 type Snapshot struct {
 	SessionID   string
+	Epoch       int64
 	Phase       Phase
 	LiveID      string
 	StartedAtMs int64
@@ -714,7 +715,13 @@ func (m *Manager) stopLocked(ctx context.Context, reason string) (bool, string, 
 	}
 	s := m.session
 	m.phase = PhaseStopping
+	hooks := append([]DanmakuWorker(nil), m.sessionHooks...)
 	m.mu.Unlock()
+	for _, h := range hooks {
+		if early, ok := h.(interface{ OnSessionStopping(context.Context, string) }); ok && s != nil {
+			early.OnSessionStopping(ctx, s.id)
+		}
+	}
 	m.persist(ctx, s, PhaseStopping)
 
 	if err := m.ctrl.Stop(ctx, reason); err != nil {
@@ -728,7 +735,7 @@ func (m *Manager) stopLocked(ctx context.Context, reason string) (bool, string, 
 	recorder := m.recorder
 	poller := m.poller
 	dmWorker := m.dmWorker
-	hooks := append([]DanmakuWorker(nil), m.sessionHooks...)
+	hooks = append([]DanmakuWorker(nil), m.sessionHooks...)
 	m.mu.Unlock()
 	if recorder != nil && s != nil && s.liveID != "" {
 		if _, err := recorder.OnSessionStop(ctx, s.liveID); err != nil {
@@ -901,23 +908,28 @@ func (m *Manager) sayOne(ctx context.Context, text, mode string) (string, error)
 	index := len(m.session.transcript)
 	m.mu.Unlock()
 
-	m.publishFor(ctx, sessionID, epoch, eventcontract.TranscriptPartial, map[string]any{
-		eventcontract.FieldText: text, eventcontract.FieldIndex: index, eventcontract.FieldMode: mode,
-	})
+	persistText := transcriptPersistence(ctx)
+	if persistText {
+		m.publishFor(ctx, sessionID, epoch, eventcontract.TranscriptPartial, map[string]any{
+			eventcontract.FieldText: text, eventcontract.FieldIndex: index, eventcontract.FieldMode: mode,
+		})
+	}
 	id, err := m.ctrl.Say(ctx, text, mode)
 	if err != nil {
 		return "", err
 	}
 
-	m.mu.Lock()
-	if m.session != nil && m.session.id == sessionID {
-		m.session.transcript = append(m.session.transcript, text)
-		index = len(m.session.transcript) - 1
+	if persistText {
+		m.mu.Lock()
+		if m.session != nil && m.session.id == sessionID {
+			m.session.transcript = append(m.session.transcript, text)
+			index = len(m.session.transcript) - 1
+		}
+		m.mu.Unlock()
+		m.publishFor(ctx, sessionID, epoch, eventcontract.TranscriptFinal, map[string]any{
+			eventcontract.FieldText: text, eventcontract.FieldUtteranceID: id, eventcontract.FieldIndex: index,
+		})
 	}
-	m.mu.Unlock()
-	m.publishFor(ctx, sessionID, epoch, eventcontract.TranscriptFinal, map[string]any{
-		eventcontract.FieldText: text, eventcontract.FieldUtteranceID: id, eventcontract.FieldIndex: index,
-	})
 	return id, nil
 }
 
@@ -926,15 +938,55 @@ func (m *Manager) sayOne(ctx context.Context, text, mode string) (string, error)
 // 同一事件名，所有权层的重试窗口不在这里实现。
 func (m *Manager) Interrupt(ctx context.Context) {
 	m.mu.Lock()
+	hooks := append([]DanmakuWorker(nil), m.sessionHooks...)
+	m.mu.Unlock()
+	handled := false
+	for _, h := range hooks {
+		if interruptible, ok := h.(interface{ OnSessionInterrupt(context.Context) bool }); ok {
+			handled = interruptible.OnSessionInterrupt(ctx) || handled
+			continue
+		}
+		if interruptible, ok := h.(interface{ OnSessionInterrupt(context.Context) }); ok {
+			interruptible.OnSessionInterrupt(ctx)
+		}
+	}
+	if !handled {
+		m.InterruptVoice(ctx, true)
+	}
+}
+
+// InterruptVoice 取消口播/TTS；共享 player 同时承载歌曲，默认不得停止歌曲。
+func (m *Manager) InterruptVoice(ctx context.Context, interruptSongs bool) {
+	m.mu.Lock()
 	hooks := m.hooks
 	m.mu.Unlock()
-	if hooks.StopPlayback != nil {
+	if interruptSongs && hooks.StopPlayback != nil {
 		hooks.StopPlayback(ctx)
 	}
 	if hooks.ClearTTSQueue != nil {
 		hooks.ClearTTSQueue(ctx)
 	}
 	m.publish(ctx, "audio_interrupted", map[string]any{"signal_type": 7})
+}
+
+// InterruptVoiceFor 只在目标场次仍是当前场次时执行中断；hooks 与场次锁同步，
+// 防止旧 Turn 的延迟清理落到 Stop→Start 后的新场次。
+func (m *Manager) InterruptVoiceFor(ctx context.Context, sessionID string, epoch int64, interruptSongs bool) bool {
+	m.mu.Lock()
+	if m.session == nil || m.session.id != sessionID || m.session.epoch != epoch {
+		m.mu.Unlock()
+		return false
+	}
+	hooks := m.hooks
+	if interruptSongs && hooks.StopPlayback != nil {
+		hooks.StopPlayback(ctx)
+	}
+	if hooks.ClearTTSQueue != nil {
+		hooks.ClearTTSQueue(ctx)
+	}
+	m.mu.Unlock()
+	m.publishFor(ctx, sessionID, epoch, "audio_interrupted", map[string]any{"signal_type": 7})
+	return true
 }
 func (m *Manager) ClearTranscript(ctx context.Context) int {
 	m.mu.Lock()
@@ -988,7 +1040,7 @@ func (m *Manager) ResetLlm(ctx context.Context) int {
 	m.mu.Unlock()
 	cleared := 0
 	if mem != nil && key != "" {
-		cleared = mem.ResetHistory(key)
+		cleared = mem.ResetHistory(key) + mem.ResetHistory(key+":operator")
 	}
 	m.publish(ctx, "llm.reset", map[string]any{"cleared_turns": cleared})
 	return cleared
@@ -1030,6 +1082,7 @@ func (m *Manager) snapshotLocked(transcriptSince int) Snapshot {
 	}
 	if m.session != nil {
 		out.SessionID = m.session.id
+		out.Epoch = m.session.epoch
 		out.LiveID = m.session.liveID
 		out.Mode = string(m.session.mode)
 		if !m.session.startedAt.IsZero() {

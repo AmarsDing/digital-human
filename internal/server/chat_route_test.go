@@ -11,6 +11,7 @@ import (
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 
+	"github.com/teamwork/digital-human/internal/biz/voice"
 	"github.com/teamwork/digital-human/internal/llm"
 )
 
@@ -57,6 +58,8 @@ func TestChatRouteErrors(t *testing.T) {
 		code string
 	}{
 		{"not_live_409", ErrChatNotLive, http.StatusConflict, "not_live"},
+		{"voice_not_live_409", voice.ErrNotLive, http.StatusConflict, "not_live"},
+		{"voice_turn_active_409", voice.ErrTurnActive, http.StatusConflict, "voice_turn_active"},
 		{"llm_not_configured_503", llm.ErrLLMNotConfigured, http.StatusServiceUnavailable, "llm_not_configured"},
 		{"llm_stream_502", errors.New("upstream boom"), http.StatusBadGateway, "upstream boom"},
 	}

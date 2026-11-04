@@ -7,6 +7,13 @@ package eventcontract
 const (
 	TranscriptPartial = "transcript.partial"
 	TranscriptFinal   = "transcript.final"
+	VoiceListening    = "voice.listening"
+	VoiceFinal        = "voice.final"
+	VoiceThinking     = "voice.thinking"
+	VoiceSpeaking     = "voice.speaking"
+	VoiceFirstAudio   = "voice.first_audio"
+	VoiceCompleted    = "voice.completed"
+	VoiceError        = "voice.error"
 )
 
 // payload 字段名（后端发布用，前端解析用同一契约）。

@@ -172,7 +172,7 @@ func authFilterWithNonces(cfg *conf.Config, tickets TicketStore, nonces NonceSto
 			case "lan", "collector":
 				// 浏览器无法为 WebSocket 设置 Authorization 头；该路由改由 handler
 				// 单次消费 Sec-WebSocket-Protocol 中的 ticket 校验（无效/复用即 401）。
-				if r.URL.Path == "/ws/v1/events" {
+				if r.URL.Path == "/ws/v1/events" || r.URL.Path == "/ws/v1/voice" {
 					next.ServeHTTP(w, r)
 					return
 				}

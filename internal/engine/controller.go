@@ -567,6 +567,7 @@ func (s *leaseSender) SendPCM(ctx context.Context, pcm []byte) error {
 	if err := s.sig.SendPCM(ctx, pcm); err != nil {
 		return err
 	}
+	live.NotifyFirstPCM(ctx)
 	if s.onSent != nil {
 		s.onSent(int64(len(pcm)))
 	}
