@@ -12,7 +12,7 @@ const savedNote = ref('')
 
 const fingerprint = computed(() => store.stream?.keyFingerprint8 ?? '')
 const configured = computed(() => Boolean(fingerprint.value) && !editing.value)
-const canSave = computed(() => !store.targetBusy && Boolean(rtmpUrl.value.trim()) && Boolean(streamKey.value))
+const canSave = computed(() => !store.streamUnavailable && !store.targetBusy && Boolean(rtmpUrl.value.trim()) && Boolean(streamKey.value))
 
 async function save(): Promise<void> {
   if (!canSave.value) return

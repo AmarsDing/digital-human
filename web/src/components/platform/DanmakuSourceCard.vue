@@ -46,7 +46,7 @@ const lastMsgAgo = computed(() => {
   return `${Math.floor(m / 60)} 小时前`
 })
 
-const canSave = computed(() => !store.roomBusy && Boolean(roomId.value.trim()))
+const canSave = computed(() => !store.collectorUnavailable && !store.roomBusy && Boolean(roomId.value.trim()))
 
 async function save(): Promise<void> {
   if (!canSave.value) return

@@ -155,6 +155,7 @@ export interface KouboState {
 }
 
 export interface SongState {
+  source?: 'real' | 'fake' | 'unconfigured' | 'unknown'
   file: string
   script: string
   song_playing: boolean

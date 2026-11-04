@@ -37,7 +37,7 @@ const variant = computed(() => {
   return VARIANTS[store.streamState] ?? 'neutral'
 })
 // starting/pushing 禁止重复点开始；degraded 可重试。
-const startDisabled = computed(() => store.controlBusy || store.streamBusy)
+const startDisabled = computed(() => store.streamUnavailable || store.controlBusy || store.streamBusy)
 const stopDisabled = computed(() => store.controlBusy || !store.streamStoppable)
 </script>
 

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { classifyApiError } from '../services/api/client'
+import { ApiError, classifyApiError } from '../services/api/client'
 import {
   getCollectorStatus,
   getStreamStatus,
@@ -16,6 +16,8 @@ let streamVersion = 0
 let collectorVersion = 0
 
 interface PlatformState {
+  streamUnavailable: boolean
+  collectorUnavailable: boolean
   stream: StreamStatus | null
   collector: CollectorStatus | null
   streamLoading: boolean
@@ -32,6 +34,8 @@ interface PlatformState {
 
 export const usePlatformStore = defineStore('platform', {
   state: (): PlatformState => ({
+    streamUnavailable: false,
+    collectorUnavailable: false,
     stream: null,
     collector: null,
     streamLoading: false,
@@ -61,10 +65,12 @@ export const usePlatformStore = defineStore('platform', {
         const status = await getStreamStatus(signal)
         if (version !== streamVersion) return
         this.stream = status
+        this.streamUnavailable = false
         this.streamError = ''
       } catch (err) {
         if (version !== streamVersion) return
-        this.streamError = classifyApiError(err).message
+        this.streamUnavailable = err instanceof ApiError && err.status === 404
+        this.streamError = this.streamUnavailable ? '当前服务尚未启用推流，请先完成服务配置。' : classifyApiError(err).message
       } finally {
         if (version === streamVersion) this.streamLoading = false
       }
@@ -77,10 +83,12 @@ export const usePlatformStore = defineStore('platform', {
         const status = await getCollectorStatus(signal)
         if (version !== collectorVersion) return
         this.collector = status
+        this.collectorUnavailable = false
         this.collectorError = ''
       } catch (err) {
         if (version !== collectorVersion) return
-        this.collectorError = classifyApiError(err).message
+        this.collectorUnavailable = err instanceof ApiError && err.status === 404
+        this.collectorError = this.collectorUnavailable ? '当前服务尚未启用弹幕采集，请先完成服务配置。' : classifyApiError(err).message
       } finally {
         if (version === collectorVersion) this.collectorLoading = false
       }

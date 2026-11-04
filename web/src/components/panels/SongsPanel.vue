@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { classifyApiError } from '../../services/api/client'
 import NtConfirmDialog from '../ui/NtConfirmDialog.vue'
 import {
@@ -27,6 +27,22 @@ const note = ref('')
 const script = ref('')
 const draft = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const canPlay = computed(() => status.value?.source === 'real')
+const playBlockReason = computed(() => {
+  switch (status.value?.source) {
+    case 'real':
+      return ''
+    case 'fake':
+      return '当前为 fake 播放器，仅记录调用，禁止点播'
+    case 'unconfigured':
+      return '真实播放服务未配置，无法点播'
+    case 'unknown':
+      return '歌曲播放能力未知，无法点播'
+    default:
+      // 后端未返回能力字段时无法证明真实播放可用，必须与 unknown 一样阻断。
+      return '后端未提供歌曲能力字段 source，已阻断点播'
+  }
+})
 
 async function load(): Promise<void> {
   loading.value = true
@@ -62,6 +78,7 @@ async function upload(ev: Event): Promise<void> {
 }
 
 async function play(f: MediaFile): Promise<void> {
+  if (busy.value || !canPlay.value) return
   busy.value = true
   error.value = ''
   note.value = ''
@@ -92,14 +109,20 @@ async function stop(): Promise<void> {
 }
 
 const pendingDelete = ref('')
+const deleteBusy = ref(false)
 async function remove(): Promise<void> {
   const name = pendingDelete.value
-  pendingDelete.value = ''
+  if (!name || deleteBusy.value) return
+  deleteBusy.value = true
+  error.value = ''
   try {
     await deleteSong(name)
     await load()
+    pendingDelete.value = ''
   } catch (err) {
     error.value = classifyApiError(err).message
+  } finally {
+    deleteBusy.value = false
   }
 }
 
@@ -117,13 +140,21 @@ onMounted(load)
     <p v-if="loading" class="note">正在读取歌曲库…</p>
     <p v-else-if="error" class="error" role="alert" aria-live="assertive">{{ error }}</p>
     <p v-if="note" class="ok" aria-live="polite">{{ note }}</p>
+    <p v-if="playBlockReason" id="song-play-block" class="note" role="status">{{ playBlockReason }}</p>
 
-    <p v-if="files.length === 0" class="note">歌曲库为空，可上传 mp3/wav（后端 fake 播放器只记录调用）。</p>
+    <p v-if="files.length === 0" class="note">歌曲库为空，可上传 mp3/wav；点播仅在真实播放能力就绪时开放。</p>
     <ul v-else class="list">
       <li v-for="f in files" :key="f.name" :class="{ playing: status?.file === f.name && status?.song_playing }">
         <span class="name">{{ f.name }}</span>
         <span class="mono">{{ Math.round(f.size / 1024) }}K / {{ f.lib }}</span>
-        <button type="button" class="mini" :disabled="busy" @click="play(f)">点播</button>
+        <button
+          type="button"
+          class="mini"
+          :disabled="busy || !canPlay"
+          :title="playBlockReason || undefined"
+          :aria-describedby="playBlockReason ? 'song-play-block' : undefined"
+          @click="play(f)"
+        >点播</button>
         <button type="button" class="mini" :disabled="busy" @click="pendingDelete = f.name">删除</button>
       </li>
     </ul>
@@ -146,6 +177,9 @@ onMounted(load)
       title="删除歌曲"
       :message="`将删除「${pendingDelete}」，删除后不可恢复。确定继续？`"
       confirm-text="删除"
+      dangerous
+      :busy="deleteBusy"
+      :error="error"
       @confirm="remove"
       @cancel="pendingDelete = ''"
     />
