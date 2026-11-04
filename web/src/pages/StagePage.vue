@@ -5,7 +5,8 @@ import VideoStage from '../components/stage/VideoStage.vue'
 import ComposerBar from '../components/stage/ComposerBar.vue'
 import RightRail from '../components/stage/RightRail.vue'
 import MetricsPopover from '../components/stage/MetricsPopover.vue'
-import PanelDock from '../components/stage/PanelDock.vue'
+import GroupPanelDock from '../components/stage/GroupPanelDock.vue'
+import TaskControlDock from '../components/stage/TaskControlDock.vue'
 import VoicePanel from '../components/panels/VoicePanel.vue'
 import CommandPanel from '../components/panels/CommandPanel.vue'
 import DanmakuPanel from '../components/panels/DanmakuPanel.vue'
@@ -18,7 +19,7 @@ import { useLiveStore } from '../stores/live'
 import { useEventsStore } from '../stores/events'
 import { useTranscriptStore } from '../stores/transcript'
 import { useSettingsStore } from '../stores/settings'
-import { useUiPrefs } from '../stores/uiPrefs'
+import { useUiPrefs, type WorkspacePanelId } from '../stores/uiPrefs'
 import { useAuthStore } from '../stores/auth'
 import { useStopControlStore } from '../stores/stopControl'
 import { usePlatformStore } from '../stores/platform'
@@ -46,7 +47,6 @@ const platform = usePlatformStore()
 const danmakuRt = useDanmakuRuntimeStore()
 
 const drawerOpen = ref(false)
-const toolsOpen = ref(false)
 const activeAvatarName = ref('')
 const rightOpen = ref(true)
 const tokenInput = ref('')
@@ -235,6 +235,47 @@ const stats = computed(() => [
 
 const deckStyle = computed(() => ({ '--rail-w': `${prefs.rightW}px` }))
 const stageMode = computed(() => (['starting', 'live', 'stopping'].includes(live.phase) ? 'live' : 'prepare'))
+type ControlGroup = 'live' | 'prepare' | 'settings' | ''
+const LIVE_WORKSPACE_ITEMS: WorkspacePanelId[] = ['command', 'danmaku', 'songs']
+const PREPARE_WORKSPACE_ITEMS: WorkspacePanelId[] = ['voice', 'koubo', 'refs']
+const controlGroups = [
+  { id: 'live', label: '播出中', summary: '互动、动作与歌曲' },
+  { id: 'prepare', label: '场次准备', summary: '形象、音色与口播' },
+  { id: 'settings', label: '设置', summary: '平台、录播与偏好' }
+]
+const controlGroup = ref<ControlGroup>(stageMode.value)
+const quickActions = computed(() => [
+  { id: 'captions', label: '字幕' },
+  { id: 'command', label: '动作' },
+  { id: 'songs', label: '歌曲' },
+  stageMode.value === 'live' ? { id: 'danmaku', label: '弹幕' } : { id: 'preflight', label: '预检' }
+])
+
+function selectGroup(group: Exclude<ControlGroup, '' | 'settings'>, panel?: WorkspacePanelId): void {
+  controlGroup.value = group
+  const items = group === 'live' ? LIVE_WORKSPACE_ITEMS : PREPARE_WORKSPACE_ITEMS
+  const next = panel ?? (items.includes(prefs.activeWorkspaceTab) ? prefs.activeWorkspaceTab : items[0])
+  prefs.setActiveWorkspaceTab(next)
+}
+
+function handleQuickAction(id: string): void {
+  if (id === 'captions') {
+    selectGroup('live')
+    rightOpen.value = true
+    return
+  }
+  if (id === 'command' || id === 'danmaku' || id === 'songs') {
+    selectGroup('live', id)
+    return
+  }
+  if (id === 'preflight' && !live.busy && !live.isLive) void start()
+}
+
+selectGroup(stageMode.value)
+watch(stageMode, (mode) => selectGroup(mode))
+watch(controlGroup, (group) => {
+  if (group === 'live' || group === 'prepare') selectGroup(group)
+})
 
 // 事件按序消费：accept 只入队，这里 drain 后逐条派发，批量回放不丢中间事件。
 watch(
@@ -463,47 +504,8 @@ async function doClearTranscript(): Promise<void> {
       <span v-if="activeAvatarName" class="stage-mode__avatar">当前形象：{{ activeAvatarName }}</span>
       <div class="stage-mode__actions">
         <MetricsPopover :items="stats" />
-        <button
-          type="button"
-          class="stage-mode__tool"
-          :aria-label="toolsOpen ? '收起直播工具' : '展开直播工具'"
-          :aria-expanded="toolsOpen"
-          aria-controls="stage-utilities"
-          @click="toolsOpen = !toolsOpen"
-        >直播工具</button>
       </div>
     </div>
-
-    <section v-show="toolsOpen" id="stage-utilities" class="page__utilities" aria-label="直播工具">
-      <div class="page__tools">
-        <div class="token">
-          <input v-model="tokenInput" type="password" placeholder="lan Bearer（本机模式留空）" @keyup.enter="applyToken" />
-          <button type="button" @click="applyToken">应用</button>
-        </div>
-        <div class="record-ctl">
-          <button
-            type="button"
-            class="tool"
-            :class="{ 'tool--on': recEnabled }"
-            :disabled="recBusy"
-            :aria-pressed="recEnabled"
-            @click="toggleRecord"
-          >⏺ 录播{{ recEnabled ? '开' : '关' }}</button>
-          <span
-            v-if="recordState !== 'none' && recordState !== 'unavailable'"
-            class="record-ctl__state"
-            :class="`is-${recordState}`"
-            aria-live="polite"
-          >{{ recordStateLabel }}</span>
-          <button v-if="canFetchRecord" type="button" class="tool" :disabled="recBusy" @click="doFetchRecord">拉取录播</button>
-        </div>
-        <button type="button" class="tool" @click="router.push('/avatars')">数字人档案</button>
-        <button type="button" class="tool" data-testid="sessions-link" @click="router.push('/sessions')">场次复盘</button>
-        <button type="button" class="tool" @click="router.push('/platform')">平台接入</button>
-        <button type="button" class="tool" @click="router.push('/settings')">全部设置</button>
-        <button type="button" class="tool" @click="drawerOpen = true">快捷设置</button>
-      </div>
-    </section>
 
     <main class="deck" :style="deckStyle">
       <div class="deck__stage">
@@ -533,14 +535,73 @@ async function doClearTranscript(): Promise<void> {
       </div>
 
       <section class="workspace deck__rail" aria-label="直播单工作区">
-        <PanelDock
-          :active="prefs.activeWorkspaceTab"
-          :pending-count="danmakuRt.pendingCount"
-          :right-open="rightOpen"
-          @select="prefs.setActiveWorkspaceTab"
-          @toggle-right="rightOpen = !rightOpen"
-        />
+        <TaskControlDock
+          v-model:expanded-id="controlGroup"
+          :groups="controlGroups"
+          :quick-actions="quickActions"
+          @quick-action="handleQuickAction"
+        >
+          <template #live>
+            <GroupPanelDock
+              v-if="controlGroup === 'live'"
+              :active="prefs.activeWorkspaceTab"
+              :items="LIVE_WORKSPACE_ITEMS"
+              :pending-count="danmakuRt.pendingCount"
+              @select="prefs.setActiveWorkspaceTab"
+            />
+            <RightRail
+              v-if="rightOpen"
+              class="workspace__transcript"
+              :lines="transcript.lines"
+              :events="events.events"
+              :fresh-ms="events.fresh"
+              :protocol="events.mode"
+              :show-events="captionCfg.showEvents"
+              @clear-transcript="confirmClearTranscript"
+            />
+          </template>
+          <template #prepare>
+            <GroupPanelDock
+              v-if="controlGroup === 'prepare'"
+              :active="prefs.activeWorkspaceTab"
+              :items="PREPARE_WORKSPACE_ITEMS"
+              :pending-count="danmakuRt.pendingCount"
+              @select="prefs.setActiveWorkspaceTab"
+            />
+          </template>
+          <template #settings>
+            <div class="page__tools" aria-label="直播工具">
+              <div class="token">
+                <input v-model="tokenInput" type="password" placeholder="lan Bearer（本机模式留空）" @keyup.enter="applyToken" />
+                <button type="button" @click="applyToken">应用</button>
+              </div>
+              <div class="record-ctl">
+                <button
+                  type="button"
+                  class="tool"
+                  :class="{ 'tool--on': recEnabled }"
+                  :disabled="recBusy"
+                  :aria-pressed="recEnabled"
+                  @click="toggleRecord"
+                >⏺ 录播{{ recEnabled ? '开' : '关' }}</button>
+                <span
+                  v-if="recordState !== 'none' && recordState !== 'unavailable'"
+                  class="record-ctl__state"
+                  :class="`is-${recordState}`"
+                  aria-live="polite"
+                >{{ recordStateLabel }}</span>
+                <button v-if="canFetchRecord" type="button" class="tool" :disabled="recBusy" @click="doFetchRecord">拉取录播</button>
+              </div>
+              <button type="button" class="tool" @click="router.push('/avatars')">数字人档案</button>
+              <button type="button" class="tool" data-testid="sessions-link" @click="router.push('/sessions')">场次复盘</button>
+              <button type="button" class="tool" @click="router.push('/platform')">平台接入</button>
+              <button type="button" class="tool" @click="router.push('/settings')">全部设置</button>
+              <button type="button" class="tool" @click="drawerOpen = true">快捷设置</button>
+            </div>
+          </template>
+        </TaskControlDock>
         <div
+          v-show="controlGroup === 'live' || controlGroup === 'prepare'"
           :id="`workspace-panel-${prefs.activeWorkspaceTab}`"
           class="workspace__panel"
           role="tabpanel"
@@ -562,16 +623,6 @@ async function doClearTranscript(): Promise<void> {
           <RefsPanel v-else-if="prefs.activeWorkspaceTab === 'refs'" />
           <SongsPanel v-else />
         </div>
-        <RightRail
-          v-if="rightOpen"
-          class="workspace__transcript"
-          :lines="transcript.lines"
-          :events="events.events"
-          :fresh-ms="events.fresh"
-          :protocol="events.mode"
-          :show-events="captionCfg.showEvents"
-          @clear-transcript="confirmClearTranscript"
-        />
       </section>
     </main>
 
@@ -631,7 +682,7 @@ async function doClearTranscript(): Promise<void> {
 .page__tools {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
@@ -746,30 +797,9 @@ async function doClearTranscript(): Promise<void> {
   gap: 8px;
   margin-left: auto;
 }
-.stage-mode__tool {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--nt-border-1);
-  border-radius: var(--nt-radius-m);
-  background: var(--nt-data-raised);
-  color: var(--nt-text-1);
-  font: inherit;
-  cursor: pointer;
-}
-.page__utilities {
-  padding: 10px;
-  border: 1px solid var(--nt-border-1);
-  border-radius: var(--nt-radius-l);
-  background: var(--nt-data-bg);
-}
-.page__utilities .page__tools {
-  justify-content: flex-start;
-}
 .tool:focus-visible,
 .token button:focus-visible,
-.token input:focus-visible,
-.stage-mode__tool:focus-visible {
+.token input:focus-visible {
   outline: 2px solid var(--nt-accent);
   outline-offset: 4px;
 }

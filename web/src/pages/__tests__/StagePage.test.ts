@@ -34,6 +34,8 @@ import type { WireEvent } from '../../services/api/types'
 import { useAvatarsStore } from '../../stores/avatars'
 import { useUiPrefs } from '../../stores/uiPrefs'
 import PanelDock from '../../components/stage/PanelDock.vue'
+import GroupPanelDock from '../../components/stage/GroupPanelDock.vue'
+import TaskControlDock from '../../components/stage/TaskControlDock.vue'
 import MetricsPopover from '../../components/stage/MetricsPopover.vue'
 import PanelShell from '../../components/panels/PanelShell.vue'
 import NtConfirmDialog from '../../components/ui/NtConfirmDialog.vue'
@@ -64,10 +66,10 @@ describe('StagePage 双模式与单工作区', () => {
   it('旧浮层偏好的话也只渲染一个工作区，复盘使用独立路由', async () => {
     const prefs = useUiPrefs()
     prefs.panels.voice.open = true
-    const w = shallowMount(StagePage)
+    const w = shallowMount(StagePage, { global: { stubs: { TaskControlDock } } })
     await flushPromises()
 
-    expect(w.findComponent(PanelDock).exists()).toBe(true)
+    expect(w.findComponent(GroupPanelDock).exists()).toBe(true)
     expect(w.findAllComponents(PanelShell)).toHaveLength(0)
     const sessions = w.find('[data-testid="sessions-link"]')
     expect(sessions.exists()).toBe(true)
@@ -76,17 +78,50 @@ describe('StagePage 双模式与单工作区', () => {
     w.unmount()
   })
 
-  it('主路径默认收起直播工具与六格统计，工具仍可点击展开', async () => {
-    const w = shallowMount(StagePage)
+  it('三层控制坞默认展开场次准备，快捷歌曲直达播出中', async () => {
+    const prefs = useUiPrefs()
+    const w = shallowMount(StagePage, { global: { stubs: { TaskControlDock } } })
     await flushPromises()
 
     expect(w.find('.page__head').exists()).toBe(false)
     expect(w.find('.page__stats').exists()).toBe(false)
+    expect(w.find('.page__utilities').exists()).toBe(false)
     expect(w.findComponent(MetricsPopover).exists()).toBe(true)
-    expect(w.get('.page__utilities').isVisible()).toBe(false)
-    await w.get('button[aria-label="展开直播工具"]').trigger('click')
-    expect(w.get('.stage-mode__tool').attributes('aria-expanded')).toBe('true')
-    expect(w.get('.page__utilities').attributes('style') ?? '').not.toContain('display: none')
+    const dock = w.findComponent(TaskControlDock)
+    expect(dock.exists()).toBe(true)
+    expect(dock.props('groups').map((group: { id: string }) => group.id)).toEqual(['live', 'prepare', 'settings'])
+    expect(dock.props('expandedId')).toBe('prepare')
+    expect(w.get('[data-group-panel="settings"]').isVisible()).toBe(false)
+
+    await dock.vm.$emit('quick-action', 'songs')
+    await flushPromises()
+    expect(dock.props('expandedId')).toBe('live')
+    expect(prefs.activeWorkspaceTab).toBe('songs')
+    w.unmount()
+  })
+
+  it('开播后控制坞自动切换到播出中', async () => {
+    const live = useLiveStore()
+    const w = shallowMount(StagePage)
+    await flushPromises()
+
+    live.status = { phase: 'live' } as never
+    await flushPromises()
+    expect(w.findComponent(TaskControlDock).props('expandedId')).toBe('live')
+    w.unmount()
+  })
+
+  it('从设置手动切到播出中时同步到动作面板', async () => {
+    const prefs = useUiPrefs()
+    const w = shallowMount(StagePage, { global: { stubs: { TaskControlDock } } })
+    await flushPromises()
+
+    await w.get('button[aria-controls$="settings"]').trigger('click')
+    await w.get('button[aria-controls$="live"]').trigger('click')
+    await flushPromises()
+
+    expect(prefs.activeWorkspaceTab).toBe('command')
+    expect(w.findComponent(GroupPanelDock).props('items')).toEqual(['command', 'danmaku', 'songs'])
     w.unmount()
   })
 
@@ -182,6 +217,25 @@ describe('PanelDock 工作区 Tabs', () => {
     expect(document.activeElement).toBe(tabs[1].element)
     await tabs[1].trigger('keydown', { key: 'Enter' })
     expect(w.emitted('select')).toEqual([['command']])
+    w.unmount()
+  })
+
+  it('分组 Tab 只在当前组的三个面板内循环', async () => {
+    const w = mount(GroupPanelDock, {
+      attachTo: document.body,
+      props: {
+        active: 'command',
+        items: ['command', 'danmaku', 'songs'],
+        pendingCount: 0
+      }
+    })
+    const tabs = w.findAll('[role="tab"]')
+    expect(tabs.map((tab) => tab.text().replace(/\s+/g, ''))).toEqual(['动作', '弹幕0', '歌曲'])
+    expect(w.text()).not.toContain('字幕/事件')
+    await tabs[2].trigger('focus')
+    await tabs[2].trigger('keydown', { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(tabs[0].element)
+    expect(w.emitted('select')).toBeUndefined()
     w.unmount()
   })
 })
