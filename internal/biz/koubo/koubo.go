@@ -27,10 +27,16 @@ var (
 	ErrInvalidSplit = errors.New("切分点无效")
 )
 
+type SynthParams struct {
+	Voice string  `json:"voice"`
+	Speed float64 `json:"speed"`
+}
+
 type Take struct {
-	File string  `json:"file"`
-	Dur  float64 `json:"dur"`
-	Ts   float64 `json:"ts"`
+	File  string       `json:"file"`
+	Dur   float64      `json:"dur"`
+	Ts    float64      `json:"ts"`
+	Synth *SynthParams `json:"synth,omitempty"`
 }
 
 type Segment struct {
@@ -200,9 +206,36 @@ func NewService(store Store, synth Synth, player media.Player, gen ActionGen, au
 	if isLive == nil {
 		isLive = func() bool { return true }
 	}
-	return &Service{
+	svc := &Service{
 		store: store, synth: synth, synthCache: make(map[synthCacheKey]synthCacheEntry),
 		player: player, actions: gen, dir: audioDir, isLive: isLive, now: time.Now,
+	}
+	svc.restoreSynthCache()
+	return svc
+}
+
+// restoreSynthCache 只恢复带完整合成参数且文件仍存在的 take；旧 take 不猜参数。
+func (s *Service) restoreSynthCache() {
+	st, err := s.store.Load()
+	if err != nil {
+		return
+	}
+	for _, seg := range st.Segments {
+		text := strings.TrimSpace(seg.Text)
+		if text == "" {
+			continue
+		}
+		for _, take := range seg.Takes {
+			if take.Synth == nil || take.File == "" || filepath.Base(take.File) != take.File {
+				continue
+			}
+			info, err := os.Stat(filepath.Join(s.dir, take.File))
+			if err != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			key := synthCacheKey{text: text, voice: strings.TrimSpace(take.Synth.Voice), speed: take.Synth.Speed}
+			s.synthCache[key] = synthCacheEntry{file: take.File, dur: take.Dur}
+		}
 	}
 }
 
@@ -438,7 +471,7 @@ func (s *Service) synthesize(ctx context.Context, segID, text string) (string, T
 	key := synthCacheKey{text: text, voice: voice, speed: speed}
 	if cached, ok := s.synthCache[key]; ok {
 		ts := s.now()
-		return cached.file, Take{File: cached.file, Dur: cached.dur, Ts: float64(ts.UnixMilli()) / 1000}, nil
+		return cached.file, Take{File: cached.file, Dur: cached.dur, Ts: float64(ts.UnixMilli()) / 1000, Synth: &SynthParams{Voice: voice, Speed: speed}}, nil
 	}
 
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
@@ -462,7 +495,7 @@ func (s *Service) synthesize(ctx context.Context, segID, text string) (string, T
 	}
 	dur := float64(audio.PCMDurationMS(pcm)) / 1000
 	s.synthCache[key] = synthCacheEntry{file: name, dur: dur}
-	return name, Take{File: name, Dur: dur, Ts: float64(ts.UnixMilli()) / 1000}, nil
+	return name, Take{File: name, Dur: dur, Ts: float64(ts.UnixMilli()) / 1000, Synth: &SynthParams{Voice: voice, Speed: speed}}, nil
 }
 
 // TTSAll 异步合成所有段落；只处理缺音频的段（onlyMissing）。
@@ -844,6 +877,12 @@ func cloneState(st State) State {
 	for i, seg := range st.Segments {
 		cp := seg
 		cp.Takes = append([]Take(nil), seg.Takes...)
+		for j := range cp.Takes {
+			if cp.Takes[j].Synth != nil {
+				params := *cp.Takes[j].Synth
+				cp.Takes[j].Synth = &params
+			}
+		}
 		if seg.Selected != nil {
 			v := *seg.Selected
 			cp.Selected = &v

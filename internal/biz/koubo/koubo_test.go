@@ -242,6 +242,60 @@ func TestTTSCacheIsKeyedByTextVoiceAndSpeed(t *testing.T) {
 	}
 }
 
+func TestTTSCacheRestoredAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	storePath := filepath.Join(root, "project.json")
+	audioDir := filepath.Join(root, "audio")
+	newService := func(synth *probeSynth) *Service {
+		svc := NewService(NewFileStore(storePath), synth, media.NewFakePlayer(), FakeActionGen{}, audioDir, func() bool { return true })
+		svc.SetSynthParamsFn(func() (string, float64) { return "voice-a", 1.25 })
+		return svc
+	}
+
+	firstSynth := &probeSynth{}
+	svc := newService(firstSynth)
+	st, err := svc.Split("重启后仍复用。", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := st.Segments[0].ID
+	first, err := svc.TTS(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restartedSynth := &probeSynth{}
+	restarted := newService(restartedSynth)
+	second, err := restarted.TTS(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(restartedSynth.Calls()); got != 0 {
+		t.Fatalf("重启后同文本同参数重复合成 %d 次，want 0", got)
+	}
+	if len(second.Segments[0].Takes) != 2 || first.Segments[0].Takes[0].File != second.Segments[0].Takes[1].File {
+		t.Fatalf("重启后未复用同一音频文件: first=%+v second=%+v", first.Segments[0].Takes, second.Segments[0].Takes)
+	}
+}
+
+func TestMemoryStoreClonesSynthParams(t *testing.T) {
+	st := defaultState()
+	st.Segments = []Segment{{ID: "s1", Text: "文本。", Takes: []Take{{File: "s1.wav", Synth: &SynthParams{Voice: "voice-a", Speed: 1.25}}}}}
+	store := NewMemoryStore(st)
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.Segments[0].Takes[0].Synth.Voice = "voice-b"
+	again, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.Segments[0].Takes[0].Synth.Voice; got != "voice-a" {
+		t.Fatalf("调用方修改污染了 MemoryStore 合成参数: %q", got)
+	}
+}
+
 func TestFileStorePersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "project.json")
 	store := NewFileStore(path)
