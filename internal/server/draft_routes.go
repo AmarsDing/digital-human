@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 
@@ -39,13 +40,71 @@ func newDraftListItem(d contentpkg.Draft) draftListItem {
 	}
 }
 
-// registerDraftRoutes 增加按 owner_id 查询范围过滤的列表与详情；提交仍复用 panels.go 中既有 apply 路由。
+func newDraftDetail(d contentpkg.Draft) draftDetail {
+	return draftDetail{
+		draftListItem: newDraftListItem(d), TemplateID: d.TemplateID, OwnerID: d.OwnerID,
+		FencingToken: d.FencingToken, LeaseUntilMs: d.LeaseUntilMs,
+		Snapshot: d.Snapshot, SnapshotHash: d.SnapshotHash,
+		PreflightID: d.PreflightID, SchemaVersion: d.SchemaVersion,
+	}
+}
+
+// registerDraftRoutes 增加草稿创建、编辑租约、按 owner_id 查询范围过滤的列表与详情；
+// 提交仍复用 panels.go 中既有 apply 路由。
 // owner_id 仅供多会话/多实例区分，不是安全边界；共享管理令牌持有者可传入任意值。
 func registerDraftRoutes(srv *khttp.Server, svc *contentpkg.Service) {
 	if svc == nil {
 		return
 	}
 	r := srv.Route("/")
+	r.POST("/api/v1/live-drafts", func(c khttp.Context) error {
+		var body struct {
+			TemplateID    string         `json:"template_id"`
+			BaseRevision  int64          `json:"base_revision"`
+			SchemaVersion int64          `json:"schema_version"`
+			Snapshot      map[string]any `json:"snapshot"`
+		}
+		if err := decodeJSONBody(c, &body); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid_draft_request"})
+		}
+		body.TemplateID = strings.TrimSpace(body.TemplateID)
+		if body.TemplateID == "" || body.BaseRevision <= 0 || body.SchemaVersion <= 0 || body.Snapshot == nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid_draft_request"})
+		}
+		d, err := svc.CreateDraft(c.Request().Context(), body.TemplateID, body.BaseRevision, body.SchemaVersion, body.Snapshot)
+		if err != nil {
+			if errors.Is(err, contentpkg.ErrConflict) {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid_draft_request"})
+			}
+			if errors.Is(err, contentpkg.ErrUnavailable) {
+				return c.JSON(http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "content_storage_unavailable"})
+			}
+			return internal(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "draft": newDraftDetail(d)})
+	})
+	r.POST("/api/v1/live-drafts/{id}/open-edit", func(c khttp.Context) error {
+		var body struct {
+			OwnerID         string `json:"owner_id"`
+			LeaseTTLSeconds *int64 `json:"lease_ttl_seconds"`
+		}
+		if err := decodeJSONBody(c, &body); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid_lease_request"})
+		}
+		body.OwnerID = strings.TrimSpace(body.OwnerID)
+		ttlSeconds := int64(300)
+		if body.LeaseTTLSeconds != nil {
+			ttlSeconds = *body.LeaseTTLSeconds
+		}
+		if body.OwnerID == "" || ttlSeconds <= 0 || ttlSeconds > int64((time.Duration(1<<63-1))/time.Second) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid_lease_request"})
+		}
+		d, err := svc.OpenEdit(c.Request().Context(), param(c, "id"), body.OwnerID, time.Duration(ttlSeconds)*time.Second)
+		if err != nil {
+			return draftOpenEditError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "draft": newDraftDetail(d)})
+	})
 	r.GET("/api/v1/live-drafts", func(c khttp.Context) error {
 		ownerID := strings.TrimSpace(c.Request().URL.Query().Get("owner_id"))
 		if ownerID == "" {
@@ -81,6 +140,17 @@ func registerDraftRoutes(srv *khttp.Server, svc *contentpkg.Service) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "draft": detail})
 	})
+}
+
+func draftOpenEditError(c khttp.Context, err error) error {
+	if errors.Is(err, contentpkg.ErrConflict) {
+		code := "draft_lease_conflict"
+		if strings.Contains(err.Error(), "not editable") {
+			code = "draft_not_editable"
+		}
+		return c.JSON(http.StatusConflict, map[string]any{"ok": false, "error": code, "retry_action": "refresh_draft"})
+	}
+	return draftApplyError(c, err)
 }
 
 func draftApplyError(c khttp.Context, err error) error {

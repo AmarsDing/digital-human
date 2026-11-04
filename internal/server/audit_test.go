@@ -192,6 +192,8 @@ func TestAuditFilterMarksDraftOwnerScopeUnverified(t *testing.T) {
 	}{
 		{name: "list", method: http.MethodGet, path: "/api/v1/live-drafts?owner_id=another-owner"},
 		{name: "detail", method: http.MethodGet, path: "/api/v1/live-drafts/draft-1?owner_id=another-owner"},
+		{name: "create", method: http.MethodPost, path: "/api/v1/live-drafts"},
+		{name: "open-edit", method: http.MethodPost, path: "/api/v1/live-drafts/draft-1/open-edit"},
 		{name: "apply", method: http.MethodPost, path: "/api/v1/live-drafts/draft-1/apply"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

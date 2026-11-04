@@ -15,6 +15,11 @@ type FileStore interface {
 	DiscardGeneration(ctx context.Context, applyID string) error
 }
 
+// StorageProbe 对内容存储执行实时读写探测；失败时调用方必须保持 fail-closed。
+type StorageProbe interface {
+	Probe(ctx context.Context) error
+}
+
 // HashSnapshot 返回快照的规范化 JSON SHA-256，供预检识别同 revision 的内容变化。
 func HashSnapshot(snapshot map[string]any) string { return hashSnapshot(snapshot) }
 

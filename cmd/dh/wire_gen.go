@@ -50,6 +50,7 @@ import (
 	"github.com/teamwork/digital-human/pkg/eventbus"
 	"github.com/teamwork/digital-human/pkg/logx"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -713,8 +714,9 @@ type panelRuntime struct {
 	player        media.Player
 	koubo         *koubo.Service
 	// sender/synth §2.2 能力矩阵探测源（装配点显式化：类型即能力证据）。
-	sender action.Sender
-	synth  tts2.Synth
+	sender         action.Sender
+	synth          tts2.Synth
+	contentStorage []contentpkg.StorageProbe
 }
 
 func providePanelRuntime(
@@ -1181,9 +1183,18 @@ func provideCapabilities(
 		default:
 			mx["vidu"] = capability.Unknown
 		}
-
 		mx["koubo_actiongen"] = capability.Fake
+
 		mx["content_storage"] = capability.Fake
+		if rt != nil && len(rt.contentStorage) > 0 {
+			mx["content_storage"] = capability.Real
+			for _, probe := range rt.contentStorage {
+				if probe == nil || probe.Probe(ctx) != nil {
+					mx["content_storage"] = capability.Unknown
+					break
+				}
+			}
+		}
 
 		if pub == nil {
 			mx["push_gate"] = capability.Unconfigured
@@ -1241,13 +1252,38 @@ func provideContentpkgStore(d *data.Data) contentpkg.Store {
 	return sw
 }
 
-func provideContentpkg(store contentpkg.Store, rt *panelRuntime) *contentpkg.Service {
+type contentStorageProbeFunc func(context.Context) error
 
-	svc := contentpkg.NewServiceWithFileStores(store, map[string]contentpkg.FileStore{
-		"koubo":  contentpkg.NewMemoryFileStore(),
-		"choreo": contentpkg.NewMemoryFileStore(),
-		"refs":   contentpkg.NewMemoryFileStore(),
-	})
+func (f contentStorageProbeFunc) Probe(ctx context.Context) error { return f(ctx) }
+
+func provideContentpkg(store contentpkg.Store, rt *panelRuntime) *contentpkg.Service {
+	root := strings.TrimSpace(os.Getenv("DH_CONTENTPKG_DIR"))
+	if root == "" {
+		rt.contentStorage = nil
+		svc := contentpkg.NewServiceWithFileStores(store, map[string]contentpkg.FileStore{
+			"koubo":  contentpkg.NewMemoryFileStore(),
+			"choreo": contentpkg.NewMemoryFileStore(),
+			"refs":   contentpkg.NewMemoryFileStore(),
+		})
+		rt.deps.Contentpkg = svc
+		return svc
+	}
+
+	stores := make(map[string]contentpkg.FileStore, 3)
+	probes := make([]contentpkg.StorageProbe, 0, 3)
+	for _, name := range []string{"koubo", "choreo", "refs"} {
+		disk, err := contentpkg.NewDiskFileStore(filepath.Join(root, name))
+		if err != nil {
+			rt.contentStorage = []contentpkg.StorageProbe{contentStorageProbeFunc(func(context.Context) error { return err })}
+			svc := contentpkg.NewService(store)
+			rt.deps.Contentpkg = svc
+			return svc
+		}
+		stores[name] = disk
+		probes = append(probes, disk)
+	}
+	rt.contentStorage = probes
+	svc := contentpkg.NewServiceWithFileStores(store, stores)
 	rt.deps.Contentpkg = svc
 	return svc
 }
