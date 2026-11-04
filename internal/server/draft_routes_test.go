@@ -42,13 +42,13 @@ func decodeDraftResponse(t *testing.T, raw []byte) map[string]any {
 	return body
 }
 
-func TestDraftHTTPListAndGetEnforceOwner(t *testing.T) {
+func TestDraftHTTPListAndGetFilterByOwnerQuery(t *testing.T) {
 	svc, _ := newDraftRouteService()
 	committed := createOwnedDraft(t, svc, "owner-1", "首场直播")
 	if _, err := svc.Apply(context.Background(), committed.ID, committed.OwnerID, committed.FencingToken, committed.Revision, "pf-route-list"); err != nil {
 		t.Fatal(err)
 	}
-	createOwnedDraft(t, svc, "owner-2", "他人草稿")
+	createOwnedDraft(t, svc, "owner-2", "另一查询范围的草稿")
 	base := startInteractionRouteServer(t, PanelDeps{Contentpkg: svc})
 
 	resp, raw := callJSON(t, base, http.MethodGet, "/api/v1/live-drafts?owner_id=owner-1", nil)
@@ -58,7 +58,7 @@ func TestDraftHTTPListAndGetEnforceOwner(t *testing.T) {
 	body := decodeDraftResponse(t, raw)
 	items, ok := body["drafts"].([]any)
 	if !ok || len(items) != 1 {
-		t.Fatalf("owner-1 只能看到自己的草稿: %s", raw)
+		t.Fatalf("列表应只返回 owner-1 查询范围内的草稿: %s", raw)
 	}
 	item := items[0].(map[string]any)
 	if item["draft_id"] != committed.ID || item["committed"] != true || item["summary"] == "" || item["revision"].(float64) <= 0 {
@@ -69,7 +69,7 @@ func TestDraftHTTPListAndGetEnforceOwner(t *testing.T) {
 	body = decodeDraftResponse(t, raw)
 	items, ok = body["drafts"].([]any)
 	if resp.StatusCode != http.StatusOK || !ok || len(items) != 1 || items[0].(map[string]any)["draft_id"] == committed.ID {
-		t.Fatalf("列表不得跨 owner: status=%d body=%s", resp.StatusCode, raw)
+		t.Fatalf("列表不得混入其他 owner 查询范围: status=%d body=%s", resp.StatusCode, raw)
 	}
 
 	path := "/api/v1/live-drafts/" + committed.ID + "?owner_id=owner-1"
@@ -87,7 +87,7 @@ func TestDraftHTTPListAndGetEnforceOwner(t *testing.T) {
 		resp, raw = callJSON(t, base, http.MethodGet, path, nil)
 		body = decodeDraftResponse(t, raw)
 		if resp.StatusCode != http.StatusNotFound || body["error"] != "draft_not_found" {
-			t.Fatalf("越权与不存在统一 404: path=%s status=%d body=%s", path, resp.StatusCode, raw)
+			t.Fatalf("owner 查询范围不匹配与不存在统一 404（非权限校验）: path=%s status=%d body=%s", path, resp.StatusCode, raw)
 		}
 	}
 

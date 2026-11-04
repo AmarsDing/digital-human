@@ -13,12 +13,13 @@ var (
 	ErrDraftQueryUnavailable = errors.New("contentpkg: draft query unavailable")
 )
 
-// DraftQueryStore 是按 owner 隔离的草稿只读查询端口，不改变既有 Store 的写契约。
+// DraftQueryStore 是按 owner_id 应用级查询范围过滤的只读端口，不改变既有 Store 的写契约。
+// owner_id 仅用于多会话/多实例区分，不是认证或授权边界。
 type DraftQueryStore interface {
 	ListDrafts(ctx context.Context, ownerID string) ([]Draft, error)
 }
 
-// ListOwnedDrafts 只返回 owner 可见的草稿；存储不支持查询时 fail-closed。
+// ListOwnedDrafts 只返回 owner_id 查询范围内的草稿；存储不支持查询时 fail-closed。
 func (s *Service) ListOwnedDrafts(ctx context.Context, ownerID string) ([]Draft, error) {
 	if strings.TrimSpace(ownerID) == "" {
 		return nil, ErrOwnerRequired
@@ -33,7 +34,8 @@ func (s *Service) ListOwnedDrafts(ctx context.Context, ownerID string) ([]Draft,
 	return store.ListDrafts(ctx, ownerID)
 }
 
-// GetOwnedDraft 将不存在与越权统一映射为 ErrDraftNotFound，避免按 ID 探测他人草稿。
+// GetOwnedDraft 将不存在与 owner_id 查询范围不匹配统一映射为 ErrDraftNotFound。
+// 该匹配只是应用级过滤，不验证请求者身份。
 func (s *Service) GetOwnedDraft(ctx context.Context, draftID, ownerID string) (Draft, error) {
 	if strings.TrimSpace(ownerID) == "" {
 		return Draft{}, ErrOwnerRequired

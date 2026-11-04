@@ -98,6 +98,7 @@ func registerPanelRoutes(srv *khttp.Server, d PanelDeps) {
 	r := srv.Route("/")
 
 	if d.Contentpkg != nil {
+		registerDraftRoutes(srv, d.Contentpkg)
 		r.POST("/api/v1/live-drafts/{id}/apply", func(c khttp.Context) error {
 			var body struct {
 				OwnerID          string `json:"owner_id"`
@@ -108,9 +109,12 @@ func registerPanelRoutes(srv *khttp.Server, d PanelDeps) {
 			if err := decodeJSONBody(c, &body); err != nil {
 				return badRequest(c, err)
 			}
+			if strings.TrimSpace(body.OwnerID) == "" || body.FencingToken <= 0 || body.ExpectedRevision <= 0 || strings.TrimSpace(body.PreflightID) == "" {
+				return c.JSON(http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid_apply_request"})
+			}
 			journal, err := d.Contentpkg.Apply(c.Request().Context(), param(c, "id"), body.OwnerID, body.FencingToken, body.ExpectedRevision, body.PreflightID)
 			if err != nil {
-				return internal(c, err)
+				return draftApplyError(c, err)
 			}
 			return c.JSON(http.StatusOK, map[string]any{"ok": true, "journal": journal})
 		})

@@ -80,6 +80,23 @@ HTTP 绑定经 `google.api.http` 注解，生成代码由 `make proto` 产出（
 **新接口必须沿用该信封**并在评审说明）。口播「合并选中/拆分/全部动作」走
 `/koubo/merge`、`/koubo/seg/split`、`/koubo/actions_all`。
 
+### 2.1 草稿路由
+
+| HTTP | `owner_id` 位置 | 说明 |
+|---|---|---|
+| GET `/api/v1/live-drafts` | query | 按查询范围列出草稿，返回 `draft_id/revision/summary/committed` 等选择字段 |
+| GET `/api/v1/live-drafts/{id}` | query | 读取查询范围内的草稿详情及 apply 所需租约字段 |
+| POST `/api/v1/live-drafts/{id}/apply` | JSON body | 复用编辑租约、fencing token 与 expected revision CAS 提交草稿 |
+
+**`owner_id` 非安全边界，仅供多会话/多实例区分。** 当前 local 回环校验和 lan/collector
+共享管理令牌均不提供用户级认证主体，服务端无法从主体派生 owner；同一共享管理令牌持有者可传入
+任意 `owner_id` 切换查询范围。列表过滤及详情的不存在/范围不匹配统一 404 都只是应用级查询语义，
+不得当作用户权限校验。若未来需要用户级隔离，必须先引入可区分的认证主体，再由主体派生或校验 owner。
+
+上述三条路由每次请求都会追加 `action=draft_owner_unverified`、`actor=unknown_principal`、
+`target=owner_id` 的审计，显式标记 owner 未经认证主体验证；审计不记录 token、请求体或 owner 参数值。
+apply 仍保留原有写操作审计。
+
 ## 3. WS 事件流（`/ws/v1/events`）
 
 - **ticket 申领**：`POST /api/v1/ws-ticket?session_id=...` → `{ticket, expires_at, ttl_s}`；

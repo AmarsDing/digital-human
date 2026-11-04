@@ -39,7 +39,8 @@ func newDraftListItem(d contentpkg.Draft) draftListItem {
 	}
 }
 
-// registerDraftRoutes 增加 owner 隔离的列表与详情；提交仍复用 panels.go 中既有 apply 路由。
+// registerDraftRoutes 增加按 owner_id 查询范围过滤的列表与详情；提交仍复用 panels.go 中既有 apply 路由。
+// owner_id 仅供多会话/多实例区分，不是安全边界；共享管理令牌持有者可传入任意值。
 func registerDraftRoutes(srv *khttp.Server, svc *contentpkg.Service) {
 	if svc == nil {
 		return
