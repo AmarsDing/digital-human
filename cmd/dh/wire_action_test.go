@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/teamwork/digital-human/internal/biz/action"
 	"github.com/teamwork/digital-human/internal/biz/capability"
 	"github.com/teamwork/digital-human/internal/conf"
+	enginevidu "github.com/teamwork/digital-human/internal/engine/vidu"
 )
 
 type realActionSenderStub struct{}
@@ -52,6 +56,75 @@ func TestActionCapabilityThreeStates(t *testing.T) {
 	if got := mx.Get("action_remote"); got != capability.Unconfigured {
 		t.Fatalf("未装配动作库必须 unconfigured, got %s", got)
 	}
+}
+
+func TestViduCapabilityUsesRealLibrariesProbe(t *testing.T) {
+	t.Run("probe success is real and shared with action remote", func(t *testing.T) {
+		var calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			if r.URL.Path != "/live/v1/action-libraries" {
+				t.Fatalf("unexpected probe path: %s", r.URL.Path)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"list":[]}`))
+		}))
+		defer srv.Close()
+
+		cfg := &conf.Config{}
+		cfg.Engine.Mode = "real"
+		cfg.Engine.ViduKey = "vda_test"
+		remote := enginevidu.NewActionRemote(enginevidu.NewClient(enginevidu.Options{
+			APIKey: cfg.Engine.ViduKey, BaseURL: srv.URL, RetryDelay: time.Millisecond,
+		}))
+		rt := &panelRuntime{remote: remote, actionProbe: func(ctx context.Context) error {
+			_, err := remote.Libraries(ctx)
+			return err
+		}}
+		mx := provideCapabilities(cfg, rt, nil, nil, nil)(context.Background())
+		if got := mx.Get("vidu"); got != capability.Real {
+			t.Fatalf("Libraries 真实 HTTP 探测成功后 vidu=%s, want real", got)
+		}
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("vidu 必须复用动作库同一次探测，HTTP calls=%d want 1", got)
+		}
+	})
+
+	t.Run("probe failure is unknown", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"code":"UNAUTHORIZED","message":"bad key"}`))
+		}))
+		defer srv.Close()
+
+		cfg := &conf.Config{}
+		cfg.Engine.Mode = "real"
+		cfg.Engine.ViduKey = "vda_bad"
+		remote := enginevidu.NewActionRemote(enginevidu.NewClient(enginevidu.Options{
+			APIKey: cfg.Engine.ViduKey, BaseURL: srv.URL, RetryDelay: time.Millisecond,
+		}))
+		rt := &panelRuntime{remote: remote, actionProbe: func(ctx context.Context) error {
+			_, err := remote.Libraries(ctx)
+			return err
+		}}
+		mx := provideCapabilities(cfg, rt, nil, nil, nil)(context.Background())
+		if got := mx.Get("vidu"); got != capability.Unknown {
+			t.Fatalf("Libraries 探测失败后 vidu=%s, want unknown", got)
+		}
+	})
+
+	t.Run("missing key is unconfigured without probing", func(t *testing.T) {
+		cfg := &conf.Config{}
+		cfg.Engine.Mode = "real"
+		rt := &panelRuntime{actionProbe: func(context.Context) error {
+			t.Fatal("未配置 Key 不得发起 Libraries 探测")
+			return nil
+		}}
+		mx := provideCapabilities(cfg, rt, nil, nil, nil)(context.Background())
+		if got := mx.Get("vidu"); got != capability.Unconfigured {
+			t.Fatalf("未配置 Key 时 vidu=%s, want unconfigured", got)
+		}
+	})
 }
 
 func TestCapabilityProbeCachesSuccessAndFailure(t *testing.T) {

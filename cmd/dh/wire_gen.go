@@ -1324,6 +1324,9 @@ func provideCapabilities(
 			mx["vidu"] = capability.Unconfigured
 		default:
 			mx["vidu"] = capability.Unknown
+			if actionProbe != nil && actionProbe.check(ctx) == nil {
+				mx["vidu"] = capability.Real
+			}
 		}
 		mx["koubo_actiongen"] = capability.Unconfigured
 		if rt != nil && rt.actionGen != nil {

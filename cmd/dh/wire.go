@@ -1316,7 +1316,8 @@ func provideCapabilities(
 		if cfg.Engine.Mode == "real" && cfg.Engine.ViduKey != "" && cfg.Engine.OmniVoiceAddr != "" && media.FfmpegAvailable() {
 			mx["greeting_audio_file"] = capability.Unknown
 		}
-		// vidu：dev=fake；real 缺凭据=unconfigured；装配了真实客户端但未探测=unknown。
+		// vidu：dev=fake；real 缺凭据=unconfigured；real 只能由 Libraries() 的真实
+		// HTTP 探测成功建立，并复用 action_remote 的缓存结果，Key 存在本身不构成证据。
 		switch {
 		case cfg.Engine.Mode == "dev":
 			mx["vidu"] = capability.Fake
@@ -1324,6 +1325,9 @@ func provideCapabilities(
 			mx["vidu"] = capability.Unconfigured
 		default:
 			mx["vidu"] = capability.Unknown
+			if actionProbe != nil && actionProbe.check(ctx) == nil {
+				mx["vidu"] = capability.Real
+			}
 		}
 		mx["koubo_actiongen"] = capability.Unconfigured
 		if rt != nil && rt.actionGen != nil {
