@@ -421,7 +421,9 @@ func (c *ViduController) Say(ctx context.Context, text, mode string) (string, er
 		Cancel: cancel,
 		Done:   taskCtx.Done(),
 	}
-	lease, err := c.own.Acquire(ctx, Request{Task: task, Preempt: true, RespectSong: true})
+	lease, err := c.own.Acquire(ctx, Request{
+		Task: task, Preempt: true, RespectSong: true, RespectChat: mode == "danmaku",
+	})
 	if err != nil {
 		return "", err
 	}

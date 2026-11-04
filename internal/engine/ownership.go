@@ -54,11 +54,12 @@ type Task struct {
 	Done   <-chan struct{} // 持有者真正退出时关闭；nil 表示只能靠 Release 判定
 }
 
-// Request 复刻蓝本的三个布尔开关。
+// Request 描述喂流权请求；RespectSong/RespectChat 只约束主动抢占，不阻塞自然结束后的接管。
 type Request struct {
 	Task        Task
 	Preempt     bool
 	RespectSong bool
+	RespectChat bool
 	WaitOnly    bool
 	WaitMax     time.Duration
 }
@@ -250,7 +251,7 @@ var ErrEmptyTaskID = errors.New("engine: acquire without task id")
 
 // Acquire 复刻 _own_audio：
 //   - 空闲直接拿权；
-//   - preempt 且非 wait_only 且非“respect_song 遇到歌曲”时，取消旧持有者并等 ≤1.5s；
+//   - preempt 且非 wait_only，且未因 respect_song/respect_chat 保护持有者时，取消旧持有者并等 ≤1.5s；
 //   - 4 轮未退出则强制收回（type7 + 250ms + gen++）；
 //   - 否则排队等待；25s 后持有者仍在喂流则继续等，否则（非歌曲/聊天）强制收回。
 func (o *Ownership) Acquire(ctx context.Context, req Request) (*Lease, error) {
@@ -280,7 +281,8 @@ func (o *Ownership) Acquire(ctx context.Context, req Request) (*Lease, error) {
 		victim := cur
 		o.mu.Unlock()
 
-		preempt := req.Preempt && !req.WaitOnly && !(req.RespectSong && victim.task.Song)
+		preempt := req.Preempt && !req.WaitOnly &&
+			!(req.RespectSong && victim.task.Song) && !(req.RespectChat && victim.task.Chat)
 		if preempt {
 			attempts++
 			if attempts > o.cfg.Rounds {

@@ -477,6 +477,156 @@ func TestControllerSayRespectsActiveSong(t *testing.T) {
 	}
 }
 
+func TestControllerSayPriorityCombinations(t *testing.T) {
+	t.Run("song protects against typed chat", func(t *testing.T) {
+		ws := newFakeWS(t)
+		var ttsCalls atomic.Int32
+		ctl := newTestController(t, ws, synthesizerFunc(func(context.Context, tts.JobRequest) ([]byte, error) {
+			ttsCalls.Add(1)
+			return audio.WavBytes(audio.TonePCM(100)), nil
+		}), nil)
+		if _, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-priority-song"}); err != nil {
+			t.Fatal(err)
+		}
+		defer ctl.Stop(context.Background(), "done")
+
+		songDone := make(chan struct{})
+		songCtx, cancelSong := context.WithCancel(context.Background())
+		defer cancelSong()
+		lease, err := ctl.own.Acquire(context.Background(), Request{Task: Task{
+			ID: "song-priority", Song: true, Cancel: cancelSong, Done: songDone,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		waiting := make(chan error, 1)
+		go func() {
+			_, err := ctl.Say(context.Background(), "等待歌曲结束", "chat")
+			waiting <- err
+		}()
+		select {
+		case <-songCtx.Done():
+			t.Fatal("打字聊天抢占了歌曲")
+		case err := <-waiting:
+			t.Fatalf("歌曲未结束时口播不应完成: %v", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+		if got := ttsCalls.Load(); got != 0 {
+			t.Fatalf("等待歌曲时不应提前合成口播，TTS 调用=%d", got)
+		}
+		close(songDone)
+		lease.Release()
+		select {
+		case err := <-waiting:
+			if err != nil {
+				t.Fatalf("歌曲结束后口播失败: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("歌曲结束后口播未获得喂流权")
+		}
+	})
+
+	for _, tc := range []struct {
+		name         string
+		holderMode   string
+		incomingMode string
+		wantPreempt  bool
+	}{
+		{name: "danmaku waits for typed chat", holderMode: "chat", incomingMode: "danmaku"},
+		{name: "typed chat preempts danmaku", holderMode: "danmaku", incomingMode: "chat", wantPreempt: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := newFakeWS(t)
+			firstStarted := make(chan struct{})
+			firstCancelled := make(chan struct{})
+			releaseFirst := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+			defer release()
+			var calls atomic.Int32
+			stream := streamingSynthesizerFunc(func(ctx context.Context, _ tts.JobRequest, emit func(context.Context, []byte) error) error {
+				if calls.Add(1) == 1 {
+					if err := emit(ctx, audio.TonePCM(100)); err != nil {
+						return err
+					}
+					close(firstStarted)
+					select {
+					case <-releaseFirst:
+						return nil
+					case <-ctx.Done():
+						close(firstCancelled)
+						return ctx.Err()
+					}
+				}
+				return emit(ctx, audio.TonePCM(100))
+			})
+			ctl := newTestController(t, ws, nil, func(cfg *ViduConfig) { cfg.StreamTTS = stream })
+			if _, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-priority-chat"}); err != nil {
+				t.Fatal(err)
+			}
+			defer ctl.Stop(context.Background(), "done")
+
+			holderDone := make(chan error, 1)
+			go func() {
+				_, err := ctl.Say(context.Background(), "正在播出的口播", tc.holderMode)
+				holderDone <- err
+			}()
+			select {
+			case <-firstStarted:
+			case <-time.After(time.Second):
+				t.Fatal("首个口播未开始")
+			}
+			incomingDone := make(chan error, 1)
+			go func() {
+				_, err := ctl.Say(context.Background(), "随后到达的口播", tc.incomingMode)
+				incomingDone <- err
+			}()
+
+			if tc.wantPreempt {
+				select {
+				case err := <-incomingDone:
+					if err != nil {
+						t.Fatalf("打字聊天抢占弹幕失败: %v", err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("打字聊天未抢占弹幕")
+				}
+				select {
+				case <-firstCancelled:
+				case <-time.After(time.Second):
+					t.Fatal("弹幕未被取消")
+				}
+				if err := <-holderDone; err != nil {
+					t.Fatalf("被抢占的弹幕应正常结束: %v", err)
+				}
+				return
+			}
+
+			select {
+			case <-firstCancelled:
+				t.Fatal("弹幕抢占了打字聊天")
+			case err := <-incomingDone:
+				t.Fatalf("打字聊天未结束时弹幕不应完成: %v", err)
+			case <-time.After(50 * time.Millisecond):
+			}
+			if got := calls.Load(); got != 1 {
+				t.Fatalf("弹幕等待聊天时不应提前合成，TTS 调用=%d", got)
+			}
+			release()
+			for _, done := range []chan error{holderDone, incomingDone} {
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Fatalf("聊天结束后口播失败: %v", err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("聊天结束后弹幕未获得喂流权")
+				}
+			}
+		})
+	}
+}
+
 func TestControllerStartAuthenticatesWebSocket(t *testing.T) {
 	ws := newFakeWS(t)
 	ctl := newTestController(t, ws, stubTTS{wav: audio.WavBytes(audio.TonePCM(100))}, nil)
