@@ -54,7 +54,7 @@ func NewData(cfg *conf.Config, logger *slog.Logger) (*Data, func(), error) {
 
 	if cfg.Data.PostgresDSN != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		drv, err := entsql.Open(dialect.Postgres, cfg.Data.PostgresDSN)
+		drv, err := openPostgres(cfg.Data.PostgresDSN)
 		if err == nil {
 			d.Ent = ent.NewClient(ent.Driver(drv))
 			if err = d.Ent.Schema.Create(ctx); err != nil {
@@ -179,8 +179,16 @@ func (d *Data) Probe(ctx context.Context) Status {
 	return d.status
 }
 
+func openPostgres(dsn string) (*entsql.Driver, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, err
+	}
+	return entsql.OpenDB(dialect.Postgres, db), nil
+}
+
 func connectPostgres(ctx context.Context, dsn string) (*ent.Client, *sql.DB, error) {
-	drv, err := entsql.Open(dialect.Postgres, dsn)
+	drv, err := openPostgres(dsn)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"os"
 	"testing"
@@ -28,16 +29,17 @@ func pgGate(t *testing.T) *ent.Client {
 	if dsn == "" {
 		t.Skip("DH_TEST_PG_DSN 未设置：跳过 PG 契约测试，待真机验证")
 	}
-	drv, err := entsql.Open(dialect.Postgres, dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		t.Skipf("postgres 不可达：跳过，待真机验证: %v", err)
+		t.Fatalf("pgx 驱动或 DSN 初始化失败: %v", err)
 	}
+	drv := entsql.OpenDB(dialect.Postgres, db)
 	client := ent.NewClient(ent.Driver(drv))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := client.Schema.Create(ctx); err != nil {
 		_ = client.Close()
-		t.Skipf("ent 迁移失败：跳过，待真机验证: %v", err)
+		t.Fatalf("已显式提供 DH_TEST_PG_DSN，PG 连接或 Ent 自动迁移失败: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	return client
@@ -166,6 +168,56 @@ func TestEntIdempotencyStoreContract(t *testing.T) {
 	}
 }
 
+// PG 事务契约：回滚不落行，提交后可读回。
+func TestEntPostgresTransactionContract(t *testing.T) {
+	client := pgGate(t)
+	ctx := context.Background()
+	key := "tx:contract-" + time.Now().Format("150405.000000")
+	defer func() { _ = client.IdemKey.DeleteOneID(key).Exec(ctx) }()
+
+	create := func(tx *ent.Tx) error {
+		return tx.IdemKey.Create().
+			SetID(key).
+			SetResult(map[string]any{"ok": true}).
+			SetExpiresAtMs(time.Now().Add(time.Hour).UnixMilli()).
+			SetCreatedAtMs(time.Now().UnixMilli()).
+			Exec(ctx)
+	}
+	tx, err := client.Tx(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := create(tx); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.IdemKey.Get(ctx, key); !ent.IsNotFound(err) {
+		t.Fatalf("回滚后仍可读: %v", err)
+	}
+
+	tx, err = client.Tx(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := create(tx); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	row, err := client.IdemKey.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Result["ok"] != true {
+		t.Fatalf("提交后回读不一致: %+v", row.Result)
+	}
+}
+
 // Recover PG 路径：starting/live/stopping/ended 混合行 → 当前场次跳过，
 // 其余（含刚更新的）全标 crash_recovered。本机无 PG 时 Skip（待真机演练）。
 func TestManagerRecoverWithEntSessionStore(t *testing.T) {
@@ -196,9 +248,10 @@ func TestManagerRecoverWithEntSessionStore(t *testing.T) {
 	bus := eventbus.New(64)
 	sink := NewEntEventSink(client)
 	m := live.NewManagerWithStores(bus, sink, live.NewFakeController(slog.Default()), store, nil, nil)
+	m.SetModePolicy(live.ModePolicy{AllowLocalPreview: true, EngineMode: "dev"})
 
 	// Manager 开播一场：它是 Recover 时唯一真正活着的未完成场次，必须被跳过。
-	if _, _, _, err := m.StartIdempotent(ctx, "", "p", "a", ""); err != nil {
+	if _, _, _, _, err := m.StartIdempotentWithMode(ctx, "", "p", "a", "", live.StartRequest{Mode: live.ModeLocalPreview}); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _, _, _ = m.Stop(ctx, "test_cleanup") }()

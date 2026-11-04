@@ -2,9 +2,11 @@ package repo
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/teamwork/digital-human/internal/biz/live"
 	"github.com/teamwork/digital-human/internal/data/ent"
 )
@@ -57,7 +59,7 @@ func (s *EntIdempotencyStore) Put(ctx context.Context, key string, r live.Result
 	if err == nil {
 		return nil
 	}
-	if !ent.IsConstraintError(err) {
+	if !isIdempotencyConstraintError(err) {
 		return err
 	}
 	existing, gerr := s.client.IdemKey.Get(ctx, key)
@@ -70,7 +72,7 @@ func (s *EntIdempotencyStore) Put(ctx context.Context, key string, r live.Result
 				SetExpiresAtMs(nowMs + ttl.Milliseconds()).
 				SetCreatedAtMs(nowMs).
 				Save(ctx)
-			if ent.IsConstraintError(err) {
+			if isIdempotencyConstraintError(err) {
 				return nil // 又被并发写者抢先，首写胜出
 			}
 			return err
@@ -84,6 +86,14 @@ func (s *EntIdempotencyStore) Put(ctx context.Context, key string, r live.Result
 		SetResult(result).
 		SetExpiresAtMs(nowMs + ttl.Milliseconds()).
 		Exec(ctx)
+}
+
+func isIdempotencyConstraintError(err error) bool {
+	if ent.IsConstraintError(err) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func resultToJSON(r live.Result) map[string]any {
