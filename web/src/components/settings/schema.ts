@@ -63,6 +63,7 @@ export const GROUP_SPECS: GroupSpec[] = [
       { key: 'avatar_id', label: '形象 ID', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' },
       { key: 'image_uri', label: '形象图片 URI', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' },
       { key: 'greeting', label: '开场白', type: 'textarea' },
+      { key: 'greeting_audio_file', label: '开场白音频文件', type: 'text', hint: '配置后优先于文本；解码或播放失败会显式报错，不回退 TTS' },
       { key: 'idle_timeout_s', label: '闲置挂断', type: 'number', min: 30, max: 3600, suffix: '秒' },
       { key: 'max_duration_s', label: '单场上限', type: 'number', min: 300, max: 14400, suffix: '秒' },
       { key: 'record_enabled', label: '托管录制', type: 'toggle' }
@@ -74,6 +75,7 @@ export const GROUP_SPECS: GroupSpec[] = [
       avatar_id: '',
       image_uri: '',
       greeting: '',
+      greeting_audio_file: '',
       idle_timeout_s: 300,
       max_duration_s: 1800,
       record_enabled: false

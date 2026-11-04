@@ -66,6 +66,19 @@ func TestProvideRefsSignalerDevKeepsFake(t *testing.T) {
 	}
 }
 
+func TestGreetingAudioCapabilityDoesNotFakeUnavailablePlayback(t *testing.T) {
+	for _, mode := range []string{"dev", "real"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := &conf.Config{}
+			cfg.Engine.Mode = mode
+			mx := provideCapabilities(cfg, nil, nil, nil, nil)(context.Background())
+			if got := mx.Get("greeting_audio_file"); got != "unconfigured" {
+				t.Fatalf("无真实文件播放装配时 greeting_audio_file=%s, want unconfigured", got)
+			}
+		})
+	}
+}
+
 // TestProvideRefsSignalerRealBridgesType11 G3-1：real 模式桥到控制器 type11 出口。
 func TestProvideRefsSignalerRealBridgesType11(t *testing.T) {
 	cfg := &conf.Config{}

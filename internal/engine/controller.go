@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/teamwork/digital-human/internal/biz/live"
+	"github.com/teamwork/digital-human/internal/biz/media"
 	"github.com/teamwork/digital-human/internal/engine/tts"
 	"github.com/teamwork/digital-human/internal/engine/vidu"
 	"github.com/teamwork/digital-human/pkg/audio"
@@ -49,11 +50,12 @@ type Synthesizer interface {
 type FeedSink func(ctx context.Context, pcm []byte) error
 
 type ViduConfig struct {
-	Client *vidu.Client
-	WS     vidu.WSOptions
-	TTS    Synthesizer
-	Voice  string
-	Logger *slog.Logger
+	Client          *vidu.Client
+	WS              vidu.WSOptions
+	TTS             Synthesizer
+	GreetingDecoder media.Decoder
+	Voice           string
+	Logger          *slog.Logger
 
 	// RecordingEnabled 建场时带 enable_recording=true（装配默认）；
 	// 场级 StartOpts.RecordingEnabled 为 true 时同样开启，两者任一成立即带。
@@ -453,6 +455,54 @@ func (c *ViduController) Say(ctx context.Context, text, mode string) (string, er
 	c.mu.Lock()
 	c.lastActivity = time.Now()
 	c.mu.Unlock()
+	return id, nil
+}
+
+// PlayGreeting 解码配置的音频文件并直接喂 PCM；不发送 type10，也不经过 TTS。
+// 文件缺失、损坏、格式不支持或解码器未配置均显式报错，由 Manager 决定降级事件。
+func (c *ViduController) PlayGreeting(ctx context.Context, file string) (string, error) {
+	file = strings.TrimSpace(file)
+	if file == "" {
+		return "", errors.New("engine: empty greeting audio file")
+	}
+	c.mu.Lock()
+	liveOK := c.phase == "live"
+	c.mu.Unlock()
+	if !liveOK {
+		return "", errors.New("engine: not live")
+	}
+	if c.cfg.GreetingDecoder == nil {
+		return "", errors.New("engine: greeting audio decoder not configured")
+	}
+	pcm, err := c.cfg.GreetingDecoder.Decode(ctx, file)
+	if err != nil {
+		return "", fmt.Errorf("engine: greeting audio decode: %w", err)
+	}
+	if len(pcm) == 0 {
+		return "", errors.New("engine: greeting audio decode returned empty PCM")
+	}
+
+	id := uuid.NewString()
+	taskCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	lease, err := c.own.Acquire(ctx, Request{Task: Task{
+		ID: "greeting-" + id, Cancel: cancel, Done: taskCtx.Done(),
+	}, Preempt: true})
+	if err != nil {
+		return "", err
+	}
+	defer lease.Release()
+	sig := c.currentSig()
+	if sig == nil {
+		return "", errors.New("engine: signaling unavailable")
+	}
+	sender := &leaseSender{sig: sig, lease: lease, onSent: c.noteFed}
+	_, err = c.feed.Feed(ctx, sender, pcm, func() bool {
+		return !lease.Valid() || c.isStopped()
+	})
+	if err != nil && !errors.Is(err, ErrFeedInterrupted) && !errors.Is(err, ErrFeedStopped) {
+		return "", err
+	}
 	return id, nil
 }
 

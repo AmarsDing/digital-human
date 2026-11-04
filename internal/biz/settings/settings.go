@@ -26,7 +26,7 @@ type Group struct {
 func DefaultGroups() []Group {
 	return []Group{
 		{ID: "session", Title: "会话", Effective: "next_session", Values: map[string]any{
-			"idle_timeout_s": 300, "max_duration_s": 1800,
+			"idle_timeout_s": 300, "max_duration_s": 1800, "greeting_audio_file": "",
 		}},
 		{ID: "voice", Title: "声音", Effective: "immediate", Values: map[string]any{
 			"voice_id": "", "speed": 1.0,

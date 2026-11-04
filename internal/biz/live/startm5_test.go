@@ -20,6 +20,28 @@ func (c *sayFailController) Say(context.Context, string, string) (string, error)
 	return "", errors.New("tts down")
 }
 
+type greetingController struct {
+	*FakeController
+	sayCalls  int
+	playCalls int
+	playFile  string
+	playErr   error
+}
+
+func (c *greetingController) Say(context.Context, string, string) (string, error) {
+	c.sayCalls++
+	return "say", nil
+}
+
+func (c *greetingController) PlayGreeting(_ context.Context, file string) (string, error) {
+	c.playCalls++
+	c.playFile = file
+	if c.playErr != nil {
+		return "", c.playErr
+	}
+	return "greeting", nil
+}
+
 func hasEvent(sink *MemorySink, typ string) bool {
 	for _, e := range sink.All() {
 		if e.Type == typ {
@@ -131,6 +153,55 @@ func TestStartGreetingFailureDegrades(t *testing.T) {
 	}
 	if !hasEvent(sink, "greeting_failed") {
 		t.Fatal("缺 greeting_failed 事件")
+	}
+}
+
+func TestStartGreetingAudioFilePreferredAndFailClosed(t *testing.T) {
+	tests := []struct {
+		name    string
+		playErr error
+	}{
+		{name: "文件优先且不调用TTS"},
+		{name: "文件错误显式上报且不回退TTS", playErr: errors.New("unsupported audio")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			sink := NewMemorySink(64)
+			ctrl := &greetingController{FakeController: NewFakeController(quietLogger()), playErr: tt.playErr}
+			m := newPreviewManager(eventbus.New(64), sink, ctrl, nil, nil, newRefFixture(t))
+			m.SetGreetingAudioFileFn(func() string { return " greeting.wav " })
+
+			if _, phase, _, err := m.Start(ctx, "p1", "", ""); err != nil || phase != PhaseLive {
+				t.Fatalf("start: phase=%s err=%v", phase, err)
+			}
+			if ctrl.playCalls != 1 || ctrl.playFile != "greeting.wav" {
+				t.Fatalf("文件播放 calls=%d file=%q", ctrl.playCalls, ctrl.playFile)
+			}
+			if ctrl.sayCalls != 0 {
+				t.Fatalf("配置音频文件后 TTS Say 必须 0 次, got %d", ctrl.sayCalls)
+			}
+			if got := hasEvent(sink, "greeting_failed"); got != (tt.playErr != nil) {
+				t.Fatalf("greeting_failed presence=%v, want %v", got, tt.playErr != nil)
+			}
+		})
+	}
+}
+
+func TestStartGreetingAudioWithoutPlayerDoesNotFallBackToTTS(t *testing.T) {
+	ctx := context.Background()
+	sink := NewMemorySink(64)
+	ctrl := &recController{}
+	m := newPreviewManager(eventbus.New(64), sink, ctrl, nil, nil, newRefFixture(t))
+	m.SetGreetingAudioFileFn(func() string { return "greeting.mp3" })
+	if _, phase, _, err := m.Start(ctx, "p1", "", ""); err != nil || phase != PhaseLive {
+		t.Fatalf("start: phase=%s err=%v", phase, err)
+	}
+	if ctrl.said != 0 {
+		t.Fatalf("缺少文件播放器时不得回退 TTS, Say=%d", ctrl.said)
+	}
+	if !hasEvent(sink, "greeting_failed") {
+		t.Fatal("缺少文件播放器必须显式上报 greeting_failed")
 	}
 }
 

@@ -154,10 +154,17 @@ func provideController(cfg *conf.Config, deps *realDeps, logger *slog.Logger) li
 	}
 	if deps != nil {
 		opts.RealFactory = func(context.Context) (live.Controller, error) {
+			var greetingDecoder media.Decoder
+			if decoder, err := media.NewFfmpegDecoder(); err == nil {
+				greetingDecoder = decoder
+			} else {
+				greetingDecoder = media.UnavailableDecoder{Err: err}
+			}
 			return engine.NewViduController(engine.ViduConfig{
 				Client:           deps.vidu,
 				WS:               enginevidu.WSOptions{URL: cfg.Engine.ViduWSURL},
 				TTS:              deps.tts,
+				GreetingDecoder:  greetingDecoder,
 				Logger:           logger,
 				RecordingEnabled: cfg.Engine.RecordingEnabled,
 			})
@@ -404,6 +411,11 @@ func provideManager(
 	// F34 遗留接线：misc.record_enabled 开播时读入 StartOpts.RecordingEnabled。
 	m.SetRecordingFlagFn(func() bool {
 		v, _ := st.Value(context.Background(), "misc", "record_enabled").(bool)
+		return v
+	})
+	// G09：音频文件优先；只在未配置文件时保留文本/TTS 回退。
+	m.SetGreetingAudioFileFn(func() string {
+		v, _ := st.Value(context.Background(), "session", "greeting_audio_file").(string)
 		return v
 	})
 	return m
@@ -1151,6 +1163,12 @@ func provideCapabilities(
 			}
 		} else {
 			mx["tts"] = capability.Unconfigured
+		}
+		// greeting_audio_file：dev 未装配文件播放器；real 仅在真实控制器依赖与 ffmpeg
+		// 齐全时标 unknown（未做端到端探测），否则 unconfigured，绝不冒充 real/fake 成功。
+		mx["greeting_audio_file"] = capability.Unconfigured
+		if cfg.Engine.Mode == "real" && cfg.Engine.ViduKey != "" && cfg.Engine.OmniVoiceAddr != "" && media.FfmpegAvailable() {
+			mx["greeting_audio_file"] = capability.Unknown
 		}
 		// vidu：dev=fake；real 缺凭据=unconfigured；装配了真实客户端但未探测=unknown。
 		switch {

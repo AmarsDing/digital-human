@@ -172,10 +172,17 @@ func provideController(cfg *conf.Config, deps *realDeps, logger *slog.Logger) li
 	}
 	if deps != nil {
 		opts.RealFactory = func(context.Context) (live.Controller, error) {
+			var greetingDecoder media.Decoder
+			if decoder, err := media.NewFfmpegDecoder(); err == nil {
+				greetingDecoder = decoder
+			} else {
+				greetingDecoder = media.UnavailableDecoder{Err: err}
+			}
 			return engine.NewViduController(engine.ViduConfig{
 				Client:           deps.vidu,
 				WS:               vidu.WSOptions{URL: cfg.Engine.ViduWSURL},
 				TTS:              deps.tts,
+				GreetingDecoder:  greetingDecoder,
 				Logger:           logger,
 				RecordingEnabled: cfg.Engine.RecordingEnabled,
 			})
@@ -422,6 +429,11 @@ func provideManager(
 
 	m.SetRecordingFlagFn(func() bool {
 		v, _ := st.Value(context.Background(), "misc", "record_enabled").(bool)
+		return v
+	})
+
+	m.SetGreetingAudioFileFn(func() string {
+		v, _ := st.Value(context.Background(), "session", "greeting_audio_file").(string)
 		return v
 	})
 	return m
@@ -1149,6 +1161,11 @@ func provideCapabilities(
 			}
 		} else {
 			mx["tts"] = capability.Unconfigured
+		}
+
+		mx["greeting_audio_file"] = capability.Unconfigured
+		if cfg.Engine.Mode == "real" && cfg.Engine.ViduKey != "" && cfg.Engine.OmniVoiceAddr != "" && media.FfmpegAvailable() {
+			mx["greeting_audio_file"] = capability.Unknown
 		}
 
 		switch {

@@ -46,15 +46,16 @@ var ErrPreviewWhilePushing = errors.New("local_preview_while_pushing")
 // RefImageURIs 是会话运行中经信令 prompt_operation 推送的参考图（非建场 body），
 // ≤3 且有序，取 Vidu ssupload URI 而非本地路径；Greeting 空串 = 不发。
 type StartOpts struct {
-	SessionID        string
-	Model            string // 默认 vidu-s2
-	ViduAvatarID     string // 与 ViduImageURI 二选一，URI 优先
-	ViduImageURI     string
-	VoiceID          string
-	ActionLibraryID  string   // 空=不带 action 段
-	RefImageURIs     []string // ≤3，有序；Vidu ssupload URI（非本地路径）
-	Greeting         string
-	RecordingEnabled bool
+	SessionID         string
+	Model             string // 默认 vidu-s2
+	ViduAvatarID      string // 与 ViduImageURI 二选一，URI 优先
+	ViduImageURI      string
+	VoiceID           string
+	ActionLibraryID   string   // 空=不带 action 段
+	RefImageURIs      []string // ≤3，有序；Vidu ssupload URI（非本地路径）
+	Greeting          string
+	GreetingAudioFile string
+	RecordingEnabled  bool
 }
 
 // Controller 是引擎端口；FakeController 只允许在显式 dev 模式装配。
@@ -141,6 +142,8 @@ type Manager struct {
 	captionSplit func() bool
 	// recordingFlag F34 遗留接线：settings misc.record_enabled 开播时读入 StartOpts。
 	recordingFlag func() bool
+	// greetingAudioFile 配置文件存在时优先于文本，播放失败不得回退 TTS。
+	greetingAudioFile func() string
 }
 
 // SetPushGate 注入推流前置检查依赖（DZ 批）。allowUnpushed 仅本地预览调试用。
@@ -322,6 +325,13 @@ func (m *Manager) SetRecordingFlagFn(fn func() bool) {
 	m.mu.Unlock()
 }
 
+// SetGreetingAudioFileFn 注入 session.greeting_audio_file 开播时读取口。
+func (m *Manager) SetGreetingAudioFileFn(fn func() string) {
+	m.mu.Lock()
+	m.greetingAudioFile = fn
+	m.mu.Unlock()
+}
+
 type snapshot struct {
 	id         string
 	liveID     string
@@ -444,6 +454,9 @@ func buildConfigSnapshot(personaID string, opts StartOpts, prof avatar.ResolvedP
 	}
 	if opts.ActionLibraryID != "" {
 		snap["action_library_id"] = opts.ActionLibraryID
+	}
+	if opts.GreetingAudioFile != "" {
+		snap["greeting_audio_file"] = opts.GreetingAudioFile
 	}
 	return snap
 }
@@ -574,9 +587,13 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 	// StartOpts；与装配层 yaml 常开（ViduConfig.RecordingEnabled）任一成立即带 enable_recording。
 	m.mu.Lock()
 	recFlag := m.recordingFlag
+	greetingAudioFile := m.greetingAudioFile
 	m.mu.Unlock()
 	if recFlag != nil && recFlag() {
 		opts.RecordingEnabled = true
+	}
+	if greetingAudioFile != nil {
+		opts.GreetingAudioFile = strings.TrimSpace(greetingAudioFile())
 	}
 	liveID, err := m.ctrl.Start(ctx, opts)
 	if err != nil {
@@ -658,10 +675,24 @@ func (m *Manager) startLocked(ctx context.Context, personaID, avatarID, greeting
 		m.publish(ctx, "refs_push_skipped", map[string]any{"skipped": prof.UnsyncedRefCount})
 		slog.Default().Warn("refs skipped: not synced to vidu", "skipped", prof.UnsyncedRefCount)
 	}
-	// M5 v3 §3.2：greeting 非空 → 走既有 Say 链路一次；TTS 失败发 greeting_failed，不阻断开播。
-	if strings.TrimSpace(opts.Greeting) != "" {
+	// G09：配置音频文件时只走文件；缺播放器或解码失败均显式上报，绝不回退 TTS。
+	if opts.GreetingAudioFile != "" {
+		player, ok := m.ctrl.(interface {
+			PlayGreeting(ctx context.Context, file string) (string, error)
+		})
+		var err error
+		if !ok {
+			err = errors.New("greeting audio player not configured")
+		} else {
+			_, err = player.PlayGreeting(ctx, opts.GreetingAudioFile)
+		}
+		if err != nil {
+			m.publish(ctx, "greeting_failed", map[string]any{"error": err.Error(), "source": "file"})
+			slog.Default().Warn("greeting audio file failed, live continues", "err", err)
+		}
+	} else if strings.TrimSpace(opts.Greeting) != "" {
 		if _, err := m.Say(ctx, opts.Greeting, "greeting"); err != nil {
-			m.publish(ctx, "greeting_failed", map[string]any{"error": err.Error()})
+			m.publish(ctx, "greeting_failed", map[string]any{"error": err.Error(), "source": "tts"})
 			slog.Default().Warn("greeting tts failed, live continues", "err", err)
 		}
 	}

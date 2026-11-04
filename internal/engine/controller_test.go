@@ -209,6 +209,53 @@ func waitFor(t *testing.T, d time.Duration, fn func() bool, msg string) {
 	t.Fatalf("timeout waiting: %s", msg)
 }
 
+type stubGreetingDecoder struct {
+	pcm []byte
+	err error
+}
+
+func (d stubGreetingDecoder) Decode(context.Context, string) ([]byte, error) { return d.pcm, d.err }
+func (d stubGreetingDecoder) Name() string                                   { return "stub" }
+
+func TestPlayGreetingUsesFileDecoderWithoutTTS(t *testing.T) {
+	tests := []struct {
+		name    string
+		decoder stubGreetingDecoder
+		wantErr bool
+	}{
+		{name: "合法文件直接喂流", decoder: stubGreetingDecoder{pcm: audio.TonePCM(120)}},
+		{name: "损坏或不支持显式报错", decoder: stubGreetingDecoder{err: errors.New("decode failed")}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := newFakeWS(t)
+			var ttsCalls int
+			ctl := newTestController(t, ws, synthesizerFunc(func(context.Context, tts.JobRequest) ([]byte, error) {
+				ttsCalls++
+				return audio.WavBytes(audio.TonePCM(100)), nil
+			}), func(cfg *ViduConfig) { cfg.GreetingDecoder = tt.decoder })
+			if _, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-greeting"}); err != nil {
+				t.Fatal(err)
+			}
+			defer ctl.Stop(context.Background(), "test done")
+			_, err := ctl.PlayGreeting(context.Background(), "greeting.wav")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("PlayGreeting err=%v, wantErr=%v", err, tt.wantErr)
+			}
+			if ttsCalls != 0 {
+				t.Fatalf("文件开场白不得调用 TTS, calls=%d", ttsCalls)
+			}
+			_, _, _, type10, bin, _ := ws.counts()
+			if type10 != 0 {
+				t.Fatalf("文件开场白不得发送口播文本 type10=%d", type10)
+			}
+			if !tt.wantErr && bin == 0 {
+				t.Fatal("合法音频文件必须真实喂流")
+			}
+		})
+	}
+}
+
 func TestControllerStartSayFeedsPCM(t *testing.T) {
 	ws := newFakeWS(t)
 	pcm := audio.TonePCM(220) // 220ms ≈ 10560B，>2 个 100ms 分片
