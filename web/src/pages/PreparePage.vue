@@ -145,7 +145,7 @@ onMounted(() => void perform(async () => {
       <h2>素材和形象怎么准备</h2>
       <p>形象图片、人设、音色和开场白在“数字人档案”中配置；本地图片可直接上传。同步 Vidu 会把形象提交给服务商，需要已开通的 API 权限与额度。</p>
       <p>音频、口播、歌曲和参考图在直播台各面板管理。这里的准备备注不会代替口播脚本，也不会自动播放素材。</p>
-      <div class="prepare-actions"><NtButton type="button" @click="router.push('/avatars')">管理数字人档案</NtButton><NtButton type="button" @click="router.push('/')">管理口播与素材</NtButton></div>
+      <div class="prepare-actions"><NtButton type="button" @click="router.push('/avatars')">管理数字人档案</NtButton><NtButton type="button" @click="router.push('/models')">模型与接入</NtButton><NtButton type="button" @click="router.push('/')">管理口播与素材</NtButton></div>
     </section>
   </div>
 </template>

@@ -6,11 +6,13 @@ import AvatarsPage from '../pages/AvatarsPage.vue'
 import AvatarEditPage from '../pages/AvatarEditPage.vue'
 import SessionsPage from '../pages/SessionsPage.vue'
 import PreparePage from '../pages/PreparePage.vue'
+import ModelsPage from '../pages/ModelsPage.vue'
 
 export default createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/prepare', component: PreparePage },
+    { path: '/models', component: ModelsPage },
     { path: '/', component: StagePage },
     { path: '/settings', component: SettingsPage },
     { path: '/platform', component: PlatformPage },

@@ -527,6 +527,7 @@ async function doClearTranscript(): Promise<void> {
       <span v-if="activeAvatarName" class="stage-mode__avatar">当前形象：{{ activeAvatarName }}</span>
       <div class="stage-mode__actions">
         <button type="button" class="tool" @click="router.push('/prepare')">场次准备</button>
+        <button type="button" class="tool" @click="router.push('/models')">模型与接入</button>
         <MetricsPopover :items="stats" />
       </div>
     </div>
