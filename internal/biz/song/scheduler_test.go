@@ -33,6 +33,22 @@ func (p *gatePlayer) Play(ctx context.Context, filePath, _ string) error {
 func (p *gatePlayer) Stop(context.Context) error { return nil }
 func (p *gatePlayer) Name() string               { return "gate" }
 
+type emptyClaimObserver struct {
+	*MemoryRequestStore
+	emptyClaim chan struct{}
+}
+
+func (o *emptyClaimObserver) ClaimNext(ctx context.Context, playID string) (Request, bool, error) {
+	req, ok, err := o.MemoryRequestStore.ClaimNext(ctx, playID)
+	if err == nil && !ok {
+		select {
+		case o.emptyClaim <- struct{}{}:
+		default:
+		}
+	}
+	return req, ok, err
+}
+
 func newQueueService(t *testing.T, player media.Player, names ...string) *Service {
 	t.Helper()
 	dir := t.TempDir()
@@ -164,7 +180,8 @@ func TestSongRecoveryPlayingUnknownAndManualRequeue(t *testing.T) {
 	if err != nil || !ok || claimed.ID != playing.ID {
 		t.Fatalf("模拟崩溃前 playing: %+v ok=%v err=%v", claimed, ok, err)
 	}
-	scheduler := NewScheduler(store, svc, time.Now)
+	observer := &emptyClaimObserver{MemoryRequestStore: store, emptyClaim: make(chan struct{}, 1)}
+	scheduler := NewScheduler(observer, svc, time.Now)
 	if err := scheduler.Recover(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -187,6 +204,13 @@ func TestSongRecoveryPlayingUnknownAndManualRequeue(t *testing.T) {
 	}
 	player.release <- struct{}{}
 	waitRequestStatus(t, store, queued.ID, RequestDone)
+	select {
+	case <-observer.emptyClaim:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待完成后的自动调度超时")
+	}
+	scheduler.mu.Lock()
+	scheduler.mu.Unlock()
 	if err := store.ResolveUnknown(ctx, playing.ID, RequestReconcileRequeue); err != nil {
 		t.Fatal(err)
 	}
