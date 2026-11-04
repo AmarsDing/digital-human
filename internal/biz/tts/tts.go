@@ -8,6 +8,7 @@ package tts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ var (
 	ErrVoiceNotFound = errors.New("音色不存在")
 	ErrEmptyText     = errors.New("试听文本为空")
 	ErrQueueFull     = errors.New("合成队列已满")
+	ErrUnavailable   = errors.New("tts_unavailable")
 )
 
 // Voice 对齐蓝本 voices 列表项：name/label/kind。
@@ -100,7 +102,7 @@ func (u UnavailableSynth) Synth(context.Context, string, string) ([]byte, error)
 	if reason == "" {
 		reason = "omnivoice_addr_not_configured"
 	}
-	return nil, errors.New("tts_unavailable: " + reason)
+	return nil, fmt.Errorf("%w: %s", ErrUnavailable, reason)
 }
 
 // Queue 对齐蓝本队列状态：deep<=8，active 为正在合成数。
@@ -214,15 +216,21 @@ func (s *Service) Files() (string, []media.File, error) {
 	return s.lib.Dir(), files, err
 }
 
-// Source 返回合成器来源（fake/real/unavailable），由真实装配决定，面板不得硬编码。
+// Source 返回合成器来源，严格使用 real/fake/unconfigured/unknown 四值。
 func (s *Service) Source() string {
-	switch s.synth.(type) {
+	switch synth := s.synth.(type) {
+	case nil:
+		return "unconfigured"
 	case *FakeSynth:
 		return "fake"
 	case UnavailableSynth:
-		return "unavailable"
+		return "unconfigured"
+	case interface{ Source() string }:
+		if synth.Source() == "real" {
+			return "real"
+		}
 	}
-	return "real"
+	return "unknown"
 }
 
 // LibDir 返回素材库目录，供服务端做 import-folder 白名单校验（不外泄给客户端）。
