@@ -1,29 +1,23 @@
-// Package contentpkg 实现深化方案 v2 §7.1/§7.3/§7.4 内容包原子性骨架：
-//   - LiveDraft 版本化草稿：单写者 owner + fencing_token + expected_revision CAS（§7.3），
-//     撞车 409，旧 fencing token 显式拒绝；
-//   - ApplyJournal 提交点/补偿/崩溃重放账本（§7.4）；
-//   - 跨 FileStore 提交点与补偿本期为空实现，**显式返回 ErrNotImplemented**，
-//     绝不静默半成功（切片 0 DoD）。
+// Package contentpkg 实现版本化草稿、跨 FileStore generation 发布与崩溃恢复。
 package contentpkg
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
-// AssetRef 版本化资产引用（§7.1）：三字段齐全才允许进入公开链路。
+// AssetRef 版本化资产引用：至少绑定 revision 或 content_hash 才允许进入公开链路。
 type AssetRef struct {
 	ID          string `json:"id"`
 	Revision    int64  `json:"revision"`
 	ContentHash string `json:"content_hash"`
 }
 
-// Valid 三字段齐全。
-func (r AssetRef) Valid() bool { return r.ID != "" && r.Revision > 0 && r.ContentHash != "" }
+func (r AssetRef) Valid() bool { return r.ID != "" && (r.Revision > 0 || r.ContentHash != "") }
 
-// Draft 状态（§7.1）。
 const (
 	DraftEditing        = "editing"
 	DraftStaging        = "staging"
@@ -34,7 +28,6 @@ const (
 	DraftManualRequired = "manual_required"
 )
 
-// Journal 状态（§7.4）。
 const (
 	JournalPreparing      = "preparing"
 	JournalStaging        = "staging"
@@ -45,19 +38,14 @@ const (
 )
 
 var (
-	// ErrDraftNotFound 草稿不存在。
 	ErrDraftNotFound = errors.New("contentpkg: draft not found")
-	// ErrConflict CAS 冲突（409）：revision 不匹配或 lease 被他人持有。
-	ErrConflict = errors.New("contentpkg: conflict")
-	// ErrStaleFencing 旧 fencing token 写者被拒（§7.3：lease 过期接管后旧写者不得继续提交）。
-	ErrStaleFencing = errors.New("contentpkg: stale fencing token")
-	// ErrNotLeaseOwner 非 lease 持有者。
+	ErrConflict      = errors.New("contentpkg: conflict")
+	ErrStaleFencing  = errors.New("contentpkg: stale fencing token")
 	ErrNotLeaseOwner = errors.New("contentpkg: not lease owner")
-	// ErrNotImplemented 跨 FileStore 提交点/补偿本期空实现——显式失败而非半成功。
-	ErrNotImplemented = errors.New("contentpkg: cross-filestore commit not implemented (slice 0 skeleton)")
+	// ErrNotImplemented 保留给旧调用方做错误兼容；已接入 FileStore 的发布不再返回它。
+	ErrNotImplemented = errors.New("contentpkg: cross-filestore commit not implemented")
 )
 
-// Draft LiveDraft 记录（§7.1 逐字段）。
 type Draft struct {
 	ID                   string
 	TemplateID           string
@@ -75,22 +63,24 @@ type Draft struct {
 	UpdatedAtMs          int64
 }
 
-// ApplyStep 单步计划/执行记录（§7.4：固定顺序 Koubo → Choreo → Ref/其他）。
 type ApplyStep struct {
-	Name      string `json:"name"`      // koubo / choreo / refs ...
-	FileStore string `json:"filestore"` // 目标 FileStore 实例
-	Action    string `json:"action"`    // write_immutable / stage_generation / flip_pointer ...
-	Status    string `json:"status"`    // pending/done/failed
+	Name                string   `json:"name"`
+	FileStore           string   `json:"filestore"`
+	Action              string   `json:"action"`
+	Status              string   `json:"status"`
+	Generation          AssetRef `json:"generation"`
+	OldGeneration       AssetRef `json:"old_generation"`
+	OldGenerationExists bool     `json:"old_generation_exists"`
+	Error               string   `json:"error,omitempty"`
 }
 
-// Journal ApplyJournal 记录（§7.4 逐字段）。
 type Journal struct {
 	ApplyID        string
 	DraftID        string
 	BaseRevision   int64
-	Snapshot       map[string]any // 完整新快照（prepare 先持久化再动 FileStore）
+	Snapshot       map[string]any
 	Steps          []ApplyStep
-	OldValues      map[string]any // 可变 FileStore 旧 generation/hash（补偿逆序恢复用）
+	OldValues      map[string]any
 	Status         string
 	LastError      string
 	CreatedAtMs    int64
@@ -99,14 +89,11 @@ type Journal struct {
 	RolledBackAtMs int64
 }
 
-// Store 草稿/账本持久化端口。
+// Store 保持原有草稿/账本端口；发布进度与启动恢复使用额外窄接口。
 type Store interface {
 	CreateDraft(ctx context.Context, d Draft) error
 	GetDraft(ctx context.Context, id string) (Draft, bool, error)
-	// CASUpdateDraft 条件更新：WHERE id AND revision=expectedRevision AND fencing_token=fencingToken；
-	// 影响 0 行 → 由调用方区分 ErrConflict/ErrStaleFencing。
 	CASUpdateDraft(ctx context.Context, id string, expectedRevision, fencingToken int64, mutate func(*Draft)) (Draft, error)
-	// ForceUpdateDraft lease 接管用：仅按 id 更新（先读后写，调用方负责递增 fencing）。
 	UpdateDraftLease(ctx context.Context, id, ownerID string, leaseUntilMs, newFencingToken int64) error
 	CreateJournal(ctx context.Context, j Journal) error
 	GetJournal(ctx context.Context, applyID string) (Journal, bool, error)
@@ -114,28 +101,30 @@ type Store interface {
 	ListJournalsByDraft(ctx context.Context, draftID string) ([]Journal, error)
 }
 
-// Service 草稿 CAS 与 apply 骨架服务。
 type Service struct {
-	store Store
-	now   func() time.Time
-	newID func() string
+	store      Store
+	now        func() time.Time
+	newID      func() string
+	fileStores map[string]FileStore
+	mu         sync.Mutex
 }
 
-// NewService store 为 nil 时所有写操作显式报错（fail-closed）。
 func NewService(store Store) *Service {
 	return &Service{store: store, now: time.Now, newID: newUUID}
 }
 
-// CreateDraft 以 revision=1/editing 建档。
 func (s *Service) CreateDraft(ctx context.Context, templateID string, baseRevision, schemaVersion int64, snapshot map[string]any) (Draft, error) {
 	if s.store == nil {
 		return Draft{}, errors.New("contentpkg: store not wired")
+	}
+	if err := validateAssetRefs(snapshot); err != nil {
+		return Draft{}, err
 	}
 	nowMs := s.now().UnixMilli()
 	d := Draft{
 		ID: s.newID(), TemplateID: templateID, BaseTemplateRevision: baseRevision,
 		Revision: 1, SchemaVersion: schemaVersion, Status: DraftEditing,
-		Snapshot: snapshot, SnapshotHash: hashSnapshot(snapshot),
+		Snapshot: cloneMap(snapshot), SnapshotHash: HashSnapshot(snapshot),
 		CreatedAtMs: nowMs, UpdatedAtMs: nowMs,
 	}
 	if err := s.store.CreateDraft(ctx, d); err != nil {
@@ -144,12 +133,12 @@ func (s *Service) CreateDraft(ctx context.Context, templateID string, baseRevisi
 	return d, nil
 }
 
-// OpenEdit 申请/续约单写者 lease（§7.3）：
-// lease 有效期内仅 holder 可续约；过期可被新 owner 接管，**fencing_token 必须递增**。
 func (s *Service) OpenEdit(ctx context.Context, draftID, ownerID string, leaseTTL time.Duration) (Draft, error) {
 	if s.store == nil {
 		return Draft{}, errors.New("contentpkg: store not wired")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	d, ok, err := s.store.GetDraft(ctx, draftID)
 	if err != nil {
 		return Draft{}, err
@@ -157,11 +146,14 @@ func (s *Service) OpenEdit(ctx context.Context, draftID, ownerID string, leaseTT
 	if !ok {
 		return Draft{}, ErrDraftNotFound
 	}
+	if d.Status != DraftEditing {
+		return Draft{}, fmt.Errorf("%w: draft status %q is not editable", ErrConflict, d.Status)
+	}
 	nowMs := s.now().UnixMilli()
 	if d.LeaseUntilMs > nowMs && d.OwnerID != "" && d.OwnerID != ownerID {
 		return Draft{}, fmt.Errorf("%w: lease held by %q until %d", ErrConflict, d.OwnerID, d.LeaseUntilMs)
 	}
-	newToken := d.FencingToken + 1 // 接管与续约都递增，旧 token 一律作废
+	newToken := d.FencingToken + 1
 	if err := s.store.UpdateDraftLease(ctx, draftID, ownerID, nowMs+leaseTTL.Milliseconds(), newToken); err != nil {
 		return Draft{}, err
 	}
@@ -169,12 +161,15 @@ func (s *Service) OpenEdit(ctx context.Context, draftID, ownerID string, leaseTT
 	return d, err
 }
 
-// Save CAS 保存快照（§7.3）：owner + fencing_token + expected_revision 三重校验，
-// 撞车返回 ErrConflict（服务层映射 409）。
 func (s *Service) Save(ctx context.Context, draftID, ownerID string, fencingToken, expectedRevision int64, snapshot map[string]any) (Draft, error) {
 	if s.store == nil {
 		return Draft{}, errors.New("contentpkg: store not wired")
 	}
+	if err := validateAssetRefs(snapshot); err != nil {
+		return Draft{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	d, ok, err := s.store.GetDraft(ctx, draftID)
 	if err != nil {
 		return Draft{}, err
@@ -182,103 +177,66 @@ func (s *Service) Save(ctx context.Context, draftID, ownerID string, fencingToke
 	if !ok {
 		return Draft{}, ErrDraftNotFound
 	}
-	nowMs := s.now().UnixMilli()
 	if d.OwnerID != ownerID {
 		return Draft{}, fmt.Errorf("%w: owner %q != %q", ErrNotLeaseOwner, ownerID, d.OwnerID)
 	}
-	if d.LeaseUntilMs <= nowMs {
+	if d.LeaseUntilMs <= s.now().UnixMilli() {
 		return Draft{}, fmt.Errorf("%w: lease expired", ErrConflict)
 	}
-	if fencingToken < d.FencingToken {
-		return Draft{}, fmt.Errorf("%w: token %d < current %d", ErrStaleFencing, fencingToken, d.FencingToken)
+	if fencingToken != d.FencingToken {
+		return Draft{}, fmt.Errorf("%w: token %d != current %d", ErrStaleFencing, fencingToken, d.FencingToken)
 	}
 	if d.Revision != expectedRevision {
 		return Draft{}, fmt.Errorf("%w: expected_revision %d != current %d", ErrConflict, expectedRevision, d.Revision)
 	}
-	updated, err := s.store.CASUpdateDraft(ctx, draftID, expectedRevision, fencingToken, func(cur *Draft) {
-		cur.Snapshot = snapshot
-		cur.SnapshotHash = hashSnapshot(snapshot)
+	if d.Status != DraftEditing {
+		return Draft{}, fmt.Errorf("%w: draft status %q not editable", ErrConflict, d.Status)
+	}
+	nowMs := s.now().UnixMilli()
+	return s.store.CASUpdateDraft(ctx, draftID, expectedRevision, fencingToken, func(cur *Draft) {
+		cur.Snapshot = cloneMap(snapshot)
+		cur.SnapshotHash = HashSnapshot(snapshot)
 		cur.Revision = expectedRevision + 1
 		cur.UpdatedAtMs = nowMs
 	})
-	if err != nil {
-		return Draft{}, err
-	}
-	return updated, nil
 }
 
-// Apply 内容包发布骨架（§7.4）：
-// prepare——CAS 草稿 editing→staging、写 journal（完整新快照 + 每步计划 + 旧值占位）；
-// commit/rollback——跨 FileStore 提交点与补偿本期空实现，**显式返回 ErrNotImplemented**，
-// journal 状态落 manual_required 语义之外的显式失败标注（status=staging + last_error）。
-func (s *Service) Apply(ctx context.Context, draftID, ownerID string, fencingToken, expectedRevision int64, preflightID string) (Journal, error) {
-	if s.store == nil {
-		return Journal{}, errors.New("contentpkg: store not wired")
+func validateAssetRefs(value any) error {
+	switch v := value.(type) {
+	case AssetRef:
+		if !v.Valid() {
+			return fmt.Errorf("%w: asset %q is not bound to revision or content hash", ErrConflict, v.ID)
+		}
+	case *AssetRef:
+		if v != nil {
+			return validateAssetRefs(*v)
+		}
+	case map[string]any:
+		for _, item := range v {
+			if err := validateAssetRefs(item); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if err := validateAssetRefs(item); err != nil {
+				return err
+			}
+		}
+	case []AssetRef:
+		for _, item := range v {
+			if err := validateAssetRefs(item); err != nil {
+				return err
+			}
+		}
+	case map[string]AssetRef:
+		for _, item := range v {
+			if err := validateAssetRefs(item); err != nil {
+				return err
+			}
+		}
 	}
-	d, ok, err := s.store.GetDraft(ctx, draftID)
-	if err != nil {
-		return Journal{}, err
-	}
-	if !ok {
-		return Journal{}, ErrDraftNotFound
-	}
-	nowMs := s.now().UnixMilli()
-	if d.OwnerID != ownerID {
-		return Journal{}, fmt.Errorf("%w: owner %q != %q", ErrNotLeaseOwner, ownerID, d.OwnerID)
-	}
-	if fencingToken < d.FencingToken {
-		return Journal{}, fmt.Errorf("%w: token %d < current %d", ErrStaleFencing, fencingToken, d.FencingToken)
-	}
-	if d.Revision != expectedRevision {
-		return Journal{}, fmt.Errorf("%w: expected_revision %d != current %d", ErrConflict, expectedRevision, d.Revision)
-	}
-	if d.Status != DraftEditing {
-		return Journal{}, fmt.Errorf("%w: draft status %q not editable", ErrConflict, d.Status)
-	}
-	// prepare：先持久化 journal（完整新快照 + 固定顺序计划），再 CAS 草稿状态。
-	j := Journal{
-		ApplyID: s.newID(), DraftID: draftID, BaseRevision: d.Revision,
-		Snapshot: d.Snapshot,
-		Steps: []ApplyStep{
-			{Name: "koubo", FileStore: "koubo", Action: "write_immutable+flip_pointer", Status: "pending"},
-			{Name: "choreo", FileStore: "choreo", Action: "stage_generation+flip_pointer", Status: "pending"},
-			{Name: "refs", FileStore: "refs", Action: "write_immutable+flip_pointer", Status: "pending"},
-		},
-		OldValues:   map[string]any{},
-		Status:      JournalPreparing,
-		CreatedAtMs: nowMs, UpdatedAtMs: nowMs,
-	}
-	if err := s.store.CreateJournal(ctx, j); err != nil {
-		return Journal{}, err
-	}
-	if _, err := s.store.CASUpdateDraft(ctx, draftID, expectedRevision, fencingToken, func(cur *Draft) {
-		cur.Status = DraftStaging
-		cur.PreflightID = preflightID
-		cur.UpdatedAtMs = nowMs
-	}); err != nil {
-		_ = s.store.UpdateJournalStatus(ctx, j.ApplyID, JournalManualRequired, "draft cas after journal: "+err.Error(), s.now().UnixMilli())
-		return Journal{}, err
-	}
-	// commit/rollback 空实现：显式未实现错误，journal 落 staging + 原因；不静默半成功。
-	errNotImpl := fmt.Errorf("apply %s: %w", j.ApplyID, ErrNotImplemented)
-	_ = s.store.UpdateJournalStatus(ctx, j.ApplyID, JournalStaging, ErrNotImplemented.Error(), s.now().UnixMilli())
-	j.Status = JournalStaging
-	j.LastError = ErrNotImplemented.Error()
-	return j, errNotImpl
-}
-
-// ReplayJournal 崩溃重放骨架（§7.4）：按 apply_id 查唯一 commit——
-// 有 commit 记录则 roll-forward，无则回滚旧完整集合；本期显式 ErrNotImplemented。
-func (s *Service) ReplayJournal(ctx context.Context, applyID string) error {
-	if s.store == nil {
-		return errors.New("contentpkg: store not wired")
-	}
-	if _, ok, err := s.store.GetJournal(ctx, applyID); err != nil {
-		return err
-	} else if !ok {
-		return fmt.Errorf("contentpkg: journal %q not found", applyID)
-	}
-	return ErrNotImplemented
+	return nil
 }
 
 func newUUID() string {

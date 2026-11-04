@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -11,8 +12,6 @@ import (
 	"github.com/teamwork/digital-human/internal/data/ent/livedraft"
 )
 
-// EntDraftStore contentpkg.Store 的 Ent 实现：
-// CAS 用条件更新（WHERE revision=? AND fencing_token<=?），0 行受影响 → 409 语义。
 type EntContentpkgStore struct {
 	client *ent.Client
 }
@@ -52,7 +51,7 @@ func (s *EntContentpkgStore) GetDraft(ctx context.Context, id string) (contentpk
 	return draftFromEnt(row), true, nil
 }
 
-// CASUpdateDraft fencing 语义：fencingToken >= 库存值 才允许（旧 token 拒绝）。
+// CASUpdateDraft 同时匹配 revision 与当前 fencing token，拒绝旧 token 和伪造的未来 token。
 func (s *EntContentpkgStore) CASUpdateDraft(ctx context.Context, id string, expectedRevision, fencingToken int64, mutate func(*contentpkg.Draft)) (contentpkg.Draft, error) {
 	row, err := s.client.LiveDraft.Query().Where(livedraft.ID(id)).Only(ctx)
 	if err != nil {
@@ -62,14 +61,15 @@ func (s *EntContentpkgStore) CASUpdateDraft(ctx context.Context, id string, expe
 		return contentpkg.Draft{}, err
 	}
 	d := draftFromEnt(row)
-	if fencingToken < d.FencingToken {
-		return contentpkg.Draft{}, fmt.Errorf("%w: token %d < current %d", contentpkg.ErrStaleFencing, fencingToken, d.FencingToken)
+	if fencingToken != d.FencingToken {
+		return contentpkg.Draft{}, fmt.Errorf("%w: token %d != current %d", contentpkg.ErrStaleFencing, fencingToken, d.FencingToken)
 	}
 	mutate(&d)
 	n, err := s.client.LiveDraft.Update().
 		Where(
 			livedraft.ID(id),
 			livedraft.Revision(expectedRevision),
+			livedraft.FencingToken(fencingToken),
 		).
 		SetTemplateID(d.TemplateID).
 		SetBaseTemplateRevision(d.BaseTemplateRevision).
@@ -110,23 +110,13 @@ func (s *EntContentpkgStore) UpdateDraftLease(ctx context.Context, id, ownerID s
 }
 
 func (s *EntContentpkgStore) CreateJournal(ctx context.Context, j contentpkg.Journal) error {
-	steps := make([]map[string]any, 0, len(j.Steps))
-	for _, st := range j.Steps {
-		steps = append(steps, map[string]any{
-			"name": st.Name, "filestore": st.FileStore, "action": st.Action, "status": st.Status,
-		})
-	}
-	stepStatus := map[string]any{}
-	for _, st := range j.Steps {
-		stepStatus[st.Name] = st.Status
-	}
 	_, err := s.client.ApplyJournal.Create().
 		SetID(j.ApplyID).
 		SetDraftID(j.DraftID).
 		SetBaseRevision(j.BaseRevision).
 		SetSnapshotJSON(j.Snapshot).
-		SetStepsJSON(steps).
-		SetStepStatusJSON(stepStatus).
+		SetStepsJSON(journalStepsToEnt(j.Steps)).
+		SetStepStatusJSON(journalStepStatusToEnt(j.Steps)).
 		SetOldValuesJSON(j.OldValues).
 		SetStatus(j.Status).
 		SetLastError(j.LastError).
@@ -147,6 +137,47 @@ func (s *EntContentpkgStore) GetJournal(ctx context.Context, applyID string) (co
 		return contentpkg.Journal{}, false, err
 	}
 	return journalFromEnt(row), true, nil
+}
+
+// UpdateJournal 持久化 staged generation、旧 current pointer 与每步状态；状态条件即账本 CAS。
+func (s *EntContentpkgStore) UpdateJournal(ctx context.Context, applyID, expectedStatus string, mutate func(*contentpkg.Journal)) (contentpkg.Journal, error) {
+	row, err := s.client.ApplyJournal.Query().Where(applyjournal.ID(applyID)).Only(ctx)
+	if err != nil {
+		if ent.IsNotFound(err) {
+			return contentpkg.Journal{}, fmt.Errorf("contentpkg: journal %q not found", applyID)
+		}
+		return contentpkg.Journal{}, err
+	}
+	j := journalFromEnt(row)
+	if j.Status != expectedStatus {
+		return contentpkg.Journal{}, fmt.Errorf("%w: journal status %q != expected %q", contentpkg.ErrConflict, j.Status, expectedStatus)
+	}
+	mutate(&j)
+	if j.Status == contentpkg.JournalCommitted && j.CommittedAtMs == 0 {
+		j.CommittedAtMs = j.UpdatedAtMs
+	}
+	if j.Status == contentpkg.JournalRolledBack && j.RolledBackAtMs == 0 {
+		j.RolledBackAtMs = j.UpdatedAtMs
+	}
+	n, err := s.client.ApplyJournal.Update().
+		Where(applyjournal.ID(applyID), applyjournal.Status(expectedStatus)).
+		SetSnapshotJSON(j.Snapshot).
+		SetStepsJSON(journalStepsToEnt(j.Steps)).
+		SetStepStatusJSON(journalStepStatusToEnt(j.Steps)).
+		SetOldValuesJSON(j.OldValues).
+		SetStatus(j.Status).
+		SetLastError(j.LastError).
+		SetUpdatedAtMs(j.UpdatedAtMs).
+		SetCommittedAtMs(j.CommittedAtMs).
+		SetRolledBackAtMs(j.RolledBackAtMs).
+		Save(ctx)
+	if err != nil {
+		return contentpkg.Journal{}, err
+	}
+	if n == 0 {
+		return contentpkg.Journal{}, fmt.Errorf("%w: journal %q status changed", contentpkg.ErrConflict, applyID)
+	}
+	return j, nil
 }
 
 func (s *EntContentpkgStore) UpdateJournalStatus(ctx context.Context, applyID, status, lastErr string, nowMs int64) error {
@@ -186,6 +217,50 @@ func (s *EntContentpkgStore) ListJournalsByDraft(ctx context.Context, draftID st
 	return out, nil
 }
 
+func (s *EntContentpkgStore) ListPendingJournals(ctx context.Context) ([]contentpkg.Journal, error) {
+	rows, err := s.client.ApplyJournal.Query().
+		Where(applyjournal.StatusIn(
+			contentpkg.JournalPreparing,
+			contentpkg.JournalStaging,
+			contentpkg.JournalCommitPending,
+			contentpkg.JournalCommitted,
+			contentpkg.JournalRolledBack,
+		)).
+		Order(ent.Asc(applyjournal.FieldCreatedAtMs), ent.Asc(applyjournal.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]contentpkg.Journal, 0, len(rows))
+	for _, row := range rows {
+		j := journalFromEnt(row)
+		pending := j.Status == contentpkg.JournalPreparing || j.Status == contentpkg.JournalStaging || j.Status == contentpkg.JournalCommitPending
+		if j.Status == contentpkg.JournalCommitted || j.Status == contentpkg.JournalRolledBack {
+			draft, err := s.client.LiveDraft.Query().Where(livedraft.ID(j.DraftID)).Only(ctx)
+			if err != nil && !ent.IsNotFound(err) {
+				return nil, err
+			}
+			if j.Status == contentpkg.JournalCommitted {
+				pending = j.LastError != "" || ent.IsNotFound(err)
+				for _, step := range j.Steps {
+					if step.Status != "done" {
+						pending = true
+					}
+				}
+				if err == nil && draft.Status != contentpkg.DraftCommitted {
+					pending = true
+				}
+			} else if err == nil && draft.Status != contentpkg.DraftRolledBack && draft.Status != contentpkg.DraftEditing {
+				pending = true
+			}
+		}
+		if pending {
+			out = append(out, j)
+		}
+	}
+	return out, nil
+}
+
 func draftFromEnt(r *ent.LiveDraft) contentpkg.Draft {
 	return contentpkg.Draft{
 		ID: r.ID, TemplateID: r.TemplateID, BaseTemplateRevision: r.BaseTemplateRevision,
@@ -196,14 +271,71 @@ func draftFromEnt(r *ent.LiveDraft) contentpkg.Draft {
 	}
 }
 
+func journalStepsToEnt(steps []contentpkg.ApplyStep) []map[string]any {
+	out := make([]map[string]any, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, map[string]any{
+			"name": step.Name, "filestore": step.FileStore, "action": step.Action, "status": step.Status,
+			"generation":            assetRefToMap(step.Generation),
+			"old_generation":        assetRefToMap(step.OldGeneration),
+			"old_generation_exists": step.OldGenerationExists,
+			"error":                 step.Error,
+		})
+	}
+	return out
+}
+
+func journalStepStatusToEnt(steps []contentpkg.ApplyStep) map[string]any {
+	out := map[string]any{}
+	for _, step := range steps {
+		out[step.Name] = step.Status
+	}
+	return out
+}
+
+func assetRefToMap(ref contentpkg.AssetRef) map[string]any {
+	return map[string]any{"id": ref.ID, "revision": ref.Revision, "content_hash": ref.ContentHash}
+}
+
+func assetRefFromMap(value any) contentpkg.AssetRef {
+	if ref, ok := value.(contentpkg.AssetRef); ok {
+		return ref
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		return contentpkg.AssetRef{}
+	}
+	return contentpkg.AssetRef{ID: strOf(m["id"]), Revision: int64Of(m["revision"]), ContentHash: strOf(m["content_hash"])}
+}
+
+func int64Of(value any) int64 {
+	switch v := value.(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	default:
+		return 0
+	}
+}
+
+func boolOf(value any) bool {
+	v, _ := value.(bool)
+	return v
+}
+
 func journalFromEnt(r *ent.ApplyJournal) contentpkg.Journal {
 	steps := make([]contentpkg.ApplyStep, 0, len(r.StepsJSON))
 	for _, sm := range r.StepsJSON {
 		steps = append(steps, contentpkg.ApplyStep{
-			Name:      strOf(sm["name"]),
-			FileStore: strOf(sm["filestore"]),
-			Action:    strOf(sm["action"]),
-			Status:    strOf(sm["status"]),
+			Name: strOf(sm["name"]), FileStore: strOf(sm["filestore"]), Action: strOf(sm["action"]), Status: strOf(sm["status"]),
+			Generation: assetRefFromMap(sm["generation"]), OldGeneration: assetRefFromMap(sm["old_generation"]),
+			OldGenerationExists: boolOf(sm["old_generation_exists"]), Error: strOf(sm["error"]),
 		})
 	}
 	return contentpkg.Journal{
@@ -220,7 +352,7 @@ func strOf(v any) string {
 	return s
 }
 
-// SwitchableContentpkgStore 内存启动 → PG 就绪热切（与 SessionStore 同先例）。
+// SwitchableContentpkgStore 内存启动 → PG 就绪热切。
 type SwitchableContentpkgStore struct {
 	mu  sync.RWMutex
 	mem contentpkg.Store
@@ -270,6 +402,24 @@ func (s *SwitchableContentpkgStore) UpdateJournalStatus(ctx context.Context, app
 func (s *SwitchableContentpkgStore) ListJournalsByDraft(ctx context.Context, draftID string) ([]contentpkg.Journal, error) {
 	return s.current().ListJournalsByDraft(ctx, draftID)
 }
+func (s *SwitchableContentpkgStore) UpdateJournal(ctx context.Context, applyID, expectedStatus string, mutate func(*contentpkg.Journal)) (contentpkg.Journal, error) {
+	store, ok := s.current().(contentpkg.JournalStore)
+	if !ok {
+		return contentpkg.Journal{}, fmt.Errorf("%w: journal progress store", contentpkg.ErrUnavailable)
+	}
+	return store.UpdateJournal(ctx, applyID, expectedStatus, mutate)
+}
+func (s *SwitchableContentpkgStore) ListPendingJournals(ctx context.Context) ([]contentpkg.Journal, error) {
+	store, ok := s.current().(contentpkg.JournalRecoveryStore)
+	if !ok {
+		return nil, fmt.Errorf("%w: journal recovery store", contentpkg.ErrUnavailable)
+	}
+	return store.ListPendingJournals(ctx)
+}
 
 var _ contentpkg.Store = (*EntContentpkgStore)(nil)
+var _ contentpkg.JournalStore = (*EntContentpkgStore)(nil)
+var _ contentpkg.JournalRecoveryStore = (*EntContentpkgStore)(nil)
 var _ contentpkg.Store = (*SwitchableContentpkgStore)(nil)
+var _ contentpkg.JournalStore = (*SwitchableContentpkgStore)(nil)
+var _ contentpkg.JournalRecoveryStore = (*SwitchableContentpkgStore)(nil)

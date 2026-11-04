@@ -45,6 +45,12 @@ func (a *App) Run() error {
 	if a.Interaction != nil && a.Interaction.disp != nil {
 		a.Interaction.disp.Run(context.Background(), 30*time.Second)
 	}
+	// 内容包启动重放：committed 账本 roll-forward，其余回滚或显式 manual_required。
+	if a.Contentpkg != nil {
+		if err := a.Contentpkg.ReplayPending(context.Background()); err != nil {
+			a.Logger.Warn("replay content package journals failed", "err", err)
+		}
+	}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- a.Server.Start(context.Background()) }()
