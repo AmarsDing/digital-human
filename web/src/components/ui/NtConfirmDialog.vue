@@ -189,6 +189,6 @@ onBeforeUnmount(() => {
 }
 .nt-confirm__btn:focus-visible {
   outline: 2px solid var(--nt-focus-ring);
-  outline-offset: 2px;
+  outline-offset: 4px;
 }
 </style>

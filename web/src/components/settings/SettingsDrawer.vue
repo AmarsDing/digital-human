@@ -168,7 +168,7 @@ const derivedByGroup = computed((): Record<string, Record<string, string>> => {
 const displayValues = computed(() => ({ ...values.value, ...(derivedByGroup.value[spec.value.id] ?? {}) }))
 
 function effectLabel(effective: string): string {
-  return effective === 'immediate' ? '即时' : '下次连线'
+  return effective === 'immediate' ? '当场生效' : '下一场生效'
 }
 </script>
 
@@ -188,6 +188,7 @@ function effectLabel(effective: string): string {
           type="button"
           class="drawer__tab"
           :class="{ 'drawer__tab--active': g.id === active }"
+          :aria-current="g.id === active ? 'page' : undefined"
           @click="active = g.id"
         >
           <span>{{ g.title }}</span>
@@ -230,13 +231,13 @@ function effectLabel(effective: string): string {
         <p v-if="store.missingGroups.length" class="drawer__missing">
           后端未返回分组：{{ store.missingGroups.join('、') }}（已按本地默认值展示，保存后写入）
         </p>
-        <p v-if="store.error" class="drawer__error">{{ store.error }}</p>
+        <p v-if="store.error" class="drawer__error" role="alert">{{ store.error }}</p>
       </main>
     </div>
 
     <template #footer>
       <div class="foot">
-        <span class="foot__hint">
+        <span class="foot__hint" aria-live="polite">
           <template v-if="savedFlash">{{ savedFlash }}</template>
           <template v-else-if="store.dirtyCount">{{ store.dirtyCount }} 组待保存</template>
           <template v-else>所有修改已保存</template>

@@ -134,6 +134,20 @@ describe('RefsPanel §5.1/§5.2', () => {
     w.unmount()
   })
 
+  it('URL 与资产 ID 输入在组件卸载重建后保留', async () => {
+    const first = mount(RefsPanel)
+    await new Promise((r) => setTimeout(r, 0))
+    await first.find('input[placeholder="图片 URL"]').setValue('https://example.com/draft.png')
+    await first.find('input[placeholder="资产 ID（可选）"]').setValue('draft-image')
+    first.unmount()
+
+    const second = mount(RefsPanel)
+    await new Promise((r) => setTimeout(r, 0))
+    expect((second.find('input[placeholder="图片 URL"]').element as HTMLInputElement).value).toBe('https://example.com/draft.png')
+    expect((second.find('input[placeholder="资产 ID（可选）"]').element as HTMLInputElement).value).toBe('draft-image')
+    second.unmount()
+  })
+
   it('无旧快照不显示撤销；有两组后可恢复上一组', async () => {
     const w = mount(RefsPanel)
     await new Promise((r) => setTimeout(r, 0))

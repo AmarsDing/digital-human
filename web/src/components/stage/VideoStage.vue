@@ -104,6 +104,7 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
 
 <style scoped>
 .stage {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -125,7 +126,9 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
 .stage__right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 .stage__pill {
   padding: 3px 10px;
@@ -164,8 +167,8 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
   color: var(--nt-warn);
 }
 .stage__icon {
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);
   background: transparent;
@@ -200,18 +203,25 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
   overflow: hidden;
 }
 .stage__foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  flex: none;
   gap: 12px;
   padding: 8px 12px;
   border-top: 1px solid var(--nt-border-1);
+  background: var(--nt-data-bg);
 }
 .stage__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .btn {
-  height: 34px;
+  min-height: 44px;
   padding: 0 14px;
   border-radius: var(--nt-radius-m);
   border: 1px solid var(--nt-border-1);
@@ -239,5 +249,37 @@ const badgeStatus = computed(() => (props.degraded ? 'degraded' : 'live'))
   margin: 0;
   color: var(--nt-text-3);
   font-size: var(--nt-fs-micro);
+}
+@media (max-width: 1023px) {
+  .stage__viewport {
+    min-height: 0;
+  }
+  .stage__foot {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+}
+@media (max-width: 767px) {
+  .stage__bar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .stage__viewport {
+    min-height: 180px;
+  }
+}
+@media (max-width: 359px) {
+  .stage__viewport {
+    min-height: 0;
+  }
+  .stage__actions {
+    width: 100%;
+  }
+  .stage__actions .btn {
+    flex: 1;
+    padding: 0 8px;
+  }
 }
 </style>

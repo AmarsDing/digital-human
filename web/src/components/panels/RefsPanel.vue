@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ApiError, classifyApiError } from '../../services/api/client'
 import { useRefsDraftStore } from '../../stores/refsDraft'
 import {
@@ -14,11 +15,10 @@ import {
 } from '../../services/api/panels'
 
 const draft = useRefsDraftStore()
+const { url, imageId } = storeToRefs(draft)
 
 const state = ref<RefsState | null>(null)
 const files = ref<RefFile[]>([])
-const url = ref('')
-const imageId = ref('')
 // 主状态与文件列表拆分（v2 §5.1）：各自 loading/error/重试，互不耦合。
 const stateLoading = ref(false)
 const stateError = ref('')
@@ -340,7 +340,7 @@ onMounted(() => {
 .row input {
   flex: 1;
   min-width: 0;
-  height: 30px;
+  height: 44px;
   padding: 0 8px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);
@@ -353,7 +353,7 @@ onMounted(() => {
   border-color: var(--nt-accent-border);
 }
 .mini {
-  height: 30px;
+  height: 44px;
   padding: 0 10px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);

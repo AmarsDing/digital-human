@@ -43,7 +43,7 @@ onMounted(() => {
     <header class="head">
       <button type="button" @click="router.push('/')">← 返回直播台</button>
       <h1>设置</h1>
-      <span class="head__hint">13 组服务端设置 + 本机界面偏好</span>
+      <span class="head__hint">13 组服务端设置：5 组当场生效 · 8 组下一场生效（人设属下一场）</span>
     </header>
 
     <div class="body">
@@ -159,13 +159,18 @@ onMounted(() => {
   line-height: 1.5;
 }
 @media (max-width: 1023px) {
+  .settings-page { height: auto; min-height: 100%; }
   .body {
-    grid-template-columns: minmax(0, 1fr);
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    overflow: visible;
   }
   .body__drawer {
     height: auto;
     min-height: 0;
   }
+  .body__drawer :deep(.nt-drawer--inline) { height: auto; }
+  .body__drawer :deep(.nt-drawer__body) { flex: none; overflow: visible; }
 }
 </style>

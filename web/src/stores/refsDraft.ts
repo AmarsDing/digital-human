@@ -19,13 +19,17 @@ interface RefsDraftState {
   pending: RefsImage[]
   dirty: boolean
   snapshots: RefsSnapshot[]
+  url: string
+  imageId: string
 }
 
 export const useRefsDraftStore = defineStore('refsDraft', {
   state: (): RefsDraftState => ({
     pending: [],
     dirty: false,
-    snapshots: []
+    snapshots: [],
+    url: '',
+    imageId: ''
   }),
   getters: {
     // 无旧快照（上一组已提交内容）时不显示撤销。

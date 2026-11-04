@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { TranscriptLine } from '../../stores/transcript'
 import type { WireEvent } from '../../services/api/types'
 import { eventTypeLabel } from '../../utils/labels'
@@ -15,6 +15,34 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'clear-transcript'): void }>()
 
 const tab = ref<'transcript' | 'events'>('transcript')
+const focused = ref<'transcript' | 'events'>('transcript')
+
+watch(
+  () => props.showEvents,
+  (show) => {
+    if (!show) {
+      tab.value = 'transcript'
+      focused.value = 'transcript'
+    }
+  }
+)
+
+async function moveFocus(event: KeyboardEvent, currentId: 'transcript' | 'events'): Promise<void> {
+  if (!props.showEvents) return
+  const ids = ['transcript', 'events'] as const
+  const index = ids.indexOf(currentId)
+  let next = index
+  if (event.key === 'ArrowRight') next = (index + 1) % ids.length
+  else if (event.key === 'ArrowLeft') next = (index - 1 + ids.length) % ids.length
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = ids.length - 1
+  else return
+  event.preventDefault()
+  const current = event.currentTarget as HTMLElement
+  focused.value = ids[next]
+  await nextTick()
+  current.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')?.[next]?.focus()
+}
 
 // 新鲜度 1s 心跳（页面隐藏自动暂停）：freshMs 是父级渲染时刻的快照，
 // 这里记录基准时刻并按心跳累加，文案每秒刷新。
@@ -50,21 +78,35 @@ function clock(ts: number): string {
     <header class="rail__head">
       <div class="rail__tabs" role="tablist" aria-label="字幕与事件">
         <button
+          id="rail-tab-transcript"
           type="button"
           role="tab"
+          aria-controls="rail-panel-transcript"
           :aria-selected="tab === 'transcript'"
+          :tabindex="focused === 'transcript' ? 0 : -1"
           :class="{ 'rail__tab--on': tab === 'transcript' }"
+          @focus="focused = 'transcript'"
           @click="tab = 'transcript'"
+          @keydown="moveFocus($event, 'transcript')"
+          @keydown.enter.prevent="tab = 'transcript'"
+          @keydown.space.prevent="tab = 'transcript'"
         >
           字幕
         </button>
         <button
           v-if="showEvents"
+          id="rail-tab-events"
           type="button"
           role="tab"
+          aria-controls="rail-panel-events"
           :aria-selected="tab === 'events'"
+          :tabindex="focused === 'events' ? 0 : -1"
           :class="{ 'rail__tab--on': tab === 'events' }"
+          @focus="focused = 'events'"
           @click="tab = 'events'"
+          @keydown="moveFocus($event, 'events')"
+          @keydown.enter.prevent="tab = 'events'"
+          @keydown.space.prevent="tab = 'events'"
         >
           事件
         </button>
@@ -72,7 +114,13 @@ function clock(ts: number): string {
       <span class="rail__fresh">{{ fresh }}</span>
     </header>
 
-    <div v-if="tab === 'transcript' || !showEvents" class="rail__body" role="tabpanel" aria-label="字幕">
+    <div
+      v-if="tab === 'transcript' || !showEvents"
+      id="rail-panel-transcript"
+      class="rail__body"
+      role="tabpanel"
+      aria-labelledby="rail-tab-transcript"
+    >
       <div class="rail__toolbar">
         <span class="rail__meta">{{ lines.length }} 条 · 上限 200</span>
         <button type="button" @click="emit('clear-transcript')">清空</button>
@@ -86,7 +134,7 @@ function clock(ts: number): string {
       </ul>
     </div>
 
-    <div v-else class="rail__body" role="tabpanel" aria-label="事件">
+    <div v-else id="rail-panel-events" class="rail__body" role="tabpanel" aria-labelledby="rail-tab-events">
       <div class="rail__toolbar">
         <span class="rail__meta">{{ events.length }} 条 · {{ protocol }}</span>
       </div>
@@ -118,6 +166,8 @@ function clock(ts: number): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--nt-border-1);
 }
@@ -126,7 +176,8 @@ function clock(ts: number): string {
   gap: 4px;
 }
 .rail__tabs button {
-  height: 26px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0 10px;
   border-radius: var(--nt-radius-s);
   border: 1px solid transparent;
@@ -163,7 +214,8 @@ function clock(ts: number): string {
   font-size: var(--nt-fs-micro);
 }
 .rail__toolbar button {
-  height: 24px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0 8px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);

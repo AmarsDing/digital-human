@@ -50,6 +50,13 @@ function backendDefaultMatrix(): Record<string, Record<string, unknown>> {
 }
 
 describe('SettingsDrawer', () => {
+  it('13 组设置保持 5 组当场、8 组下一场，人设属于下一场', () => {
+    expect(GROUP_SPECS).toHaveLength(13)
+    expect(GROUP_SPECS.filter((g) => g.effective === 'immediate')).toHaveLength(5)
+    expect(GROUP_SPECS.filter((g) => g.effective === 'next_session')).toHaveLength(8)
+    expect(GROUP_SPECS.find((g) => g.id === 'persona')?.effective).toBe('next_session')
+  })
+
   it('默认值与值类型逐键对齐后端 DefaultGroups 真实定义', () => {
     const backend = backendDefaultMatrix()
     expect(Object.keys(backend)).toHaveLength(13)
@@ -84,6 +91,7 @@ describe('SettingsDrawer', () => {
     const w = mount(SettingsDrawer, { props: { open: true }, global: { plugins: [pinia] } })
     expect(w.findAll('.drawer__tab')).toHaveLength(13)
     expect(w.find('.drawer__group-head h3').text()).toBe('会话')
+    expect(w.find('.drawer__tab[aria-current="page"]').text()).toBe('会话')
   })
 
   it('LLM 降级模型在文本控件与后端数组之间双向归一', async () => {
@@ -106,7 +114,7 @@ describe('SettingsDrawer', () => {
     expect(store.groupById('llm')?.values.fallback_models).toEqual(['model-c', 'model-d'])
   })
 
-  it('人设分组徽标显示下次连线', async () => {
+  it('人设分组徽标显示下一场生效', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useSettingsStore()
@@ -115,7 +123,7 @@ describe('SettingsDrawer', () => {
     await w.findAll('.drawer__tab')[3].trigger('click')
 
     const effect = w.find('.drawer__effect')
-    expect(effect.text()).toBe('下次连线')
+    expect(effect.text()).toBe('下一场生效')
     expect(effect.classes()).not.toContain('drawer__effect--immediate')
   })
 
@@ -130,6 +138,18 @@ describe('SettingsDrawer', () => {
     const secret = w.find('.nt-secret').text()
     expect(secret).toBe('***1234efgh')
     expect(w.html()).not.toContain('abcd1234efgh')
+  })
+
+  it('保存错误可警报，底部状态使用礼貌播报', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useSettingsStore()
+    await store.load()
+    store.error = '保存失败，请重试'
+    const w = mount(SettingsDrawer, { props: { open: true }, global: { plugins: [pinia] } })
+
+    expect(w.get('.drawer__error').attributes('role')).toBe('alert')
+    expect(w.get('.foot__hint').attributes('aria-live')).toBe('polite')
   })
 
   it('修改字段后出现未保存标记，保存按钮可用', async () => {

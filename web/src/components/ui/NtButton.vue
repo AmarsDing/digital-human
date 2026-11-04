@@ -1,8 +1,10 @@
 <script setup>
 defineProps({
   variant: { type: String, default: 'default' }, // default | primary | danger | ghost
-  size: { type: String, default: 'md' }, // md: 42px, sm: 36px
-  disabled: { type: Boolean, default: false }
+  size: { type: String, default: 'md' }, // md/sm 均保持至少 44px 触屏高度
+  disabled: { type: Boolean, default: false },
+  loading: { type: Boolean, default: false },
+  type: { type: String, default: 'button' }
 })
 </script>
 
@@ -10,8 +12,9 @@ defineProps({
   <button
     class="nt-btn"
     :class="[`nt-btn--${variant}`, `nt-btn--${size}`]"
-    :disabled="disabled"
-    type="button"
+    :disabled="disabled || loading"
+    :aria-busy="loading || undefined"
+    :type="type"
   >
     <slot />
   </button>
@@ -34,10 +37,10 @@ defineProps({
   transition: background var(--nt-transition), border-color var(--nt-transition);
 }
 .nt-btn--md {
-  height: 42px;
+  min-height: 44px;
 }
 .nt-btn--sm {
-  height: 36px;
+  min-height: 44px;
   font-size: var(--nt-fs-caption);
 }
 .nt-btn:hover {
@@ -45,8 +48,8 @@ defineProps({
   border-color: var(--nt-border-2);
 }
 .nt-btn:focus-visible {
-  outline: 2px solid var(--nt-focus-ring);
-  outline-offset: 2px;
+  outline: 2px solid var(--nt-accent);
+  outline-offset: 4px;
 }
 .nt-btn--primary {
   background: var(--nt-accent-soft);

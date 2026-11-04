@@ -86,6 +86,49 @@ describe('AvatarsPage（R3-05）', () => {
     expect(h.listAvatars.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
+  it('删除档案使用危险确认：默认取消、Esc 否定、busy 防重入', async () => {
+    h.listAvatars.mockResolvedValue({ avatars: [item({})], total: 1, storage: 'sqlite' })
+    let release: () => void = () => undefined
+    h.deleteAvatar.mockImplementation(() => new Promise<void>((resolve) => { release = resolve }))
+    const w = mount(AvatarsPage, { attachTo: document.body })
+    await flushPromises()
+
+    await w.findAll('button').find((b) => b.text() === '删除')!.trigger('click')
+    const dialog = w.get('[role="alertdialog"]')
+    expect(document.activeElement).toBe(dialog.get('button').element)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(h.deleteAvatar).not.toHaveBeenCalled()
+    expect(w.find('[role="alertdialog"]').exists()).toBe(false)
+
+    await w.findAll('button').find((b) => b.text() === '删除')!.trigger('click')
+    const confirm = w.findAll('[role="alertdialog"] button').find((b) => b.text() === '删除')!
+    await confirm.trigger('click')
+    expect(w.get('[role="alertdialog"]').attributes('aria-busy')).toBe('true')
+    await confirm.trigger('click')
+    expect(h.deleteAvatar).toHaveBeenCalledTimes(1)
+    release()
+    await flushPromises()
+    expect(w.find('[role="alertdialog"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('删除失败保留危险对话框和错误，允许重试', async () => {
+    h.listAvatars.mockResolvedValue({ avatars: [item({})], total: 1, storage: 'sqlite' })
+    h.deleteAvatar.mockRejectedValue(new Error('删除失败'))
+    const w = mount(AvatarsPage)
+    await flushPromises()
+
+    await w.findAll('button').find((b) => b.text() === '删除')!.trigger('click')
+    const confirm = w.findAll('[role="alertdialog"] button').find((b) => b.text() === '删除')!
+    await confirm.trigger('click')
+    await flushPromises()
+
+    expect(w.find('[role="alertdialog"]').exists()).toBe(true)
+    expect(w.get('[role="alertdialog"]').text()).toContain('删除失败')
+    w.unmount()
+  })
+
   it('焦点环存在性（样式静态断言）', () => {
     const raw = readFileSync('src/pages/AvatarsPage.vue', 'utf-8')
     expect(raw).toContain(':focus-visible')

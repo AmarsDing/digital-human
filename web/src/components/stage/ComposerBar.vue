@@ -94,6 +94,7 @@ function keydown(e: KeyboardEvent): void {
       ref="inputRef"
       v-model="text"
       class="composer__input"
+      aria-label="互动文本"
       rows="2"
       :placeholder="
         channel === 'chat'
@@ -204,29 +205,30 @@ function keydown(e: KeyboardEvent): void {
 }
 @media (max-width: 799px) {
   .composer {
-    grid-template-columns: auto minmax(40px, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 6px;
     padding: 6px;
   }
   .composer__voice {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
+    flex-wrap: wrap;
   }
   .composer__input {
-    grid-column: 2;
+    grid-column: 1 / -1;
     grid-row: 1;
     font-size: 16px;
   }
   .composer__side {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: 3;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .composer__btns {
-    grid-column: 3;
-    grid-row: 1;
+    grid-column: 2;
+    grid-row: 2;
   }
   .composer__side :deep(select) {
     min-height: 44px;

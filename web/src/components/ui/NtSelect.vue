@@ -34,7 +34,7 @@ defineEmits<{ (e: 'update:modelValue', v: string): void }>()
   font-size: var(--nt-fs-caption);
 }
 .nt-select__input {
-  height: 42px;
+  height: 44px;
   padding: 0 10px;
   border-radius: var(--nt-radius-m);
   border: 1px solid var(--nt-border-1);

@@ -18,6 +18,11 @@ describe('ComposerBar', () => {
     expect(voice.props()).toMatchObject({ sessionId: 's-1', epoch: 7, canSpeak: true })
   })
 
+  it('互动输入提供可访问名称', () => {
+    const w = mountBar(true)
+    expect(w.get('textarea').attributes('aria-label')).toBe('互动文本')
+  })
+
   it('未开播时禁用输入与发送', () => {
     const w = mountBar(false)
     expect(w.find('textarea').attributes('disabled')).toBeDefined()

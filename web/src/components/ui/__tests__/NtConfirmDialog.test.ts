@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import NtConfirmDialog from '../NtConfirmDialog.vue'
@@ -89,6 +91,13 @@ describe('NtConfirmDialog dangerous 合同（§3.1/§3.4）', () => {
     await w.setProps({ open: false })
     expect(document.activeElement).toBe(trigger)
     w.unmount()
+  })
+
+  it('焦点环使用 2px 轮廓与 4px offset', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/ui/NtConfirmDialog.vue'), 'utf8')
+    expect(source).toMatch(
+      /\.nt-confirm__btn:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--nt-focus-ring\);[^}]*outline-offset:\s*4px;/s
+    )
   })
 
   it('失败错误以 role="alert" 呈现', async () => {

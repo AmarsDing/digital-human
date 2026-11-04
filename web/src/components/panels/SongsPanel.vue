@@ -250,7 +250,7 @@ onMounted(load)
 .row input {
   flex: 1;
   min-width: 0;
-  height: 30px;
+  height: 44px;
   padding: 0 8px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);
@@ -263,7 +263,7 @@ onMounted(load)
   border-color: var(--nt-accent-border);
 }
 .mini {
-  height: 30px;
+  height: 44px;
   padding: 0 10px;
   border-radius: var(--nt-radius-s);
   border: 1px solid var(--nt-border-1);

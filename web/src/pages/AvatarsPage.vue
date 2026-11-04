@@ -13,6 +13,7 @@ const router = useRouter()
 const store = useAvatarsStore()
 const pendingDelete = ref('')
 const confirmDelete = ref(false)
+const deleteBusy = ref(false)
 
 onMounted(() => {
   releaseBlobs('avatar-list:')
@@ -34,10 +35,16 @@ function askDelete(id: string): void {
 }
 
 async function doDelete(): Promise<void> {
-  confirmDelete.value = false
-  if (!pendingDelete.value) return
-  await store.remove(pendingDelete.value)
-  pendingDelete.value = ''
+  if (!pendingDelete.value || deleteBusy.value) return
+  deleteBusy.value = true
+  try {
+    const ok = await store.remove(pendingDelete.value)
+    if (!ok) return
+    confirmDelete.value = false
+    pendingDelete.value = ''
+  } finally {
+    deleteBusy.value = false
+  }
 }
 
 async function duplicate(id: string): Promise<void> {
@@ -99,6 +106,9 @@ async function activate(id: string): Promise<void> {
       title="删除档案"
       message="将软删除该档案，不可恢复。确定继续？"
       confirm-text="删除"
+      dangerous
+      :busy="deleteBusy"
+      :error="store.error"
       @confirm="doDelete"
       @cancel="confirmDelete = false"
     />
