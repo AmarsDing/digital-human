@@ -835,21 +835,46 @@ async function doClearTranscript(): Promise<void> {
 
 /* 窄屏：右栏折到舞台下方，整页单列，不产生横向溢出。 */
 @media (max-width: 1023px) {
-  .deck:not(.deck--no-rail) {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(280px, 1fr) auto;
+  .page {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+  .deck {
+    display: contents;
   }
   .deck__stage {
+    order: 1;
     min-height: 280px;
   }
+  .page__composer {
+    order: 2;
+  }
+  .deck__rail {
+    order: 3;
+  }
+  .page__stats {
+    order: 4;
+  }
   .workspace__panel {
+    flex: none;
+    min-height: 0;
     max-height: 320px;
+  }
+  .workspace__transcript {
+    flex: none;
   }
 }
 
 @media (max-width: 767px) {
   .page {
     padding: 8px;
+  }
+  .page__composer {
+    order: 1;
+  }
+  .deck__stage {
+    order: 2;
   }
   .page__head {
     align-items: flex-start;
@@ -889,7 +914,7 @@ async function doClearTranscript(): Promise<void> {
     padding: 6px 8px;
   }
   .deck:not(.deck--no-rail) {
-    grid-template-rows: minmax(156px, 1fr) auto;
+    grid-template-rows: auto auto;
   }
   .deck__stage {
     min-height: 156px;

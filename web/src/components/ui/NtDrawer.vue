@@ -73,7 +73,9 @@ onBeforeUnmount(() => {
     :is="mode === 'inline' ? 'section' : 'div'"
     ref="root"
     :class="mode === 'inline' ? 'nt-drawer nt-drawer--inline' : 'nt-drawer'"
-    :style="{ width: `${width || 560}px` }"
+    :style="mode === 'inline'
+      ? { width: '100%', maxWidth: `${width || 560}px` }
+      : { width: `${width || 560}px` }"
     v-show="open"
     v-bind="mode === 'modal' ? { role: 'dialog', 'aria-modal': 'true', 'aria-label': title } : { 'aria-label': title }"
   >
@@ -102,6 +104,7 @@ onBeforeUnmount(() => {
 }
 .nt-drawer--inline {
   position: relative;
+  min-width: 0;
   max-width: none;
   height: 100%;
   border: 1px solid var(--nt-border-1);
@@ -134,6 +137,10 @@ onBeforeUnmount(() => {
   border-color: var(--nt-border-1);
   color: var(--nt-text-0);
 }
+.nt-drawer__close:focus-visible {
+  outline: 2px solid var(--nt-accent);
+  outline-offset: 4px;
+}
 .nt-drawer__body {
   flex: 1;
   min-height: 0;
@@ -144,5 +151,11 @@ onBeforeUnmount(() => {
   padding: 10px var(--nt-pad-panel);
   border-top: 1px solid var(--nt-border-1);
   background: var(--nt-data-bg);
+}
+@media (max-width: 559px) {
+  .nt-drawer__close {
+    width: 44px;
+    height: 44px;
+  }
 }
 </style>

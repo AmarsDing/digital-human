@@ -271,6 +271,7 @@ function effectLabel(effective: string): string {
   display: grid;
   grid-template-columns: 160px minmax(0, 1fr);
   gap: 16px;
+  min-width: 0;
   min-height: 420px;
 }
 .drawer__nav {
@@ -417,5 +418,44 @@ function effectLabel(effective: string): string {
 .foot__btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.drawer__tab:focus-visible,
+.foot__btn:focus-visible {
+  outline: 2px solid var(--nt-accent);
+  outline-offset: 4px;
+}
+@media (max-width: 559px) {
+  .drawer {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    min-height: 0;
+  }
+  .drawer__nav {
+    flex-direction: row;
+    min-width: 0;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--nt-border-1);
+    padding: 0 0 8px;
+  }
+  .drawer__tab {
+    flex: 0 0 auto;
+    height: 44px;
+    white-space: nowrap;
+  }
+  .drawer__group-head,
+  .drawer__group-action,
+  .foot {
+    flex-wrap: wrap;
+  }
+  .foot__hint {
+    flex: 1 1 160px;
+  }
+  .foot__btn {
+    min-height: 44px;
+  }
+  .foot__btn--primary {
+    margin-left: 0;
+  }
 }
 </style>
