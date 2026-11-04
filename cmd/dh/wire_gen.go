@@ -115,9 +115,9 @@ func InitApp(cfgPath string, version2 VersionInfo) (*App, func(), error) {
 	collectorService := provideCollectorService(tracker)
 	contentpkgStore := provideContentpkgStore(data)
 	preflight := providePreflight(config, service, capabilitySource, publisher, sessionStore, liveManager, mainPanelRuntime, contentpkgStore)
-	server := provideHTTPServer(config, logger, bus, ticketStore, nonceStore, liveService, serviceDanmakuService, serviceSettingsService, health, version2, auditService, mainPanelRuntime, streamService, collectorService, tracker, preflight)
-	worker := provideDanmakuWorker(danmakuService, settingsService, manager, liveManager, bus, logger)
 	contentpkgService := provideContentpkg(contentpkgStore, mainPanelRuntime)
+	server := provideHTTPServer(config, logger, bus, ticketStore, nonceStore, liveService, serviceDanmakuService, serviceSettingsService, health, version2, auditService, mainPanelRuntime, streamService, collectorService, tracker, preflight, contentpkgService)
+	worker := provideDanmakuWorker(danmakuService, settingsService, manager, liveManager, bus, logger)
 	app := provideApp(server, data, logger, liveManager, worker, mainInteractionRuntime, contentpkgService, mainPanelRuntime)
 	return app, func() {
 		cleanup()
@@ -932,6 +932,7 @@ func provideHTTPServer(
 	collectorSvc *relay.CollectorService,
 	collectorTracker *relay.Tracker,
 	preflight *live.Preflight,
+	_ *contentpkg.Service,
 ) *http.Server {
 	return server.NewHTTPServer(cfg, logger, bus, tickets, nonces, liveSvc, dmSvc, stSvc, health, string(version2), auditSvc, rt.deps,
 		streamSvc, collectorSvc, collectorTracker, preflight)

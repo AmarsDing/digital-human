@@ -932,6 +932,7 @@ func provideHTTPServer(
 	collectorSvc *relay.CollectorService,
 	collectorTracker *relay.Tracker,
 	preflight *live.Preflight, // 顺序锚点：providePreflight 先于本函数执行（rt.deps.Preflight 已注入）
+	_ *contentpkg.Service, // 顺序锚点：provideContentpkg 必须先注入 rt.deps.Contentpkg，再注册 live-drafts 路由
 ) *khttp.Server {
 	return server.NewHTTPServer(cfg, logger, bus, tickets, nonces, liveSvc, dmSvc, stSvc, health, string(version), auditSvc, rt.deps,
 		streamSvc, collectorSvc, collectorTracker, preflight)

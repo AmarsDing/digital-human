@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/teamwork/digital-human/internal/biz/contentpkg"
@@ -32,6 +34,22 @@ func TestProvideContentpkgAttachesApplyRoute(t *testing.T) {
 	svc := provideContentpkg(contentpkg.NewMemoryStore(), rt)
 	if rt.deps.Contentpkg != svc {
 		t.Fatal("内容包服务必须装配到 live-drafts apply 路由")
+	}
+}
+
+func TestWireContentpkgPrecedesHTTPRouteRegistration(t *testing.T) {
+	generated, err := os.ReadFile("wire_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(generated)
+	contentpkgAt := strings.Index(source, "contentpkgService := provideContentpkg(")
+	httpAt := strings.Index(source, "server := provideHTTPServer(")
+	if contentpkgAt < 0 || httpAt < 0 {
+		t.Fatal("生成代码缺少内容包或 HTTP 服务装配调用")
+	}
+	if contentpkgAt > httpAt {
+		t.Fatal("Contentpkg 必须先于 HTTP 路由注册装配，否则 live-drafts 路由按 nil 依赖被跳过")
 	}
 }
 
