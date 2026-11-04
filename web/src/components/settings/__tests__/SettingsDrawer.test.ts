@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const getSettings = vi.fn()
 vi.mock('../../../services/api/settings', async () => {
@@ -25,9 +27,39 @@ vi.mock('../../../services/api/panels', async () => {
 })
 
 import SettingsDrawer from '../SettingsDrawer.vue'
+import { GROUP_SPECS } from '../schema'
 import { useSettingsStore } from '../../../stores/settings'
 
+// 直接解析后端 DefaultGroups 字面量；只比较后端权威键，前端可保留额外只读派生字段。
+function backendDefaultMatrix(): Record<string, Record<string, unknown>> {
+  const source = readFileSync(resolve(process.cwd(), '../internal/biz/settings/settings.go'), 'utf8')
+  const value = String.raw`(?:\[\]any\{[^}]*\}|"(?:\\.|[^"\\])*"|true|false|-?\d+(?:\.\d+)?)`
+  const groupPattern = /\{ID: "([^"]+)", Title: "([^"]+)", Effective: "([^"]+)", Values: map\[string\]any\{([\s\S]*?)\}\}/g
+  const entryPattern = new RegExp(String.raw`"([^"]+)"\s*:\s*(${value})`, 'g')
+  return Object.fromEntries([...source.matchAll(groupPattern)].map((group) => {
+    const values = Object.fromEntries([...group[4].matchAll(entryPattern)].map((entry) => {
+      const raw = entry[2]
+      if (raw.startsWith('[]any{')) {
+        const inner = raw.slice(6, -1).trim()
+        return [entry[1], inner ? JSON.parse(`[${inner}]`) : []]
+      }
+      return [entry[1], JSON.parse(raw)]
+    }))
+    return [group[1], values]
+  }))
+}
+
 describe('SettingsDrawer', () => {
+  it('默认值与值类型逐键对齐后端 DefaultGroups 真实定义', () => {
+    const backend = backendDefaultMatrix()
+    expect(Object.keys(backend)).toHaveLength(13)
+    const frontend = Object.fromEntries(GROUP_SPECS.map((group) => [
+      group.id,
+      Object.fromEntries(Object.keys(backend[group.id] ?? {}).map((key) => [key, group.defaults[key]]))
+    ]))
+    expect(frontend).toEqual(backend)
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     getSettings.mockReset()
@@ -52,6 +84,26 @@ describe('SettingsDrawer', () => {
     const w = mount(SettingsDrawer, { props: { open: true }, global: { plugins: [pinia] } })
     expect(w.findAll('.drawer__tab')).toHaveLength(13)
     expect(w.find('.drawer__group-head h3').text()).toBe('会话')
+  })
+
+  it('LLM 降级模型在文本控件与后端数组之间双向归一', async () => {
+    getSettings.mockResolvedValue({
+      revision: 1,
+      groups: [{ id: 'llm', title: 'LLM', effective: 'next_session', values: { fallback_models: ['model-a', 'model-b'] } }]
+    })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useSettingsStore()
+    await store.load()
+    const w = mount(SettingsDrawer, { props: { open: true }, global: { plugins: [pinia] } })
+    await flushPromises()
+    const tab = w.findAll('.drawer__tab').find((b) => b.text() === 'LLM')
+    await tab!.trigger('click')
+
+    const input = w.findAll('input').find((el) => (el.element as HTMLInputElement).value === 'model-a,model-b')
+    expect(input).toBeDefined()
+    await input!.setValue('model-c, model-d')
+    expect(store.groupById('llm')?.values.fallback_models).toEqual(['model-c', 'model-d'])
   })
 
   it('人设分组徽标显示下次连线', async () => {
@@ -153,7 +205,7 @@ describe('SettingsDrawer', () => {
 
       // llm 组 system 同预览（tab index 5，F 批 gift 组插在 persona 后）
       await w.findAll('.drawer__tab')[5].trigger('click')
-      expect(w.findAll('.field__readonly-value')[0].text()).toBe(preview)
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe(preview)
 
       // session 组 avatar_id / image_uri 显示档案 vidu 值（tab index 0）
       await w.findAll('.drawer__tab')[0].trigger('click')

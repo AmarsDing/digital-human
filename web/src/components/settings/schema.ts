@@ -11,6 +11,7 @@ export interface FieldSpec {
   max?: number
   step?: number
   suffix?: string
+  format?: 'csv'
   // 只读派生字段的跳转链接（v3 §1.2：已迁移至数字人档案）。
   linkTo?: string
   linkLabel?: string
@@ -86,6 +87,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     fields: [
       { key: 'voice_id', label: '音色预设', type: 'readonly', hint: '已迁移至数字人档案', linkTo: '/avatars', linkLabel: '前往档案页' },
       { key: 'preview_text', label: '试听文本', type: 'text' },
+      { key: 'speed', label: '语速', type: 'number', step: 0.1 },
       { key: 'frame_ms', label: '喂流帧长', type: 'select', options: [
         { label: '50ms', value: '50' },
         { label: '100ms', value: '100' }
@@ -95,6 +97,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     defaults: {
       voice_id: '',
       preview_text: '你好，我是小雅。',
+      speed: 1.0,
       frame_ms: '100',
       output_sentence: true
     }
@@ -172,7 +175,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     fields: [
       { key: 'base_url', label: 'Base URL', type: 'text' },
       { key: 'model', label: '模型', type: 'text' },
-      { key: 'fallback_models', label: '降级模型', type: 'text', hint: '逗号分隔，主模型失败时依次降级' },
+      { key: 'fallback_models', label: '降级模型', type: 'text', format: 'csv', hint: '逗号分隔，主模型失败时依次降级' },
       { key: 'api_key', label: 'API Key', type: 'secret', hint: '只写不回显' },
       { key: 'api_key_tail8', label: 'Key 尾号', type: 'secret', hint: '只读' },
       { key: 'temperature', label: 'temperature', type: 'number', min: 0, max: 2, step: 0.1 },
@@ -180,9 +183,9 @@ export const GROUP_SPECS: GroupSpec[] = [
       { key: 'system', label: '全局 System Prompt', type: 'textarea', hint: '第二来源；档案人设优先，相同内容自动去重' }
     ],
     defaults: {
-      base_url: '',
+      base_url: 'https://api.deepseek.com',
       model: '',
-      fallback_models: '',
+      fallback_models: [],
       api_key: '',
       api_key_tail8: '',
       temperature: 0.7,
@@ -261,6 +264,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     note: '字幕层为浏览器叠加渲染，保存即生效。',
     fields: [
       { key: 'enabled', label: '显示', type: 'toggle' },
+      { key: 'output_sentences', label: '按句输出', type: 'toggle' },
       { key: 'offset_px', label: '下移', type: 'number', min: 0, max: 1080, suffix: 'px' },
       { key: 'font_size', label: '字号', type: 'number', min: 10, max: 48, suffix: 'px' },
       { key: 'max_lines', label: '行数', type: 'number', min: 1, max: 6 },
@@ -268,6 +272,7 @@ export const GROUP_SPECS: GroupSpec[] = [
     ],
     defaults: {
       enabled: true,
+      output_sentences: true,
       offset_px: 200,
       font_size: 17,
       max_lines: 2,
