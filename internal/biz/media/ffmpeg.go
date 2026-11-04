@@ -112,6 +112,11 @@ func (p *FfmpegPlayer) Play(ctx context.Context, filePath, script string) error 
 	if err != nil {
 		return err
 	}
+	return p.PlayPCM(ctx, pcm, script)
+}
+
+// PlayPCM 按 100ms×4800B 分片喂出调用方已解码的 PCM。
+func (p *FfmpegPlayer) PlayPCM(ctx context.Context, pcm []byte, script string) error {
 	pctx, cancel := context.WithCancel(ctx)
 	p.mu.Lock()
 	if p.active {

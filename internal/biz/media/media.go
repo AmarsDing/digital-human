@@ -394,6 +394,11 @@ type Player interface {
 	Name() string
 }
 
+// PCMPlayer 接收调用方已解码的 PCM，避免歌曲服务与真实播放器重复解码。
+type PCMPlayer interface {
+	PlayPCM(ctx context.Context, pcm []byte, script string) error
+}
+
 // FakePlayer 可配置播放时长；Stop 会提前结束当前播放。
 type FakePlayer struct {
 	mu      sync.Mutex
@@ -418,6 +423,10 @@ func (p *FakePlayer) Play(ctx context.Context, filePath, script string) error {
 	if _, err := os.Stat(filePath); err != nil {
 		return err
 	}
+	return p.PlayPCM(ctx, nil, script)
+}
+
+func (p *FakePlayer) PlayPCM(ctx context.Context, _ []byte, script string) error {
 	p.mu.Lock()
 	p.playing = true
 	p.last = script

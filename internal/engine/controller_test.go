@@ -302,6 +302,59 @@ func TestControllerStartSayFeedsPCM(t *testing.T) {
 	}
 }
 
+func TestControllerSayRespectsActiveSong(t *testing.T) {
+	ws := newFakeWS(t)
+	var ttsCalls atomic.Int32
+	ctl := newTestController(t, ws, synthesizerFunc(func(context.Context, tts.JobRequest) ([]byte, error) {
+		ttsCalls.Add(1)
+		return audio.WavBytes(audio.TonePCM(100)), nil
+	}), nil)
+	if _, err := ctl.Start(context.Background(), live.StartOpts{SessionID: "s-song"}); err != nil {
+		t.Fatal(err)
+	}
+	defer ctl.Stop(context.Background(), "test done")
+
+	songDone := make(chan struct{})
+	songCtx, cancelSong := context.WithCancel(context.Background())
+	defer cancelSong()
+	lease, err := ctl.own.Acquire(context.Background(), Request{Task: Task{
+		ID: "song-test", Song: true, Cancel: cancelSong, Done: songDone,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sayDone := make(chan error, 1)
+	go func() {
+		_, err := ctl.Say(context.Background(), "等待歌曲", "say")
+		sayDone <- err
+	}()
+	select {
+	case <-songCtx.Done():
+		t.Fatal("普通口播抢占了歌曲喂流权")
+	case err := <-sayDone:
+		t.Fatalf("歌曲未结束时口播不应完成: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if got := ttsCalls.Load(); got != 0 {
+		t.Fatalf("等待歌曲时不应提前合成口播，TTS 调用=%d", got)
+	}
+
+	close(songDone)
+	lease.Release()
+	select {
+	case err := <-sayDone:
+		if err != nil {
+			t.Fatalf("歌曲结束后口播失败: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("歌曲结束后口播未获得喂流权")
+	}
+	if got := ttsCalls.Load(); got != 1 {
+		t.Fatalf("歌曲结束后应合成一次口播，TTS 调用=%d", got)
+	}
+}
+
 func TestControllerConnInitNotReadyRetries(t *testing.T) {
 	ws := newFakeWS(t)
 	ws.notReadyBeforeAck = 2
