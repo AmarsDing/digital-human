@@ -14,6 +14,13 @@
   "events": {
     "transcript.partial": ["text", "index", "mode"],
     "transcript.final": ["text", "index", "utterance_id"],
+    "voice.listening": ["turn_id", "client_turn_id", "mode"],
+    "voice.final": ["turn_id", "text", "duration_ms", "asr_source", "timings"],
+    "voice.thinking": ["turn_id", "timings"],
+    "voice.speaking": ["turn_id", "utterance_id", "timings"],
+    "voice.first_audio": ["turn_id", "timings"],
+    "voice.completed": ["turn_id", "reason", "timings"],
+    "voice.error": ["turn_id", "stage", "error_code", "message", "retryable", "timings"],
     "live.start_requested": ["persona_id", "avatar_id"],
     "live.start_failed": ["error", "error_code"],
     "live.started": ["live_id"],

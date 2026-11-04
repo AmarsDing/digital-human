@@ -298,13 +298,14 @@ func (r *SherpaRecognizer) Close() error {
 	if current != nil {
 		notifySherpaError(current.errs, errors.New("sherpa sidecar closed"))
 	}
+	var err error
+	if cmd != nil && cmd.Process != nil {
+		err = cmd.Process.Kill()
+	}
 	if stdin != nil {
 		_ = stdin.Close()
 	}
-	if cmd != nil && cmd.Process != nil {
-		return cmd.Process.Kill()
-	}
-	return nil
+	return err
 }
 
 type sherpaRecognition struct {
