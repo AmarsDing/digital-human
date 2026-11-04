@@ -134,14 +134,15 @@ func provideSink(d *data.Data) live.EventSink {
 }
 
 // realDeps 真实引擎外部依赖（Vidu HTTP + OmniVoice 边车）；
-// 仅 real 模式且凭据齐全时非 nil，缺任一即 nil（控制器随之 503 engine_not_configured）。
+// real 模式始终装配管理客户端，支持先在 UI 保存 Key、查询余额及同步形象。
+// 开播仍由 Controller 单独检查 Vidu 与语音依赖，不能把管理 API 可达当作可开播。
 type realDeps struct {
 	vidu *enginevidu.Client
 	tts  *enginetts.Client
 }
 
 func provideRealDeps(cfg *conf.Config) *realDeps {
-	if cfg.Engine.Mode != "real" || cfg.Engine.ViduKey == "" || cfg.Engine.OmniVoiceAddr == "" {
+	if cfg.Engine.Mode != "real" {
 		return nil
 	}
 	return &realDeps{
@@ -780,7 +781,7 @@ func providePanelRuntime(
 		if realSender, ok := ctrl.(action.Sender); ok {
 			sender = realSender
 		}
-		if deps != nil {
+		if deps != nil && cfg.Engine.OmniVoiceAddr != "" {
 			synth = enginetts.NewSynthAdapter(deps.tts, "")
 		} else {
 			synth = tts.NewUnavailableSynth("omnivoice_addr_not_configured")

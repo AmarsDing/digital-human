@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/teamwork/digital-human/internal/biz/capability"
 	"github.com/teamwork/digital-human/pkg/eventbus"
 )
 
@@ -493,20 +494,22 @@ func (s *Scheduler) Clear(ctx context.Context) int {
 
 // Status 供面板展示队列/计数。
 type Status struct {
-	Queue    []string `json:"queue"`
-	LastText string   `json:"last_text"`
-	LastAtMs int64    `json:"last_at_ms"`
-	Fired    int64    `json:"fired"`
-	Merged   int64    `json:"merged"`
-	Dropped  int64    `json:"dropped"`
-	Deferred int64    `json:"deferred"`
-	QueueMax int      `json:"queue_max"`
+	Source   capability.Status `json:"source"`
+	Queue    []string          `json:"queue"`
+	LastText string            `json:"last_text"`
+	LastAtMs int64             `json:"last_at_ms"`
+	Fired    int64             `json:"fired"`
+	Merged   int64             `json:"merged"`
+	Dropped  int64             `json:"dropped"`
+	Deferred int64             `json:"deferred"`
+	QueueMax int               `json:"queue_max"`
 }
 
 func (s *Scheduler) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := Status{
+		Source:   senderSource(s.sender),
 		LastText: s.lastText, Fired: s.fired, Merged: s.merged,
 		Dropped: s.dropped, Deferred: s.deferred, QueueMax: s.cfg.QueueMax,
 		Queue: make([]string, 0, len(s.q)),
@@ -518,6 +521,17 @@ func (s *Scheduler) Status() Status {
 		out.Queue = append(out.Queue, it.text)
 	}
 	return out
+}
+
+func senderSource(sender Sender) capability.Status {
+	switch sender.(type) {
+	case nil:
+		return capability.Unconfigured
+	case *FakeSender:
+		return capability.Fake
+	default:
+		return capability.Unknown
+	}
 }
 
 // Close 停止 drain 循环（进程退出/测试清理）。

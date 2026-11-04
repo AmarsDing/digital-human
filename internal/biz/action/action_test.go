@@ -6,6 +6,29 @@ import (
 	"time"
 )
 
+func TestSchedulerStatusSourceUsesSharedEnum(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		sender Sender
+		want   string
+	}{
+		{name: "fake", sender: NewFakeSender(), want: "fake"},
+		{name: "unconfigured", sender: nil, want: "unconfigured"},
+		{name: "unknown", sender: unknownSender{}, want: "unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := NewScheduler(tc.sender, nil, DefaultConfig()).Status().Source
+			if string(got) != tc.want {
+				t.Fatalf("source=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+type unknownSender struct{}
+
+func (unknownSender) SendCommand(context.Context, string) error { return nil }
+
 func newSched() (*Scheduler, *FakeSender) {
 	snd := NewFakeSender()
 	return NewScheduler(snd, nil, DefaultConfig()), snd
