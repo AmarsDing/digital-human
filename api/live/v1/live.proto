@@ -87,6 +87,10 @@ message StartLiveRequest {
   string preflight_token = 6;
   string draft_id = 7;
   int64 expected_revision = 8;
+  // public-live 必带：与 preflight_token 同次返回的结果摘要，Start 重算复核。
+  string result_digest = 9;
+  // 使用档案开播时必带：同次 preflight 顶层返回的档案 revision。
+  int64 revision = 10;
 }
 
 message StartLiveReply {

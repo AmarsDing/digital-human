@@ -48,6 +48,9 @@ message IngestRequest {
   string source = 6;
   string idempotency_key = 7;
   bool vip = 8; // 采集侧判定的送礼/贵宾观众标记（蓝本 priority=vip），进弹幕 VIP 快通道
+  int64 occurred_at_ms = 9;
+  int64 received_at_ms = 10;
+  int64 expires_at_ms = 11;
 }
 
 message IngestReply {

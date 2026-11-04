@@ -35,8 +35,12 @@ type StartLiveRequest struct {
 	PreflightToken   string `protobuf:"bytes,6,opt,name=preflight_token,json=preflightToken,proto3" json:"preflight_token,omitempty"`
 	DraftId          string `protobuf:"bytes,7,opt,name=draft_id,json=draftId,proto3" json:"draft_id,omitempty"`
 	ExpectedRevision int64  `protobuf:"varint,8,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// public-live 必带：与 preflight_token 同次返回的结果摘要，Start 重算复核。
+	ResultDigest string `protobuf:"bytes,9,opt,name=result_digest,json=resultDigest,proto3" json:"result_digest,omitempty"`
+	// 使用档案开播时必带：同次 preflight 顶层返回的档案 revision。
+	Revision      int64 `protobuf:"varint,10,opt,name=revision,proto3" json:"revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StartLiveRequest) Reset() {
@@ -121,6 +125,20 @@ func (x *StartLiveRequest) GetDraftId() string {
 func (x *StartLiveRequest) GetExpectedRevision() int64 {
 	if x != nil {
 		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *StartLiveRequest) GetResultDigest() string {
+	if x != nil {
+		return x.ResultDigest
+	}
+	return ""
+}
+
+func (x *StartLiveRequest) GetRevision() int64 {
+	if x != nil {
+		return x.Revision
 	}
 	return 0
 }
@@ -1841,7 +1859,7 @@ var File_live_v1_live_proto protoreflect.FileDescriptor
 const file_live_v1_live_proto_rawDesc = "" +
 	"\n" +
 	"\x12live/v1/live.proto\x12\n" +
-	"dh.live.v1\x1a\x1cgoogle/api/annotations.proto\"\x98\x02\n" +
+	"dh.live.v1\x1a\x1cgoogle/api/annotations.proto\"\xd9\x02\n" +
 	"\x10StartLiveRequest\x12\x1d\n" +
 	"\n" +
 	"persona_id\x18\x01 \x01(\tR\tpersonaId\x12\x1b\n" +
@@ -1851,7 +1869,10 @@ const file_live_v1_live_proto_rawDesc = "" +
 	"\x04mode\x18\x05 \x01(\tR\x04mode\x12'\n" +
 	"\x0fpreflight_token\x18\x06 \x01(\tR\x0epreflightToken\x12\x19\n" +
 	"\bdraft_id\x18\a \x01(\tR\adraftId\x12+\n" +
-	"\x11expected_revision\x18\b \x01(\x03R\x10expectedRevision\"r\n" +
+	"\x11expected_revision\x18\b \x01(\x03R\x10expectedRevision\x12#\n" +
+	"\rresult_digest\x18\t \x01(\tR\fresultDigest\x12\x1a\n" +
+	"\brevision\x18\n" +
+	" \x01(\x03R\brevision\"r\n" +
 	"\x0eStartLiveReply\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x14\n" +

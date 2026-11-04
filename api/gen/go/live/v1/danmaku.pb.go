@@ -32,6 +32,9 @@ type IngestRequest struct {
 	Source         string                 `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
 	IdempotencyKey string                 `protobuf:"bytes,7,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	Vip            bool                   `protobuf:"varint,8,opt,name=vip,proto3" json:"vip,omitempty"` // 采集侧判定的送礼/贵宾观众标记（蓝本 priority=vip），进弹幕 VIP 快通道
+	OccurredAtMs   int64                  `protobuf:"varint,9,opt,name=occurred_at_ms,json=occurredAtMs,proto3" json:"occurred_at_ms,omitempty"`
+	ReceivedAtMs   int64                  `protobuf:"varint,10,opt,name=received_at_ms,json=receivedAtMs,proto3" json:"received_at_ms,omitempty"`
+	ExpiresAtMs    int64                  `protobuf:"varint,11,opt,name=expires_at_ms,json=expiresAtMs,proto3" json:"expires_at_ms,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -120,6 +123,27 @@ func (x *IngestRequest) GetVip() bool {
 		return x.Vip
 	}
 	return false
+}
+
+func (x *IngestRequest) GetOccurredAtMs() int64 {
+	if x != nil {
+		return x.OccurredAtMs
+	}
+	return 0
+}
+
+func (x *IngestRequest) GetReceivedAtMs() int64 {
+	if x != nil {
+		return x.ReceivedAtMs
+	}
+	return 0
+}
+
+func (x *IngestRequest) GetExpiresAtMs() int64 {
+	if x != nil {
+		return x.ExpiresAtMs
+	}
+	return 0
 }
 
 type IngestReply struct {
@@ -607,7 +631,7 @@ var File_live_v1_danmaku_proto protoreflect.FileDescriptor
 const file_live_v1_danmaku_proto_rawDesc = "" +
 	"\n" +
 	"\x15live/v1/danmaku.proto\x12\n" +
-	"dh.live.v1\x1a\x1cgoogle/api/annotations.proto\"\xda\x01\n" +
+	"dh.live.v1\x1a\x1cgoogle/api/annotations.proto\"\xca\x02\n" +
 	"\rIngestRequest\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x1b\n" +
@@ -616,7 +640,11 @@ const file_live_v1_danmaku_proto_rawDesc = "" +
 	"\adiamond\x18\x05 \x01(\x03R\adiamond\x12\x16\n" +
 	"\x06source\x18\x06 \x01(\tR\x06source\x12'\n" +
 	"\x0fidempotency_key\x18\a \x01(\tR\x0eidempotencyKey\x12\x10\n" +
-	"\x03vip\x18\b \x01(\bR\x03vip\"5\n" +
+	"\x03vip\x18\b \x01(\bR\x03vip\x12$\n" +
+	"\x0eoccurred_at_ms\x18\t \x01(\x03R\foccurredAtMs\x12$\n" +
+	"\x0ereceived_at_ms\x18\n" +
+	" \x01(\x03R\freceivedAtMs\x12\"\n" +
+	"\rexpires_at_ms\x18\v \x01(\x03R\vexpiresAtMs\"5\n" +
 	"\vIngestReply\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"$\n" +
