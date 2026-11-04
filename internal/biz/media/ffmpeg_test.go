@@ -1,6 +1,7 @@
 package media
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -63,6 +64,67 @@ func TestUnavailableDecoderPlayerFailClosed(t *testing.T) {
 	if err := p.Stop(context.Background()); err != nil {
 		t.Fatalf("stop must be idempotent: %v", err)
 	}
+}
+
+// 本地可播证据必须使用真实音频文件、真实 FfmpegPlayer 与捕获的 PCM；
+// 只证明播放器本地可播，不证明音频已送达 Vidu、云端或观众。
+func TestLocalPlaybackProbeRealFileEvidence(t *testing.T) {
+	dec, err := NewFfmpegDecoder()
+	if err != nil {
+		t.Skipf("ffmpeg 不在 PATH，跳过真实播放证据: %v", err)
+	}
+	src := filepath.Join(t.TempDir(), "real-tone.wav")
+	raw := audio.WavBytes(audio.TonePCM(120))
+	if err := os.WriteFile(src, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourcePCM, err := dec.Decode(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evidence, err := ProbeLocalPlayback(context.Background(), dec, src)
+	if err != nil {
+		t.Fatalf("真实音频文件本地播放探测失败: %v", err)
+	}
+	if len(evidence.runs) != 2 || !bytes.Equal(evidence.runs[0], evidence.runs[1]) {
+		t.Fatal("连续两次真实播放必须捕获到完全一致的 PCM")
+	}
+	played := evidence.runs[0]
+	if len(played) == 0 || bytes.Equal(played, make([]byte, len(played))) {
+		t.Fatal("真实播放输出不得为空或全零")
+	}
+	if bytes.Equal(played, raw) {
+		t.Fatal("解码输出与源文件字节相等，疑似直通搬运")
+	}
+	toleranceBytes := int64(LocalPlaybackTolerance/time.Millisecond) * audio.BytesPerMS
+	if diff := abs64(int64(len(played)) - int64(len(sourcePCM))); diff > toleranceBytes {
+		t.Fatalf("播放样本数与源不一致: played=%d source=%d tolerance=%d bytes", len(played)/2, len(sourcePCM)/2, toleranceBytes/2)
+	}
+	if evidence.Samples != int64(len(played)/2) || evidence.Duration != time.Duration(audio.PCMDurationMS(played))*time.Millisecond {
+		t.Fatalf("证据样本数/时长错误: %+v", evidence)
+	}
+}
+
+func TestLocalPlaybackProbeRejectsAllZeroOutput(t *testing.T) {
+	dec, err := NewFfmpegDecoder()
+	if err != nil {
+		t.Skipf("ffmpeg 不在 PATH，跳过全零负对照: %v", err)
+	}
+	src := filepath.Join(t.TempDir(), "silence.wav")
+	if err := os.WriteFile(src, audio.WavBytes(audio.SilencePCM(120)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ProbeLocalPlayback(context.Background(), dec, src); err == nil || !strings.Contains(err.Error(), "全零") {
+		t.Fatalf("全零输出必须判 fail，err=%v", err)
+	}
+}
+
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // FfmpegPlayer 节奏：100ms×4800B 分片按真实时钟喂给 FeedSink，总耗时应≈PCM 时长；

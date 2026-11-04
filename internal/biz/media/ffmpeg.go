@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -160,6 +161,71 @@ func (p *FfmpegPlayer) Stop(context.Context) error {
 		cancel()
 	}
 	return nil
+}
+
+// LocalPlaybackTolerance 是解码基准与两次播放捕获之间允许的样本数偏差：
+// 24kHz/s16le/mono 下 50ms = 1200 samples = 2400 bytes。
+const LocalPlaybackTolerance = 50 * time.Millisecond
+
+// LocalPlaybackEvidence 只证明真实音频文件经过真实 FfmpegPlayer 后本地可播，
+// 不证明音频已送达 Vidu、云端、公开推流或观众。
+type LocalPlaybackEvidence struct {
+	Samples  int64
+	Duration time.Duration
+	runs     [2][]byte
+}
+
+// ProbeLocalPlayback 对同一真实音频文件连续播放两次并捕获输出 PCM。
+// 非全零、样本数/时长接近独立解码基准、输出不等于源文件、两次结果一致，
+// 四项全部成立才返回证据；任一不满足都 fail-closed。
+func ProbeLocalPlayback(ctx context.Context, dec *FfmpegDecoder, path string) (LocalPlaybackEvidence, error) {
+	if dec == nil {
+		return LocalPlaybackEvidence{}, errors.New("media: 本地播放证据需要真实 ffmpeg decoder")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return LocalPlaybackEvidence{}, fmt.Errorf("media: 读取播放证据源文件失败: %w", err)
+	}
+	sourcePCM, err := dec.Decode(ctx, path)
+	if err != nil {
+		return LocalPlaybackEvidence{}, fmt.Errorf("media: 解码播放证据基准失败: %w", err)
+	}
+
+	var evidence LocalPlaybackEvidence
+	for run := 0; run < 2; run++ {
+		var captured []byte
+		player, err := NewFfmpegPlayer(dec, func(_ context.Context, pcm []byte) error {
+			captured = append(captured, pcm...)
+			return nil
+		})
+		if err != nil {
+			return LocalPlaybackEvidence{}, err
+		}
+		if err := player.Play(ctx, path, ""); err != nil {
+			return LocalPlaybackEvidence{}, fmt.Errorf("media: 第 %d 次本地真实播放失败: %w", run+1, err)
+		}
+		if len(captured) == 0 || bytes.Equal(captured, make([]byte, len(captured))) {
+			return LocalPlaybackEvidence{}, fmt.Errorf("media: 第 %d 次本地播放输出为空或全零", run+1)
+		}
+		if bytes.Equal(captured, raw) {
+			return LocalPlaybackEvidence{}, errors.New("media: 播放输出与源文件完全相等，疑似直通而非真实解码")
+		}
+		toleranceBytes := int64(LocalPlaybackTolerance/time.Millisecond) * audio.BytesPerMS
+		diff := int64(len(captured)) - int64(len(sourcePCM))
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > toleranceBytes {
+			return LocalPlaybackEvidence{}, fmt.Errorf("media: 第 %d 次播放样本数与源不一致: got=%d want=%d tolerance=%d bytes", run+1, len(captured)/2, len(sourcePCM)/2, toleranceBytes/2)
+		}
+		if run == 1 && !bytes.Equal(evidence.runs[0], captured) {
+			return LocalPlaybackEvidence{}, errors.New("media: 连续两次本地播放 PCM 不一致")
+		}
+		evidence.runs[run] = captured
+	}
+	evidence.Samples = int64(len(evidence.runs[0]) / audio.BytesPerSample)
+	evidence.Duration = time.Duration(audio.PCMDurationMS(evidence.runs[0])) * time.Millisecond
+	return evidence, nil
 }
 
 // UnavailableDecoder 在 real 模式 ffmpeg 缺失时装配：启动不崩，

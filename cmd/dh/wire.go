@@ -717,6 +717,7 @@ type panelRuntime struct {
 	songScheduler  *song.Scheduler
 	dm             *danmaku.Service
 	player         media.Player
+	songProbe      func(context.Context) error
 	koubo          *koubo.Service
 	actionGen      koubo.ActionGen
 	actionGenProbe func(context.Context) error
@@ -760,6 +761,7 @@ func providePanelRuntime(
 	// 逐依赖真实装配：dev 显式 fake；real 缺什么就显式报什么，绝不静默降级。
 	var dec media.Decoder
 	var player media.Player
+	var songProbe func(context.Context) error
 	var synth tts.Synth
 	var remote action.Remote
 	var actionProbe func(context.Context) error
@@ -788,6 +790,23 @@ func providePanelRuntime(
 		}
 		if fdec, err := media.NewFfmpegDecoder(); err == nil {
 			dec = fdec
+			// song_player 只证明歌曲库真实文件经本地 FfmpegPlayer 可播；
+			// 捕获 PCM 不送入 Vidu，也不证明音频已送达云端或观众。
+			songProbe = func(ctx context.Context) error {
+				files, err := songLib.List()
+				if err != nil {
+					return err
+				}
+				if len(files) == 0 {
+					return fmt.Errorf("歌曲库为空，无法建立本地真实播放证据")
+				}
+				path, _, err := songLib.Path(files[0].Name)
+				if err != nil {
+					return err
+				}
+				_, err = media.ProbeLocalPlayback(ctx, fdec, path)
+				return err
+			}
 			// real 模式喂流出口：ViduController.NewFeedSink（song 持有者，守卫豁免）。
 			if sinker, ok := ctrl.(interface {
 				NewFeedSink(kind string, song bool) engine.FeedSink
@@ -880,6 +899,7 @@ func providePanelRuntime(
 		songScheduler:  songScheduler,
 		dm:             dm,
 		player:         player,
+		songProbe:      songProbe,
 		koubo:          kou,
 		actionGen:      actionGen,
 		actionGenProbe: actionGenProbe,
@@ -1250,6 +1270,11 @@ func provideCapabilities(
 	if rt != nil && rt.actionGenProbe != nil {
 		actionGenProbe = newCachedCapabilityProbe(5*time.Second, rt.actionGenProbe)
 	}
+	var songProbe *cachedCapabilityProbe
+	if rt != nil && rt.songProbe != nil {
+		// 与 preflight token 同新鲜期，避免 Start 复核时把整首歌再播放两遍。
+		songProbe = newCachedCapabilityProbe(live.PreflightTTL, rt.songProbe)
+	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
 		remoteState := capability.Unconfigured
@@ -1280,7 +1305,8 @@ func provideCapabilities(
 			}
 		}
 		mx["action_sender"] = senderState
-		// song_player（§2.2：fake/unconfigured/真实实现运行时待探测=unknown）。
+		// song_player：real 只能由真实音频文件连续两次本地播放证据建立；
+		// 该证据不证明音频已送达 Vidu、云端或观众。
 		if rt != nil && rt.player != nil {
 			switch rt.player.(type) {
 			case *media.FakePlayer:
@@ -1289,12 +1315,18 @@ func provideCapabilities(
 				mx["song_player"] = capability.Unconfigured
 			case *media.FfmpegPlayer:
 				mx["song_player"] = capability.Unknown
+				if songProbe != nil && songProbe.check(ctx) == nil {
+					mx["song_player"] = capability.Real
+				}
 			default:
 				mx["song_player"] = capability.Unknown
 			}
 		} else {
 			mx["song_player"] = capability.Unconfigured
 		}
+		// audio_delivery 需要开播后的真实送达回执；没有回执通道前始终 unknown。
+		// 它只进入能力面板，不进入公开 preflight checks 或 ready 判定。
+		mx["audio_delivery"] = capability.Unknown
 		// tts。
 		if rt != nil && rt.synth != nil {
 			switch rt.synth.(type) {

@@ -5,14 +5,18 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/teamwork/digital-human/internal/biz/action"
 	"github.com/teamwork/digital-human/internal/biz/capability"
+	"github.com/teamwork/digital-human/internal/biz/media"
 	"github.com/teamwork/digital-human/internal/conf"
 	enginevidu "github.com/teamwork/digital-human/internal/engine/vidu"
+	"github.com/teamwork/digital-human/pkg/audio"
 )
 
 type realActionSenderStub struct{}
@@ -125,6 +129,70 @@ func TestViduCapabilityUsesRealLibrariesProbe(t *testing.T) {
 			t.Fatalf("未配置 Key 时 vidu=%s, want unconfigured", got)
 		}
 	})
+}
+
+func TestSongPlayerCapabilityUsesRealLocalPlaybackEvidence(t *testing.T) {
+	dec, err := media.NewFfmpegDecoder()
+	if err != nil {
+		t.Skipf("ffmpeg 不在 PATH，跳过真实装配探测: %v", err)
+	}
+	src := filepath.Join(t.TempDir(), "song.wav")
+	if err := os.WriteFile(src, audio.WavBytes(audio.TonePCM(120)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	player, err := media.NewFfmpegPlayer(dec, func(context.Context, []byte) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var probes atomic.Int32
+	rt := &panelRuntime{player: player, songProbe: func(ctx context.Context) error {
+		probes.Add(1)
+		_, err := media.ProbeLocalPlayback(ctx, dec, src)
+		return err
+	}}
+	caps := provideCapabilities(&conf.Config{}, rt, nil, nil, nil)
+	for i := 0; i < 2; i++ {
+		mx := caps(context.Background())
+		if got := mx.Get("song_player"); got != capability.Real {
+			t.Fatalf("真实文件连续两次本地播放成功后 song_player=%s, want real", got)
+		}
+		if got := mx.Get("audio_delivery"); got != capability.Unknown {
+			t.Fatalf("无开播后送达回执时 audio_delivery=%s, want unknown", got)
+		}
+	}
+	if got := probes.Load(); got != 1 {
+		t.Fatalf("缓存期内重复读取能力不得重复播放整首歌曲，probes=%d want 1", got)
+	}
+}
+
+func TestSongPlayerCapabilityFailsClosedWithoutPlaybackEvidence(t *testing.T) {
+	player, err := media.NewFfmpegPlayer(&media.FfmpegDecoder{}, func(context.Context, []byte) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		probe func(context.Context) error
+	}{
+		{name: "probe missing"},
+		{name: "probe failed", probe: func(context.Context) error { return errors.New("全零输出") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := &panelRuntime{player: player, songProbe: tc.probe}
+			mx := provideCapabilities(&conf.Config{}, rt, nil, nil, nil)(context.Background())
+			if got := mx.Get("song_player"); got != capability.Unknown {
+				t.Fatalf("无真实本地播放证据时 song_player=%s, want unknown", got)
+			}
+			if got := mx.Get("audio_delivery"); got != capability.Unknown {
+				t.Fatalf("audio_delivery=%s, want unknown", got)
+			}
+		})
+	}
+
+	mx := provideCapabilities(&conf.Config{}, &panelRuntime{player: media.UnavailablePlayer{}}, nil, nil, nil)(context.Background())
+	if got := mx.Get("song_player"); got != capability.Unconfigured {
+		t.Fatalf("播放器未配置时 song_player=%s, want unconfigured", got)
+	}
 }
 
 func TestCapabilityProbeCachesSuccessAndFailure(t *testing.T) {

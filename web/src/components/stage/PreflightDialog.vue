@@ -18,6 +18,9 @@ const pendingCount = computed(() => props.result?.checks.filter((check) => check
     <template v-if="result">
       <p role="status">{{ result.ready ? '预检通过，请明确确认开始直播。' : '还有条件未满足，请处理后重新预检。' }}</p>
       <p>{{ result.mode === 'local-preview' ? '本地预览，允许模拟能力；不代表公开直播可用。' : '公开直播，要求真实能力和持久化。' }}</p>
+      <p class="preflight-delivery" data-testid="audio-delivery" role="status">
+        <strong>audio_delivery：待验证</strong>（不参与本次预检）。song_player 只证明本地真实可播，不证明音频已送达云端或观众可听。
+      </p>
       <p class="preflight-summary" aria-label="本次会话预检结果计数">
         本次会话：失败 <strong data-status="fail">{{ failCount }}</strong> ·
         提醒 <strong data-status="warn">{{ warnCount }}</strong> ·
@@ -38,6 +41,7 @@ const pendingCount = computed(() => props.result?.checks.filter((check) => check
 <style scoped>
 p { color:var(--nt-text-2); line-height:1.6; overflow-wrap:anywhere; }
 .preflight-error { color:var(--nt-danger); }
+.preflight-delivery { color:var(--nt-warn); }
 .preflight-checks { list-style:none; padding:0; display:grid; gap:12px; }
 li { padding:12px; border:1px solid var(--nt-border-1); border-radius:var(--nt-radius-m); background:var(--nt-data-bg); display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; }
 li[data-status=pass] strong { color:var(--nt-success); } li[data-status=warn] strong { color:var(--nt-warn); } li[data-status=fail] strong { color:var(--nt-danger); }

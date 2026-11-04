@@ -393,6 +393,31 @@ func newDraftPreflight(source *fakeDraftSource, caps CapabilitySource) (*Preflig
 	return pf, gate
 }
 
+func TestAudioDeliveryIsPanelOnlyAndSongEvidenceHasLocalBoundary(t *testing.T) {
+	caps := func(ctx context.Context) capability.Matrix {
+		mx := allRealCaps(ctx)
+		mx["audio_delivery"] = capability.Unknown
+		return mx
+	}
+	pf, _ := newDraftPreflight(&fakeDraftSource{draft: committedDraft(3)}, caps)
+	res := runPreflight(t, pf, context.Background(), PreflightRequest{Mode: ModePublicLive, DraftID: "d1", ExpectedRevision: 3})
+	if !res.Ready {
+		t.Fatalf("audio_delivery 不参与公开预检 ready 判定: %+v", res.Checks)
+	}
+	var song *Check
+	for i := range res.Checks {
+		if res.Checks[i].Code == "audio_delivery" {
+			t.Fatal("audio_delivery 不得进入 preflight checks")
+		}
+		if res.Checks[i].Code == "song_player" {
+			song = &res.Checks[i]
+		}
+	}
+	if song == nil || !strings.Contains(song.Detail, "只证明本地真实可播") || !strings.Contains(song.Detail, "不证明音频已送达云端") {
+		t.Fatalf("song_player 必须明确本地证据边界: %+v", song)
+	}
+}
+
 func TestPreflightDigestStableAcrossObservationTime(t *testing.T) {
 	source := &fakeDraftSource{draft: committedDraft(3)}
 	pf, _ := newDraftPreflight(source, allRealCaps)

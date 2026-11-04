@@ -326,6 +326,10 @@ func (p *Preflight) run(ctx context.Context, req PreflightRequest, issueToken bo
 			st, blocking = CheckWarn, false // local-preview：fake/unconfigured/unknown 显式标注可见但不阻断
 		}
 		detail := "capability=" + string(s)
+		if code == "song_player" {
+			// 本地真实可播与云端送达是两个独立证据项，ready 不得暗示观众可听。
+			detail += "; song_player 只证明本地真实可播，不证明音频已送达云端"
+		}
 		if code == "action_sender" && s != capability.Real {
 			detail += "; action_sender_" + string(s)
 			switch s {

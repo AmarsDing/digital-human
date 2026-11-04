@@ -733,6 +733,7 @@ type panelRuntime struct {
 	songScheduler  *song.Scheduler
 	dm             *danmaku.Service
 	player         media.Player
+	songProbe      func(context.Context) error
 	koubo          *koubo.Service
 	actionGen      koubo.ActionGen
 	actionGenProbe func(context.Context) error
@@ -776,6 +777,7 @@ func providePanelRuntime(
 	// 逐依赖真实装配：dev 显式 fake；real 缺什么就显式报什么，绝不静默降级。
 	var dec media.Decoder
 	var player media.Player
+	var songProbe func(context.Context) error
 	var synth tts2.Synth
 	var remote action.Remote
 	var actionProbe func(context.Context) error
@@ -804,6 +806,22 @@ func providePanelRuntime(
 		}
 		if fdec, err := media.NewFfmpegDecoder(); err == nil {
 			dec = fdec
+
+			songProbe = func(ctx context.Context) error {
+				files, err := songLib.List()
+				if err != nil {
+					return err
+				}
+				if len(files) == 0 {
+					return fmt.Errorf("歌曲库为空，无法建立本地真实播放证据")
+				}
+				path, _, err := songLib.Path(files[0].Name)
+				if err != nil {
+					return err
+				}
+				_, err = media.ProbeLocalPlayback(ctx, fdec, path)
+				return err
+			}
 
 			if sinker, ok := ctrl.(interface {
 				NewFeedSink(kind string, song2 bool) engine.FeedSink
@@ -887,6 +905,7 @@ func providePanelRuntime(
 		songScheduler:  songScheduler,
 		dm:             dm,
 		player:         player,
+		songProbe:      songProbe,
 		koubo:          kou,
 		actionGen:      actionGen,
 		actionGenProbe: actionGenProbe,
@@ -1251,6 +1270,11 @@ func provideCapabilities(
 	if rt != nil && rt.actionGenProbe != nil {
 		actionGenProbe = newCachedCapabilityProbe(5*time.Second, rt.actionGenProbe)
 	}
+	var songProbe *cachedCapabilityProbe
+	if rt != nil && rt.songProbe != nil {
+
+		songProbe = newCachedCapabilityProbe(live.PreflightTTL, rt.songProbe)
+	}
 	return func(ctx context.Context) capability.Matrix {
 		mx := capability.Matrix{}
 		remoteState := capability.Unconfigured
@@ -1290,12 +1314,17 @@ func provideCapabilities(
 				mx["song_player"] = capability.Unconfigured
 			case *media.FfmpegPlayer:
 				mx["song_player"] = capability.Unknown
+				if songProbe != nil && songProbe.check(ctx) == nil {
+					mx["song_player"] = capability.Real
+				}
 			default:
 				mx["song_player"] = capability.Unknown
 			}
 		} else {
 			mx["song_player"] = capability.Unconfigured
 		}
+
+		mx["audio_delivery"] = capability.Unknown
 
 		if rt != nil && rt.synth != nil {
 			switch rt.synth.(type) {

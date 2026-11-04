@@ -57,6 +57,25 @@ describe('PreflightDialog', () => {
     w.unmount()
   })
 
+  it('本地歌曲可播不暗示云端送达，audio_delivery 只在面板提示且不改 ready', () => {
+    const preflight = result(true)
+    preflight.checks = [{
+      code: 'song_player', status: 'pass', blocking: true, source: 'capability_probe',
+      detail: '只证明本地真实可播，不证明音频已送达云端', observedAtMs: 1000
+    }]
+    const w = mount(PreflightDialog, {
+      props: { open: true, result: preflight, busy: false, error: '' }
+    })
+
+    expect(preflight.ready).toBe(true)
+    expect(preflight.checks.some((check) => check.code === 'audio_delivery')).toBe(false)
+    const delivery = w.get('[data-testid="audio-delivery"]')
+    expect(delivery.text()).toContain('audio_delivery：待验证')
+    expect(delivery.text()).toContain('不参与本次预检')
+    expect(delivery.text()).toContain('song_player 只证明本地真实可播，不证明音频已送达云端或观众可听')
+    w.unmount()
+  })
+
   it('摘要只按 status 统计失败、提醒和待验证，开始直播使用 primary', () => {
     const preflight = result(false)
     preflight.checks = (['pass', 'warn', 'fail', 'unknown', 'running'] as const).map((status, index) => ({
