@@ -170,7 +170,15 @@ export const GROUP_SPECS: GroupSpec[] = [
       { key: 'min_interval_s', label: '最小间隔', type: 'number', min: 0, suffix: '秒' },
       { key: 'urgent_min_interval_s', label: '紧急最小间隔', type: 'number', min: 0, suffix: '秒' },
       { key: 'max_per_minute', label: '每分钟最多', type: 'number', min: 1, suffix: '次' },
-      { key: 'max_items', label: '窗口内最多组合', type: 'number', min: 4, suffix: '组' }
+      { key: 'max_items', label: '窗口内最多组合', type: 'number', min: 4, suffix: '组' },
+      { key: 'tier_medium_diamond', label: '中档礼物起点', type: 'number', min: 1, suffix: '钻石' },
+      { key: 'tier_large_diamond', label: '大档礼物起点', type: 'number', min: 1, suffix: '钻石' },
+      { key: 'tier_small_template', label: '小档文案模板', type: 'text', hint: '支持 {thanks}/{num}/{diamond}' },
+      { key: 'tier_medium_template', label: '中档文案模板', type: 'text', hint: '支持 {thanks}/{num}/{diamond}' },
+      { key: 'tier_large_template', label: '大档文案模板', type: 'text', hint: '支持 {thanks}/{num}/{diamond}' },
+      { key: 'tier_small_action', label: '小档动作触发词', type: 'text', hint: '仅当前动作库白名单内生效' },
+      { key: 'tier_medium_action', label: '中档动作触发词', type: 'text', hint: '仅当前动作库白名单内生效' },
+      { key: 'tier_large_action', label: '大档动作触发词', type: 'text', hint: '仅当前动作库白名单内生效' }
     ],
     defaults: {
       enabled: true,
@@ -181,7 +189,15 @@ export const GROUP_SPECS: GroupSpec[] = [
       min_interval_s: 25,
       urgent_min_interval_s: 10,
       max_per_minute: 2,
-      max_items: 12
+      max_items: 12,
+      tier_medium_diamond: 50,
+      tier_large_diamond: 200,
+      tier_small_template: '{thanks}',
+      tier_medium_template: '{thanks}',
+      tier_large_template: '{thanks}',
+      tier_small_action: '',
+      tier_medium_action: '',
+      tier_large_action: ''
     }
   },
   {

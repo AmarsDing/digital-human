@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 )
 
 // EffectTypeGiftThanks 礼物答谢副作用（§5.4；本期唯一打通链路）。
@@ -23,6 +26,11 @@ type GiftSpeaker struct {
 	disp    *Dispatcher
 	inner   Sayer
 	session func() (sessionID string, ok bool) // 当前场次；无场次时拒绝落库（fail-closed）
+
+	mu             sync.RWMutex
+	gate           *contentgate.Gate
+	actionMappings []ActionMapping
+	actionRevision string
 }
 
 // NewGiftSpeaker svc/disp/inner 任一为空时 Say(gift) 显式报错（不静默丢失答谢）。
@@ -39,7 +47,7 @@ func (g *GiftSpeaker) Say(ctx context.Context, text string, mode string) error {
 	if !ok {
 		return errors.New("interaction: gift thanks without live session (refused, fail-closed)")
 	}
-	return g.sayGift(ctx, text, SourceKey("gift_thanks", sessionID, text))
+	return g.sayGift(ctx, text, SourceKey("gift_thanks", sessionID, text), "")
 }
 
 // SayGiftBatch 以 Merger 批次为幂等边界，同文案不同批次不会互相去重。
@@ -51,7 +59,34 @@ func (g *GiftSpeaker) SayGiftBatch(ctx context.Context, text, batchID string) er
 	if !ok {
 		return errors.New("interaction: gift thanks without live session (refused, fail-closed)")
 	}
-	return g.sayGift(ctx, text, SourceKey("gift_thanks", sessionID, batchID))
+	return g.sayGift(ctx, text, SourceKey("gift_thanks", sessionID, batchID), "")
+}
+
+// SayGiftReaction 在同一 Decision 下持久化文案与可选白名单动作。
+func (g *GiftSpeaker) SayGiftReaction(ctx context.Context, text, batchID, actionTrigger string) error {
+	if batchID == "" {
+		return errors.New("interaction: gift batch ID is required")
+	}
+	sessionID, ok := g.currentSession()
+	if !ok {
+		return errors.New("interaction: gift thanks without live session (refused, fail-closed)")
+	}
+	return g.sayGift(ctx, text, SourceKey("gift_thanks", sessionID, batchID), actionTrigger)
+}
+
+// SetGate 配置礼物文本的统一终检。
+func (g *GiftSpeaker) SetGate(gate *contentgate.Gate) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.gate = gate
+}
+
+// SetActionMappings 冻结当前选中动作库的白名单与 revision。
+func (g *GiftSpeaker) SetActionMappings(mappings []ActionMapping, revision string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.actionMappings = append([]ActionMapping(nil), mappings...)
+	g.actionRevision = revision
 }
 
 func (g *GiftSpeaker) currentSession() (string, bool) {
@@ -62,11 +97,36 @@ func (g *GiftSpeaker) currentSession() (string, bool) {
 	return sessionID, ok && sessionID != ""
 }
 
-func (g *GiftSpeaker) sayGift(ctx context.Context, text, source string) error {
+func (g *GiftSpeaker) sayGift(ctx context.Context, text, source, actionTrigger string) error {
 	if g.svc == nil || g.disp == nil || g.inner == nil {
 		return errors.New("interaction: gift speaker not fully wired")
 	}
 	sessionID, _ := g.currentSession()
+	g.mu.RLock()
+	gate := g.gate
+	mappings := append([]ActionMapping(nil), g.actionMappings...)
+	revision := g.actionRevision
+	g.mu.RUnlock()
+	if gate != nil {
+		decision := gate.Check(ctx, contentgate.Input{Outlet: "gift", SessionID: sessionID, Text: text})
+		switch decision.Disposition {
+		case contentgate.DispositionSilent:
+			return errors.New("interaction: gift content suppressed by gate")
+		case contentgate.DispositionSpeakTemplate:
+			text = decision.Text
+			actionTrigger = ""
+		}
+	}
+	effectInputs := []EffectInput{{
+		EffectType: EffectTypeGiftThanks, TargetID: "tts", Seq: 1,
+		PayloadSafe: map[string]any{"text": text},
+	}}
+	if mapping, ok := allowedGiftAction(mappings, revision, actionTrigger); ok {
+		effectInputs = append(effectInputs, EffectInput{
+			EffectType: EffectTypeAction, TargetID: "action", Seq: 2,
+			PayloadSafe: map[string]any{"instruction": mapping.Instruction, "user_key": "gift"},
+		})
+	}
 	_, effects, err := g.svc.Decide(ctx, DecisionInput{
 		SessionID:        sessionID,
 		SourceEventRowID: source,
@@ -74,10 +134,7 @@ func (g *GiftSpeaker) sayGift(ctx context.Context, text, source string) error {
 		Outcome:          DecideExecute,
 		ReasonCode:       "gift_merged",
 		PayloadSafe:      map[string]any{"text": text, "mode": "gift"},
-		Effects: []EffectInput{{
-			EffectType: EffectTypeGiftThanks, TargetID: "tts", Seq: 1,
-			PayloadSafe: map[string]any{"text": text},
-		}},
+		Effects:          effectInputs,
 	})
 	if err != nil {
 		return fmt.Errorf("interaction: decide gift_thanks: %w", err)
@@ -85,9 +142,15 @@ func (g *GiftSpeaker) sayGift(ctx context.Context, text, source string) error {
 	if len(effects) == 0 {
 		return errors.New("interaction: decide gift_thanks: no effect persisted")
 	}
-	// 同步派发一次（skeleton：先打通闭环；异步批量派发由 Run 周期/后续切片接管）。
-	if _, err := g.disp.DispatchOnce(ctx); err != nil {
-		return fmt.Errorf("interaction: dispatch gift_thanks: %w", err)
+	// 同步派发本批次的文案与可选动作；回执仍只证明出口调用，不证明 Vidu 执行完成。
+	for {
+		ok, err := g.disp.DispatchOnce(ctx)
+		if err != nil {
+			return fmt.Errorf("interaction: dispatch gift_thanks: %w", err)
+		}
+		if !ok {
+			break
+		}
 	}
 	// 回执已写（dispatcher 内 MarkSucceeded/MarkFailed*）；handler 失败以 err 形式
 	// 经由 store 状态呈现，这里按状态决定是否向上报错。
@@ -103,6 +166,18 @@ func (g *GiftSpeaker) sayGift(ctx context.Context, text, source string) error {
 	default:
 		return fmt.Errorf("interaction: gift_thanks %s: %s", eff.Status, strings.TrimSpace(eff.LastError))
 	}
+}
+
+func allowedGiftAction(mappings []ActionMapping, revision, trigger string) (ActionMapping, bool) {
+	if trigger == "" {
+		return ActionMapping{}, false
+	}
+	for _, mapping := range mappings {
+		if mapping.Trigger == trigger && mapping.Allowed && mapping.Revision == revision && mapping.CapabilityStatus == "real" {
+			return mapping, true
+		}
+	}
+	return ActionMapping{}, false
 }
 
 // effectOf 从 dispatcher store 读回执后状态（MemoryStore 提供 GetEffect；

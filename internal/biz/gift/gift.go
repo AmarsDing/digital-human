@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
 )
 
 // Speaker 是 live.Manager.Say 的窄接口（入 TTS）。
@@ -28,6 +30,11 @@ type Speaker interface {
 // BatchSpeaker 在现有 Say 通道上补充礼物批次标识；不支持时回退 Say。
 type BatchSpeaker interface {
 	SayGiftBatch(ctx context.Context, text, batchID string) error
+}
+
+// ReactionSpeaker 在同一批次中传递可选动作触发词；白名单判定由互动出口负责。
+type ReactionSpeaker interface {
+	SayGiftReaction(ctx context.Context, text, batchID, actionTrigger string) error
 }
 
 // SettingsProvider 读 gift / danmaku 组键。
@@ -62,6 +69,14 @@ type Config struct {
 	UrgentMinIntervalS int // 紧急（达标）最小间隔秒，默认 10
 	MaxPerMinute       int // 每分钟最多播报次数，默认 2
 	MaxItems           int // 合并窗口内最多追踪的 (nick,item) 组合，默认 12
+	MediumDiamond      int
+	LargeDiamond       int
+	SmallTemplate      string
+	MediumTemplate     string
+	LargeTemplate      string
+	SmallAction        string
+	MediumAction       string
+	LargeAction        string
 }
 
 // Merger 礼物合并器（F27）。会话级：Start/Stop 由 live.Manager 钩子驱动。
@@ -71,6 +86,10 @@ type Merger struct {
 	log     *slog.Logger
 	clock   Clock
 	emit    EventSink
+
+	songPlaying func() bool
+	chatActive  func(sessionID string) bool
+	audit       contentgate.DecisionRecorder
 
 	mu       sync.Mutex
 	cfg      Config
@@ -107,6 +126,7 @@ type Stats struct {
 	Extra     int `json:"extra"`      // 溢出人数累计
 	VipFired  int `json:"vip_fired"`  // F28 贵宾欢迎触发次数
 	VipCooled int `json:"vip_cooled"` // F28 冷却/已欢迎拦截次数
+	Skipped   int `json:"skipped"`    // 高优先级活动期间抑制的批次数
 }
 
 func NewMerger(sp SettingsProvider, speaker Speaker, emit EventSink, logger *slog.Logger) *Merger {
@@ -127,6 +147,15 @@ func NewMerger(sp SettingsProvider, speaker Speaker, emit EventSink, logger *slo
 
 // SetClock 测试注入。
 func (m *Merger) SetClock(c Clock) { m.clock = c }
+
+// SetActivity 注入高优先级活动状态与脱敏审计出口。
+func (m *Merger) SetActivity(songPlaying func() bool, chatActive func(string) bool, audit contentgate.DecisionRecorder) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.songPlaying = songPlaying
+	m.chatActive = chatActive
+	m.audit = audit
+}
 
 // OnSessionStart 会话开始：重置聚合与会话态（G25：已欢迎集合随场次清空）。
 // 实现 live.DanmakuWorker 生命周期接口（经 Manager.AddSessionHook 挂载）。
@@ -181,6 +210,14 @@ func (m *Merger) cfgNow(ctx context.Context) Config {
 		UrgentMinIntervalS: getInt(ctx, m.sp, "gift", "urgent_min_interval_s", 10),
 		MaxPerMinute:       getInt(ctx, m.sp, "gift", "max_per_minute", 2),
 		MaxItems:           getInt(ctx, m.sp, "gift", "max_items", 12),
+		MediumDiamond:      getInt(ctx, m.sp, "gift", "tier_medium_diamond", 50),
+		LargeDiamond:       getInt(ctx, m.sp, "gift", "tier_large_diamond", 200),
+		SmallTemplate:      getString(ctx, m.sp, "gift", "tier_small_template", "{thanks}"),
+		MediumTemplate:     getString(ctx, m.sp, "gift", "tier_medium_template", "{thanks}"),
+		LargeTemplate:      getString(ctx, m.sp, "gift", "tier_large_template", "{thanks}"),
+		SmallAction:        getString(ctx, m.sp, "gift", "tier_small_action", ""),
+		MediumAction:       getString(ctx, m.sp, "gift", "tier_medium_action", ""),
+		LargeAction:        getString(ctx, m.sp, "gift", "tier_large_action", ""),
 	}
 	m.mu.Lock()
 	m.cfg = c
@@ -274,13 +311,36 @@ func (m *Merger) flush(ctx context.Context) {
 		m.mu.Unlock()
 		return
 	}
+	category := ""
+	if m.songPlaying != nil && m.songPlaying() {
+		category = "song_playing"
+	} else if m.chatActive != nil && m.chatActive(m.sessionID) {
+		category = "text_chat_active"
+	}
+	if category != "" {
+		m.items = map[string]*aggItem{}
+		m.order = nil
+		m.extraVal = 0
+		m.deadline = time.Time{}
+		m.stats.Skipped++
+		audit := m.audit
+		m.mu.Unlock()
+		if audit != nil {
+			_ = audit.RecordContentDecision(ctx, contentgate.AuditRecord{
+				Outlet: "gift", Category: category, Disposition: contentgate.DispositionSilent,
+			})
+		}
+		return
+	}
 	now := m.clock()
 	// 节流：min_interval（紧急用 urgent 档）+ max_per_minute。
 	gap := cfg.MinIntervalS
 	people := len(m.order)
 	totalValue := m.extraVal
+	totalNum := 0
 	for _, k := range m.order {
 		totalValue += m.items[k].value
+		totalNum += m.items[k].num
 	}
 	if people >= cfg.FlushPeople || totalValue >= cfg.FlushDiamond {
 		gap = cfg.UrgentMinIntervalS
@@ -316,7 +376,7 @@ func (m *Merger) flush(ctx context.Context) {
 	for _, k := range shown {
 		batch = append(batch, *m.items[k])
 	}
-	text := composeThanks(batch, extra)
+	text := renderTierReaction(cfg, composeThanks(batch, extra), totalNum, totalValue)
 	m.batchSeq++
 	batchID := fmt.Sprintf("gift-%s-%d-%d", m.sessionID, now.UnixMilli(), m.batchSeq)
 	m.items = map[string]*aggItem{}
@@ -334,7 +394,9 @@ func (m *Merger) flush(ctx context.Context) {
 		return
 	}
 	var err error
-	if speaker, ok := m.speaker.(BatchSpeaker); ok {
+	if speaker, ok := m.speaker.(ReactionSpeaker); ok {
+		err = speaker.SayGiftReaction(ctx, text, batchID, tierAction(cfg, totalValue))
+	} else if speaker, ok := m.speaker.(BatchSpeaker); ok {
 		err = speaker.SayGiftBatch(ctx, text, batchID)
 	} else {
 		err = m.speaker.Say(ctx, text, "gift")
@@ -348,6 +410,30 @@ func (m *Merger) flush(ctx context.Context) {
 			"text": text, "items": len(batch), "extra": extra, "diamond": totalValue, "batch_id": batchID,
 		})
 	}
+}
+
+func tierAction(cfg Config, diamond int) string {
+	if diamond >= cfg.LargeDiamond {
+		return cfg.LargeAction
+	}
+	if diamond >= cfg.MediumDiamond {
+		return cfg.MediumAction
+	}
+	return cfg.SmallAction
+}
+
+func renderTierReaction(cfg Config, thanks string, num, diamond int) string {
+	template := cfg.SmallTemplate
+	if diamond >= cfg.LargeDiamond {
+		template = cfg.LargeTemplate
+	} else if diamond >= cfg.MediumDiamond {
+		template = cfg.MediumTemplate
+	}
+	return strings.NewReplacer(
+		"{thanks}", thanks,
+		"{num}", fmt.Sprintf("%d", num),
+		"{diamond}", fmt.Sprintf("%d", diamond),
+	).Replace(template)
 }
 
 // composeThanks 合成「谢谢 xx 的 N 个 yy、zz 的 …」（蓝本 engine.py:_gift_say 文案对齐）。
@@ -455,6 +541,7 @@ func (m *Merger) State() map[string]any {
 		"extra":      m.stats.Extra,
 		"vip_fired":  m.stats.VipFired,
 		"vip_cooled": m.stats.VipCooled,
+		"skipped":    m.stats.Skipped,
 	}
 }
 
@@ -477,6 +564,13 @@ func getBool(ctx context.Context, sp SettingsProvider, group, key string, def bo
 		return def
 	}
 	return v
+}
+
+func getString(ctx context.Context, sp SettingsProvider, group, key, def string) string {
+	if v, ok := sp.Value(ctx, group, key).(string); ok && v != "" {
+		return v
+	}
+	return def
 }
 
 func getInt(ctx context.Context, sp SettingsProvider, group, key string, def int) int {

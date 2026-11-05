@@ -46,6 +46,9 @@ func DefaultGroups() []Group {
 			"enabled": true, "window_s": 6, "flush_people": 4, "flush_diamond": 50,
 			"max_names": 4, "min_interval_s": 25, "urgent_min_interval_s": 10,
 			"max_per_minute": 2, "max_items": 12,
+			"tier_medium_diamond": 50, "tier_large_diamond": 200,
+			"tier_small_template": "{thanks}", "tier_medium_template": "{thanks}", "tier_large_template": "{thanks}",
+			"tier_small_action": "", "tier_medium_action": "", "tier_large_action": "",
 		}},
 		{ID: "llm", Title: "LLM", Effective: "next_session", Values: map[string]any{
 			"base_url": "https://api.deepseek.com", "api_key": "", "model": "", "temperature": 0.7,

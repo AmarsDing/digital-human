@@ -2,9 +2,17 @@ package interaction
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/teamwork/digital-human/internal/biz/action"
+	"github.com/teamwork/digital-human/internal/biz/contentgate"
+	"github.com/teamwork/digital-human/pkg/eventbus"
 )
 
 func decideOne(t *testing.T, svc *Service, source string) (Decision, []Effect) {
@@ -312,4 +320,142 @@ type captureSayer struct{ got []string }
 func (c *captureSayer) Say(_ context.Context, text string, _ string) error {
 	c.got = append(c.got, text)
 	return nil
+}
+
+func newGiftReactionTestSpeaker(t *testing.T) (*GiftSpeaker, *MemoryStore, *captureSayer, *action.FakeSender, *eventbus.Bus) {
+	t.Helper()
+	st := NewMemoryStore()
+	disp, err := NewDispatcher(st, 30*time.Second, 30*time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := &captureSayer{}
+	gs := NewGiftSpeaker(NewService(st), disp, inner, func() (string, bool) { return "s1", true })
+	gs.RegisterGiftHandler()
+	sender := action.NewFakeSender()
+	bus := eventbus.New(16)
+	scheduler := action.NewScheduler(sender, bus, action.DefaultConfig())
+	t.Cleanup(scheduler.Close)
+	RegisterActionHandler(disp, scheduler)
+	return gs, st, inner, sender, bus
+}
+
+func TestGiftSpeakerAllowedActionUsesExistingActionEffect(t *testing.T) {
+	gs, st, inner, sender, _ := newGiftReactionTestSpeaker(t)
+	gs.SetActionMappings([]ActionMapping{{
+		Trigger: "跳舞", Instruction: "dance-01", Revision: "rev-1", Allowed: true, CapabilityStatus: "real",
+	}}, "rev-1")
+	if err := gs.SayGiftReaction(context.Background(), "谢谢甲的嘉年华", "gift-action-allowed", "跳舞"); err != nil {
+		t.Fatal(err)
+	}
+	if len(inner.got) != 1 {
+		t.Fatalf("礼物文案必须仍经原口播出口: %v", inner.got)
+	}
+	if got := sender.Sent(); len(got) != 1 || got[0] != "dance-01" {
+		t.Fatalf("白名单动作必须经既有 Scheduler 出口: %v", got)
+	}
+	effects, err := st.ListEffects(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(effects) != 2 {
+		t.Fatalf("允许动作应有文案与动作两个 Effect: %+v", effects)
+	}
+	for _, eff := range effects {
+		if eff.Status != EffectSucceeded {
+			t.Fatalf("两个 Effect 均应完成同步派发: %+v", eff)
+		}
+		if eff.EffectType == EffectTypeAction && eff.PayloadSafe["instruction"] != "dance-01" {
+			t.Fatalf("动作 Effect 载荷错误: %+v", eff)
+		}
+	}
+}
+
+func TestGiftSpeakerInvalidActionOnlySpeaksWithoutSentEvent(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		mapping ActionMapping
+		trigger string
+	}{
+		{name: "outside selected library", mapping: ActionMapping{Trigger: "跳舞", Instruction: "dance-01", Revision: "rev-1", Allowed: false, CapabilityStatus: "real"}, trigger: "跳舞"},
+		{name: "stale revision", mapping: ActionMapping{Trigger: "跳舞", Instruction: "dance-01", Revision: "old", Allowed: true, CapabilityStatus: "real"}, trigger: "跳舞"},
+		{name: "capability unavailable", mapping: ActionMapping{Trigger: "跳舞", Instruction: "dance-01", Revision: "rev-1", Allowed: true, CapabilityStatus: "unconfigured"}, trigger: "跳舞"},
+		{name: "outside whitelist", mapping: ActionMapping{Trigger: "跳舞", Instruction: "dance-01", Revision: "rev-1", Allowed: true, CapabilityStatus: "real"}, trigger: "相似节目"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			gs, st, inner, sender, bus := newGiftReactionTestSpeaker(t)
+			gs.SetActionMappings([]ActionMapping{tt.mapping}, "rev-1")
+			events, cancel := bus.Subscribe(0)
+			defer cancel()
+			if err := gs.SayGiftReaction(context.Background(), "谢谢甲的玫瑰", "gift-action-denied", tt.trigger); err != nil {
+				t.Fatal(err)
+			}
+			if len(inner.got) != 1 {
+				t.Fatalf("动作不可用不得吞掉文案: %v", inner.got)
+			}
+			if got := sender.Sent(); len(got) != 0 {
+				t.Fatalf("非法动作不得发送: %v", got)
+			}
+			effects, err := st.ListEffects(context.Background(), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(effects) != 1 || effects[0].EffectType != EffectTypeGiftThanks {
+				t.Fatalf("非法动作只能留下文案 Effect: %+v", effects)
+			}
+			select {
+			case event := <-events:
+				if event.Type == "action.sent" {
+					t.Fatalf("非法动作不得发布 action.sent: %+v", event)
+				}
+			case <-time.After(20 * time.Millisecond):
+			}
+		})
+	}
+}
+
+type interactionAuditRecorder struct{ records []contentgate.AuditRecord }
+
+func (r *interactionAuditRecorder) RecordContentDecision(_ context.Context, record contentgate.AuditRecord) error {
+	r.records = append(r.records, record)
+	return nil
+}
+
+func TestGiftSpeakerGateSilentSkipsEffectsAndAuditsOnlyMetadata(t *testing.T) {
+	gs, st, inner, sender, _ := newGiftReactionTestSpeaker(t)
+	gs.SetActionMappings([]ActionMapping{{
+		Trigger: "跳舞", Instruction: "dance-01", Revision: "rev-1", Allowed: true, CapabilityStatus: "real",
+	}}, "rev-1")
+	recorder := &interactionAuditRecorder{}
+	path := filepath.Join(t.TempDir(), "gift_gate.yaml")
+	if err := os.WriteFile(path, []byte("layers:\n  political:\n    decision: block\n    words: [政治违禁词]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gs.SetGate(contentgate.New(contentgate.Options{
+		Enabled: true, RulesPath: path, CircuitBreakerThreshold: 3, Recorder: recorder,
+	}))
+	err := gs.SayGiftReaction(context.Background(), "谢谢敏感昵称的政治违禁词", "gift-gate-silent", "跳舞")
+	if err == nil {
+		t.Fatal("Gate silent 必须显式抑制礼物反应")
+	}
+	if len(inner.got) != 0 || len(sender.Sent()) != 0 {
+		t.Fatalf("Gate silent 不得口播或发动作: say=%v action=%v", inner.got, sender.Sent())
+	}
+	if n, _ := st.CountDecisions(context.Background()); n != 0 {
+		t.Fatalf("Gate silent 不得落 Decision/Effect: %d", n)
+	}
+	if len(recorder.records) != 1 {
+		t.Fatalf("Gate 必须写一条审计: %+v", recorder.records)
+	}
+	record := recorder.records[0]
+	if record.Outlet != "gift" || record.Category != "political" || record.Disposition != contentgate.DispositionSilent {
+		t.Fatalf("礼物 Gate 审计元数据错误: %+v", record)
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "敏感昵称") || strings.Contains(string(raw), "政治违禁词") {
+		t.Fatalf("审计不得携带原文或昵称: %s", raw)
+	}
 }

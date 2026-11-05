@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +21,42 @@ func TestSaveRequiresAllThirteenGroups(t *testing.T) {
 	}
 	if _, _, err := svc.Save(context.Background(), groups[:12], 1); err == nil {
 		t.Fatal("partial save must be rejected")
+	}
+}
+
+func TestGiftTierDefaults(t *testing.T) {
+	for _, group := range DefaultGroups() {
+		if group.ID != "gift" {
+			continue
+		}
+		want := map[string]any{
+			"tier_medium_diamond": 50, "tier_large_diamond": 200,
+			"tier_small_template": "{thanks}", "tier_medium_template": "{thanks}", "tier_large_template": "{thanks}",
+			"tier_small_action": "", "tier_medium_action": "", "tier_large_action": "",
+		}
+		for key, value := range want {
+			if group.Values[key] != value {
+				t.Errorf("gift.%s=%v want %v", key, group.Values[key], value)
+			}
+		}
+		return
+	}
+	t.Fatal("gift group missing")
+}
+
+func TestFrontendGiftTierFields(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "src", "components", "settings", "schema.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"tier_medium_diamond", "tier_large_diamond",
+		"tier_small_template", "tier_medium_template", "tier_large_template",
+		"tier_small_action", "tier_medium_action", "tier_large_action",
+	} {
+		if !strings.Contains(string(raw), "key: '"+key+"'") {
+			t.Errorf("前端礼物设置缺少字段 %s", key)
+		}
 	}
 }
 

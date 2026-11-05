@@ -571,6 +571,7 @@ func provideGiftPatrons(
 	// B3 §5.4：礼物答谢走 interaction 闭环（Decision+EffectOutbox 落库 → dispatcher →
 	// Say → 回执写状态）；其他 mode（patron 欢迎等）由 GiftSpeaker 透传内层。
 	giftMerger := gift.NewMerger(st, ix.gift, emit, logger)
+	ix.giftMerger = giftMerger
 	mgr.AddSessionHook(giftMerger)
 
 	patStore := repo.NewSwitchablePatronStore(patron.NewMemoryStore())
@@ -791,6 +792,7 @@ func providePanelRuntime(
 	patrons *patron.Service,
 	ix *interactionRuntime,
 	songRequests *repo.SwitchableSongRequestStore,
+	audits *audit.Service,
 	gate *contentgate.Gate,
 ) *panelRuntime {
 	isLive := func() bool { return mgr.Snapshot().Phase == live.PhaseLive }
@@ -889,6 +891,13 @@ func providePanelRuntime(
 	songScheduler := song.NewScheduler(songRequests, songs, time.Now)
 	song.RegisterInteractionHandler(ix.disp, songRequests, songScheduler)
 	sched.SetSongPlaying(func() bool { return songs.Status().Playing })
+	if ix.giftMerger != nil {
+		ix.giftMerger.SetActivity(
+			func() bool { return songs.Status().Playing },
+			voiceCoordinator.TextChatActive,
+			audits,
+		)
+	}
 
 	// 规则优先：点歌/动作先判定；授权段子让位歌曲与打字聊天，普通聊天最后进入 LLM。
 	jokes := joke.NewService(joke.Options{
@@ -920,12 +929,14 @@ func providePanelRuntime(
 		revisionParts = append(revisionParts, strings.Join([]string{item.ID, item.LibraryID, item.Name, item.Instruction}, "\x00"))
 	}
 	ruleRevision := interaction.SourceKey("danmaku-rules", strings.Join(revisionParts, "\x00"))
+	actionMappings := ruleActionMappings(actionItems, libraryID, ruleRevision, actionCapability)
+	ix.gift.SetActionMappings(actionMappings, ruleRevision)
 	wireInteractionRules(dm, ix, chatMgr, chatSpeaker{m: mgr}, jokeSpeaker{m: mgr}, sched, interaction.RulePolicy{
 		RuleVersion:  "danmaku-rules-v1",
 		Revision:     ruleRevision,
 		LLMAvailable: settingStr(st, ctx, "llm", "api_key") != "",
 		Songs:        ruleSongs,
-		Actions:      ruleActionMappings(actionItems, libraryID, ruleRevision, actionCapability),
+		Actions:      actionMappings,
 		Jokes:        jokes,
 	}, func() (string, bool) {
 		snap := mgr.Snapshot()
@@ -1154,6 +1165,7 @@ type interactionRuntime struct {
 	store      interaction.Store
 	disp       *interaction.Dispatcher
 	gift       *interaction.GiftSpeaker
+	giftMerger *gift.Merger
 	rules      atomic.Pointer[interaction.RuleEngine]
 	chatSource atomic.Pointer[repo.EntDanmakuSink]
 }
@@ -1173,7 +1185,7 @@ func provideSongRequests(d *data.Data, logger *slog.Logger) *repo.SwitchableSong
 
 // provideInteraction B3：Decision/EffectOutbox 存储（内存启动、PG 热切）+ dispatcher
 // lease 骨架 + 礼物答谢链路（gift 合并触发 → 落库 → 派发 Say → 回执写状态）。
-func provideInteraction(d *data.Data, mgr *live.Manager) (*interactionRuntime, error) {
+func provideInteraction(d *data.Data, mgr *live.Manager, gate *contentgate.Gate) (*interactionRuntime, error) {
 	sw := repo.NewSwitchableInteractionStore(interaction.NewMemoryStore())
 	svc := interaction.NewService(sw)
 	ix := &interactionRuntime{svc: svc, store: sw}
@@ -1193,6 +1205,7 @@ func provideInteraction(d *data.Data, mgr *live.Manager) (*interactionRuntime, e
 		}
 		return "", false
 	})
+	gs.SetGate(gate)
 	gs.RegisterGiftHandler()
 	ix.gift = gs
 	return ix, nil
