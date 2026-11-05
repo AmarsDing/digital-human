@@ -48,3 +48,8 @@ Thumbs.db
 test-results/
 coverage/
 *.out
+/dist/
+/runtime/
+*.tsbuildinfo
+__pycache__/
+.pytest_cache/
