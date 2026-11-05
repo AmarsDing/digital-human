@@ -9,21 +9,28 @@ import (
 
 func validCloudConfig() CloudConfig {
 	return CloudConfig{
-		Provider: "dashscope",
-		BaseURL:  "wss://example.test/api-ws/v1",
-		Model:    "qwen3-tts-flash-realtime",
-		APIKey:   "test-key",
-		Voice:    "Cherry",
+		Provider:   "dashscope",
+		BaseURL:    "wss://example.test/api-ws/v1",
+		Model:      "qwen3-tts-flash-realtime",
+		APIKey:     "test-key",
+		Voice:      "Cherry",
+		SampleRate: 24000,
+		Format:     "pcm",
 	}
 }
 
-func TestCloudConfigCapabilityRequiresCredentials(t *testing.T) {
+func TestCloudConfigMissingFieldIsSpecificAndUnconfigured(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func(*CloudConfig)
+		name      string
+		wantField string
+		mutate    func(*CloudConfig)
 	}{
-		{name: "base URL", mutate: func(c *CloudConfig) { c.BaseURL = "" }},
-		{name: "API key", mutate: func(c *CloudConfig) { c.APIKey = "" }},
+		{name: "base URL", wantField: "base_url", mutate: func(c *CloudConfig) { c.BaseURL = "" }},
+		{name: "model", wantField: "model", mutate: func(c *CloudConfig) { c.Model = "" }},
+		{name: "sample rate", wantField: "sample_rate", mutate: func(c *CloudConfig) { c.SampleRate = 0 }},
+		{name: "format", wantField: "format", mutate: func(c *CloudConfig) { c.Format = "" }},
+		{name: "API key", wantField: "api_key", mutate: func(c *CloudConfig) { c.APIKey = "" }},
+		{name: "voice", wantField: "voice", mutate: func(c *CloudConfig) { c.Voice = "" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -36,6 +43,9 @@ func TestCloudConfigCapabilityRequiresCredentials(t *testing.T) {
 			if ErrorCode(err) != "cloud_tts_unconfigured" {
 				t.Fatalf("ErrorCode() = %q, want cloud_tts_unconfigured; err=%v", ErrorCode(err), err)
 			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantField) {
+				t.Fatalf("Normalize() error = %v, want missing field %q", err, tt.wantField)
+			}
 		})
 	}
 }
@@ -47,7 +57,7 @@ func TestCloudConfigNormalizeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Normalize() error = %v", err)
 	}
-	if got.Provider != "dashscope" || got.SampleRate != 24000 || got.Timeout <= 0 || got.ProbeCacheTTL <= 0 {
+	if got.Provider != "dashscope" || got.SampleRate != 24000 || got.Format != "pcm" || got.Timeout <= 0 || got.ProbeCacheTTL <= 0 {
 		t.Fatalf("Normalize() defaults = %+v", got)
 	}
 }
@@ -60,6 +70,7 @@ func TestCloudConfigRejectsInvalidConfiguration(t *testing.T) {
 		{name: "HTTP URL", mutate: func(c *CloudConfig) { c.BaseURL = "https://example.test/api-ws/v1" }},
 		{name: "voice", mutate: func(c *CloudConfig) { c.Voice = "" }},
 		{name: "sample rate", mutate: func(c *CloudConfig) { c.SampleRate = 12345 }},
+		{name: "format", mutate: func(c *CloudConfig) { c.Format = "wav" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

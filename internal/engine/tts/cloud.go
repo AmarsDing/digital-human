@@ -35,6 +35,7 @@ type CloudConfig struct {
 	APIKey        string        `yaml:"-"`
 	Voice         string        `yaml:"voice"`
 	SampleRate    int           `yaml:"sample_rate"`
+	Format        string        `yaml:"format"`
 	Timeout       time.Duration `yaml:"timeout"`
 	ProbeCacheTTL time.Duration `yaml:"probe_cache_ttl"`
 }
@@ -87,11 +88,9 @@ func (c CloudConfig) Normalize() (CloudConfig, error) {
 	c.Model = strings.TrimSpace(c.Model)
 	c.APIKey = strings.TrimSpace(c.APIKey)
 	c.Voice = strings.TrimSpace(c.Voice)
+	c.Format = strings.ToLower(strings.TrimSpace(c.Format))
 	if c.Provider == "" {
 		c.Provider = CloudProviderDashscope
-	}
-	if c.SampleRate == 0 {
-		c.SampleRate = 24000
 	}
 	if c.Timeout == 0 {
 		c.Timeout = 30 * time.Second
@@ -99,8 +98,24 @@ func (c CloudConfig) Normalize() (CloudConfig, error) {
 	if c.ProbeCacheTTL == 0 {
 		c.ProbeCacheTTL = 30 * time.Second
 	}
-	if c.BaseURL == "" || c.APIKey == "" || c.Model == "" || c.Voice == "" {
-		return c, newCloudError("cloud_tts_unconfigured", "云 TTS 配置不完整", nil)
+	var missing []string
+	for _, field := range []struct {
+		name  string
+		empty bool
+	}{
+		{name: "base_url", empty: c.BaseURL == ""},
+		{name: "model", empty: c.Model == ""},
+		{name: "sample_rate", empty: c.SampleRate == 0},
+		{name: "format", empty: c.Format == ""},
+		{name: "api_key", empty: c.APIKey == ""},
+		{name: "voice", empty: c.Voice == ""},
+	} {
+		if field.empty {
+			missing = append(missing, field.name)
+		}
+	}
+	if len(missing) > 0 {
+		return c, newCloudError("cloud_tts_unconfigured", "云 TTS 配置不完整，缺少: "+strings.Join(missing, ", "), nil)
 	}
 	if c.Provider != CloudProviderDashscope {
 		return c, newCloudError("cloud_tts_unconfigured", "云 TTS provider 不受支持", nil)
@@ -113,6 +128,9 @@ func (c CloudConfig) Normalize() (CloudConfig, error) {
 	case 8000, 16000, 22050, 24000, 44100, 48000:
 	default:
 		return c, newCloudError("cloud_tts_unconfigured", "云 TTS sample_rate 不受支持", nil)
+	}
+	if c.Format != "pcm" {
+		return c, newCloudError("cloud_tts_unconfigured", "云 TTS format 只支持 pcm", nil)
 	}
 	if c.Timeout < 0 || c.ProbeCacheTTL < 0 {
 		return c, newCloudError("cloud_tts_unconfigured", "云 TTS 超时和探测缓存必须大于 0", nil)
@@ -176,6 +194,7 @@ func (c CloudConfig) Identity() (string, error) {
 		normalized.Model,
 		normalized.Voice,
 		fmt.Sprint(normalized.SampleRate),
+		normalized.Format,
 		key,
 	}, "\x00")))
 	return hex.EncodeToString(sum[:]), nil

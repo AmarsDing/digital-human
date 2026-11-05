@@ -114,6 +114,7 @@ func TestQwen3RealtimeSmoke(t *testing.T) {
 		APIKey:     os.Getenv("DH_TEST_DASHSCOPE_API_KEY"),
 		Voice:      voice,
 		SampleRate: audio.SampleRate,
+		Format:     "pcm",
 		Timeout:    60 * time.Second,
 	})
 	if err != nil {

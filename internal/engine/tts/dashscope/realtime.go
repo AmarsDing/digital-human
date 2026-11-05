@@ -127,7 +127,7 @@ func (s *Synthesizer) run(ctx context.Context, req tts.JobRequest, emit func(con
 		"session": sessionConfig{
 			Voice:          voice,
 			Mode:           "commit",
-			ResponseFormat: "pcm",
+			ResponseFormat: s.cfg.Format,
 			SampleRate:     audio.SampleRate,
 		},
 	}); err != nil {

@@ -180,12 +180,14 @@ func newFakeRealtime(t *testing.T, opts fakeRealtimeOptions) (*httptest.Server, 
 func newTestSynthesizer(t *testing.T, srv *httptest.Server) *Synthesizer {
 	t.Helper()
 	s, err := NewSynthesizer(tts.CloudConfig{
-		Provider: "dashscope",
-		BaseURL:  "ws" + strings.TrimPrefix(srv.URL, "http") + "/api-ws/v1",
-		Model:    "qwen3-tts-flash-realtime",
-		APIKey:   "test-secret",
-		Voice:    "Cherry",
-		Timeout:  2 * time.Second,
+		Provider:   "dashscope",
+		BaseURL:    "ws" + strings.TrimPrefix(srv.URL, "http") + "/api-ws/v1",
+		Model:      "qwen3-tts-flash-realtime",
+		APIKey:     "test-secret",
+		Voice:      "Cherry",
+		SampleRate: audio.SampleRate,
+		Format:     "pcm",
+		Timeout:    2 * time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -341,15 +343,60 @@ func TestSynthesizeStreamCancellationClosesUpstreamRead(t *testing.T) {
 
 func TestQwenAudioRemainsDispatchOnly(t *testing.T) {
 	_, err := NewSynthesizer(tts.CloudConfig{
-		Provider: "dashscope",
-		BaseURL:  "ws://127.0.0.1:1",
-		Model:    "qwen-audio-3.1-tts-flash",
-		APIKey:   "test-secret",
-		Voice:    "Cherry",
+		Provider:   "dashscope",
+		BaseURL:    "ws://127.0.0.1:1",
+		Model:      "qwen-audio-3.1-tts-flash",
+		APIKey:     "test-secret",
+		Voice:      "Cherry",
+		SampleRate: audio.SampleRate,
+		Format:     "pcm",
 	})
 	if got := tts.ErrorCode(err); got != "cloud_tts_protocol_unimplemented" {
 		t.Fatalf("error = %v, code = %q, want cloud_tts_protocol_unimplemented", err, got)
 	}
+}
+
+func TestCapabilityStartsUnknownAndRequiresNonEmptyPCM(t *testing.T) {
+	t.Run("configured but never synthesized", func(t *testing.T) {
+		srv, _ := newFakeRealtime(t, fakeRealtimeOptions{})
+		s := newTestSynthesizer(t, srv)
+		if got := s.CachedCapability(); got != tts.CapabilityUnknown {
+			t.Fatalf("Capability() = %q, want unknown", got)
+		}
+	})
+
+	t.Run("empty audio never becomes real", func(t *testing.T) {
+		srv, _ := newFakeRealtime(t, fakeRealtimeOptions{})
+		s := newTestSynthesizer(t, srv)
+		if err := s.SynthesizeStream(context.Background(), tts.JobRequest{Text: "无声"}, func(context.Context, []byte) error {
+			t.Fatal("empty upstream must not emit PCM")
+			return nil
+		}); err != nil {
+			t.Fatalf("SynthesizeStream() error = %v", err)
+		}
+		if got := s.CachedCapability(); got != tts.CapabilityUnknown {
+			t.Fatalf("Capability() after empty audio = %q, want unknown", got)
+		}
+	})
+
+	t.Run("non-empty PCM is real and later failure clears it", func(t *testing.T) {
+		srv, _ := newFakeRealtime(t, fakeRealtimeOptions{deltas: [][]byte{audio.TonePCM(100)}})
+		s := newTestSynthesizer(t, srv)
+		if err := s.SynthesizeStream(context.Background(), tts.JobRequest{Text: "有声"}, func(context.Context, []byte) error { return nil }); err != nil {
+			t.Fatalf("SynthesizeStream() error = %v", err)
+		}
+		if got := s.CachedCapability(); got != tts.CapabilityReal {
+			t.Fatalf("Capability() after PCM = %q, want real", got)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := s.SynthesizeStream(ctx, tts.JobRequest{Text: "失败"}, func(context.Context, []byte) error { return nil }); err == nil {
+			t.Fatal("canceled synthesis error = nil")
+		}
+		if got := s.CachedCapability(); got != tts.CapabilityUnknown {
+			t.Fatalf("Capability() after failure = %q, want unknown", got)
+		}
+	})
 }
 
 func TestRejectsNon24KRealtimeConfiguration(t *testing.T) {
@@ -360,6 +407,7 @@ func TestRejectsNon24KRealtimeConfiguration(t *testing.T) {
 		APIKey:     "test-secret",
 		Voice:      "Cherry",
 		SampleRate: 16000,
+		Format:     "pcm",
 	})
 	if err == nil || !strings.Contains(err.Error(), "24000") {
 		t.Fatalf("error = %v, want 24kHz contract failure", err)

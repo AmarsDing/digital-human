@@ -6,6 +6,11 @@ import (
 	"github.com/teamwork/digital-human/internal/engine/tts"
 )
 
+// CachedCapability 只读已有真实合成证据，不为状态查询主动发起网络探测。
+func (s *Synthesizer) CachedCapability() tts.CapabilityState {
+	return s.cache.State(s.identity)
+}
+
 // Capability 只有真实探测取得非空 PCM 才由 CapabilityCache 判为 real。
 func (s *Synthesizer) Capability(ctx context.Context) tts.CapabilityState {
 	return s.cache.Capability(ctx, s.identity, s.Probe)

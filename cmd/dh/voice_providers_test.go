@@ -112,6 +112,92 @@ func TestTTSHealthProbeCachesSuccessAndFailure(t *testing.T) {
 	}
 }
 
+func TestCloudTTSAssemblyCapabilityAndOmniVoiceFallback(t *testing.T) {
+	var omniHealthCalls atomic.Int32
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		omniHealthCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"model":"omnivoice","device":"cpu"}`))
+	}))
+	defer sidecar.Close()
+
+	tests := []struct {
+		name       string
+		configure  func(*enginetts.CloudConfig)
+		want       capability.Status
+		wantStream bool
+		wantErr    string
+	}{
+		{
+			name: "incomplete cloud is unconfigured and keeps fallback",
+			configure: func(cfg *enginetts.CloudConfig) {
+				cfg.Provider = "dashscope"
+			},
+			want:    capability.Unconfigured,
+			wantErr: "cloud_tts_unconfigured",
+		},
+		{
+			name: "complete cloud is unknown before real PCM",
+			configure: func(cfg *enginetts.CloudConfig) {
+				*cfg = enginetts.CloudConfig{
+					Provider: "dashscope", BaseURL: "ws://127.0.0.1:1/api-ws/v1",
+					Model: "qwen3-tts-flash-realtime", APIKey: "test-key", Voice: "Cherry",
+					SampleRate: 24000, Format: "pcm",
+				}
+			},
+			want:       capability.Unknown,
+			wantStream: true,
+		},
+		{
+			name: "Qwen Audio stays explicitly unimplemented",
+			configure: func(cfg *enginetts.CloudConfig) {
+				*cfg = enginetts.CloudConfig{
+					Provider: "dashscope", BaseURL: "ws://127.0.0.1:1/api-ws/v1",
+					Model: "qwen-audio-3.1-tts-flash", APIKey: "test-key", Voice: "Cherry",
+					SampleRate: 24000, Format: "pcm",
+				}
+			},
+			want:    capability.Unknown,
+			wantErr: "cloud_tts_protocol_unimplemented",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			omniHealthCalls.Store(0)
+			cfg := &conf.Config{}
+			cfg.Engine.Mode = "real"
+			cfg.Engine.ViduKey = "vidu-test-key"
+			cfg.Engine.OmniVoiceAddr = sidecar.URL
+			tt.configure(&cfg.Engine.CloudTTS)
+
+			deps := provideRealDeps(cfg)
+			if deps == nil || deps.tts == nil {
+				t.Fatal("OmniVoice whole-segment fallback must remain assembled")
+			}
+			if got := deps.streamTTS != nil; got != tt.wantStream {
+				t.Fatalf("stream TTS assembled = %v, want %v", got, tt.wantStream)
+			}
+			if got := enginetts.ErrorCode(deps.cloudTTSErr); got != tt.wantErr {
+				t.Fatalf("cloud assembly error code = %q, want %q (err=%v)", got, tt.wantErr, deps.cloudTTSErr)
+			}
+			if deps.cloudTTSCapability == nil {
+				t.Fatal("cloud capability evidence was not assembled")
+			}
+			rt := &panelRuntime{
+				synth:              enginetts.NewSynthAdapter(deps.tts, ""),
+				cloudTTSCapability: deps.cloudTTSCapability,
+			}
+			caps := provideCapabilities(cfg, rt, nil, nil, nil)
+			if got := caps(context.Background()).Get("tts"); got != tt.want {
+				t.Fatalf("tts capability = %s, want %s", got, tt.want)
+			}
+			if got := omniHealthCalls.Load(); got != 0 {
+				t.Fatalf("cloud capability borrowed OmniVoice health evidence: calls=%d", got)
+			}
+		})
+	}
+}
+
 func TestVoiceConfigMappingPreservesPolicies(t *testing.T) {
 	cfg, err := conf.Load("")
 	if err != nil {

@@ -44,6 +44,7 @@ import (
 	"github.com/teamwork/digital-human/internal/data/repo"
 	"github.com/teamwork/digital-human/internal/engine"
 	"github.com/teamwork/digital-human/internal/engine/tts"
+	"github.com/teamwork/digital-human/internal/engine/tts/dashscope"
 	"github.com/teamwork/digital-human/internal/engine/vidu"
 	"github.com/teamwork/digital-human/internal/llm"
 	"github.com/teamwork/digital-human/internal/publish"
@@ -160,21 +161,35 @@ func provideSink(d *data.Data) live.EventSink {
 // real 模式始终装配管理客户端，支持先在 UI 保存 Key、查询余额及同步形象。
 // 开播仍由 Controller 单独检查 Vidu 与语音依赖，不能把管理 API 可达当作可开播。
 type realDeps struct {
-	vidu *vidu.Client
-	tts  *tts.Client
+	vidu               *vidu.Client
+	tts                *tts.Client
+	streamTTS          engine.StreamingSynthesizer
+	cloudTTSCapability func() tts.CapabilityState
+	cloudTTSErr        error
 }
 
 func provideRealDeps(cfg *conf.Config) *realDeps {
 	if cfg.Engine.Mode != "real" {
 		return nil
 	}
-	return &realDeps{
+	deps := &realDeps{
 		vidu: vidu.NewClient(vidu.Options{
 			APIKey:  cfg.Engine.ViduKey,
 			BaseURL: cfg.Engine.ViduBaseURL,
 		}),
 		tts: tts.NewClient(tts.Options{BaseURL: cfg.Engine.OmniVoiceAddr}),
 	}
+	if cfg.Engine.CloudTTS.Provider != "" {
+		cloud, err := dashscope.NewSynthesizer(cfg.Engine.CloudTTS)
+		deps.cloudTTSErr = err
+		state := cfg.Engine.CloudTTS.Capability()
+		deps.cloudTTSCapability = func() tts.CapabilityState { return state }
+		if err == nil {
+			deps.streamTTS = cloud
+			deps.cloudTTSCapability = cloud.CachedCapability
+		}
+	}
+	return deps
 }
 
 // provideController 默认 fail-closed：仅 engine.mode=dev 才装配 fake；
@@ -197,6 +212,7 @@ func provideController(cfg *conf.Config, deps *realDeps, logger *slog.Logger) li
 				Client:           deps.vidu,
 				WS:               vidu.WSOptions{URL: cfg.Engine.ViduWSURL},
 				TTS:              deps.tts,
+				StreamTTS:        deps.streamTTS,
 				GreetingDecoder:  greetingDecoder,
 				Logger:           logger,
 				RecordingEnabled: cfg.Engine.RecordingEnabled,
@@ -759,12 +775,13 @@ type panelRuntime struct {
 	actionGen      koubo.ActionGen
 	actionGenProbe func(context.Context) error
 	// sender/synth §2.2 能力矩阵探测源（装配点显式化：类型即能力证据）。
-	sender         action.Sender
-	remote         action.Remote
-	actionProbe    func(context.Context) error
-	synth          tts2.Synth
-	contentGate    *contentgate.Gate
-	contentStorage []contentpkg.StorageProbe
+	sender             action.Sender
+	remote             action.Remote
+	actionProbe        func(context.Context) error
+	synth              tts2.Synth
+	cloudTTSCapability func() tts.CapabilityState
+	contentGate        *contentgate.Gate
+	contentStorage     []contentpkg.StorageProbe
 }
 
 func providePanelRuntime(
@@ -803,6 +820,10 @@ func providePanelRuntime(
 	var player media.Player
 	var songProbe func(context.Context) error
 	var synth tts2.Synth
+	var cloudTTSCapability func() tts.CapabilityState
+	if deps != nil {
+		cloudTTSCapability = deps.cloudTTSCapability
+	}
 	var remote action.Remote
 	var actionProbe func(context.Context) error
 	var sender action.Sender
@@ -934,19 +955,20 @@ func providePanelRuntime(
 	refsSvc.SetDir("storage/refs")
 
 	return &panelRuntime{
-		scheduler:      sched,
-		songScheduler:  songScheduler,
-		dm:             dm,
-		player:         player,
-		songProbe:      songProbe,
-		koubo:          kou,
-		actionGen:      actionGen,
-		actionGenProbe: actionGenProbe,
-		sender:         sender,
-		remote:         remote,
-		actionProbe:    actionProbe,
-		synth:          synth,
-		contentGate:    gate,
+		scheduler:          sched,
+		songScheduler:      songScheduler,
+		dm:                 dm,
+		player:             player,
+		songProbe:          songProbe,
+		koubo:              kou,
+		actionGen:          actionGen,
+		actionGenProbe:     actionGenProbe,
+		sender:             sender,
+		remote:             remote,
+		actionProbe:        actionProbe,
+		synth:              synth,
+		cloudTTSCapability: cloudTTSCapability,
+		contentGate:        gate,
 		deps: server.PanelDeps{
 			TTS:          tts2.NewService(audioLib, synth, st),
 			Actions:      actions,
@@ -1373,7 +1395,17 @@ func provideCapabilities(
 
 		mx["audio_delivery"] = capability.Unknown
 
-		if rt != nil && rt.synth != nil {
+		if cfg.Engine.Mode == "real" && cfg.Engine.CloudTTS.Provider != "" {
+			mx["tts"] = capability.Unconfigured
+			if rt != nil && rt.cloudTTSCapability != nil {
+				switch rt.cloudTTSCapability() {
+				case tts.CapabilityUnknown:
+					mx["tts"] = capability.Unknown
+				case tts.CapabilityReal:
+					mx["tts"] = capability.Real
+				}
+			}
+		} else if rt != nil && rt.synth != nil {
 			switch rt.synth.(type) {
 			case *tts2.FakeSynth:
 				mx["tts"] = capability.Fake

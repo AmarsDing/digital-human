@@ -250,6 +250,9 @@ func Load(path string) (*Config, error) {
 		}
 		c.Engine.CloudTTS.SampleRate = n
 	}
+	if v := os.Getenv("DH_CLOUD_TTS_FORMAT"); v != "" {
+		c.Engine.CloudTTS.Format = v
+	}
 	if v := os.Getenv("DH_CLOUD_TTS_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
@@ -376,11 +379,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("unknown engine.mode %q（仅支持 real|dev）", c.Engine.Mode)
 	}
 	if c.Engine.Mode == "real" && c.Engine.CloudTTS.Provider != "" {
-		cloud, err := c.Engine.CloudTTS.Normalize()
-		if err != nil {
-			return fmt.Errorf("engine.cloud_tts: %w", err)
+		// 云配置错误由生产装配层转成 unconfigured/unknown，不能阻断 OmniVoice fallback。
+		if cloud, err := c.Engine.CloudTTS.Normalize(); err == nil {
+			c.Engine.CloudTTS = cloud
 		}
-		c.Engine.CloudTTS = cloud
 	}
 	switch c.RTC.Mode {
 	case "disabled", "dev", "managed":
