@@ -104,6 +104,7 @@ func TestDanceQueueBoundedFIFO(t *testing.T) {
 	if status.Capacity != 2 || status.QueueLength != 1 || status.Rejected != 1 || status.Current == nil || status.Current.Trigger != "霓虹" {
 		t.Fatalf("有界队列状态: %+v", status)
 	}
+	t.Logf("dance_queue_full actual: Rejected=%d QueueLength=%d Capacity=%d", status.Rejected, status.QueueLength, status.Capacity)
 	now = now.Add(time.Second)
 	nextEffect := q.Advance()
 	if nextEffect == nil || nextEffect.PayloadSafe["instruction"] != "wave-01" {
@@ -131,6 +132,14 @@ func TestDanceAdvanceDefersWhileSongOrChatActive(t *testing.T) {
 			if reason != "" || effect != nil || first.State != DanceQueued {
 				t.Fatalf("繁忙时首项只能排队不得抢占: item=%+v effect=%v reason=%q", first, effect, reason)
 			}
+			second, effect, reason := q.Enqueue("s1", "u2", "点舞 霓虹")
+			if reason != "" || effect != nil || second.State != DanceQueued {
+				t.Fatalf("等待项必须保持 FIFO: item=%+v effect=%v reason=%q", second, effect, reason)
+			}
+			before := q.Status()
+			if before.QueueLength != 1 || len(before.Waiting) != 1 || before.Waiting[0].ID != second.ID {
+				t.Fatalf("延后前必须有一个确定的等待项: %+v", before)
+			}
 			if effect := q.Advance(); effect != nil {
 				t.Fatalf("繁忙时不得派发: %+v", effect)
 			}
@@ -151,14 +160,18 @@ func TestDanceAdvanceDefersWhileSongOrChatActive(t *testing.T) {
 			if !status.AdvanceDeferred || status.Current == nil || status.Current.ID != first.ID || status.LastCompleted != nil {
 				t.Fatalf("延后推进不得丢项或伪造完成: %+v", status)
 			}
+			if status.QueueLength != before.QueueLength || len(status.Waiting) != 1 || status.Waiting[0].ID != second.ID {
+				t.Fatalf("延后推进必须保持等待队列长度和顺序: before=%+v after=%+v", before, status)
+			}
 			songPlaying, chatActive = false, false
 			now = now.Add(time.Second)
-			if effect := q.Advance(); effect != nil {
-				t.Fatalf("没有等待项时仅完成当前簿记: %+v", effect)
+			effect = q.Advance()
+			if effect == nil || effect.PayloadSafe["dance_id"] != second.ID {
+				t.Fatalf("空闲后必须推进原来的等待项: effect=%+v want=%s", effect, second.ID)
 			}
 			status = q.Status()
-			if status.AdvanceDeferred || status.Current != nil || status.LastCompleted == nil || status.LastCompleted.ID != first.ID {
-				t.Fatalf("空闲后必须完成被延后的当前项: %+v", status)
+			if status.AdvanceDeferred || status.Current == nil || status.Current.ID != second.ID || status.QueueLength != 0 || status.LastCompleted == nil || status.LastCompleted.ID != first.ID {
+				t.Fatalf("空闲后必须完成被延后的当前项并保留 FIFO: %+v", status)
 			}
 		})
 	}

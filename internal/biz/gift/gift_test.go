@@ -455,6 +455,7 @@ func TestMergerSuppressionIsObservableAndContainsNoSensitiveAudit(t *testing.T) 
 					t.Fatalf("审计不得包含敏感字段 %q: %s", sensitive, raw)
 				}
 			}
+			t.Logf("skipped audit actual: outlet=%s category=%s disposition=%s", record.Outlet, record.Category, record.Disposition)
 		})
 	}
 }
