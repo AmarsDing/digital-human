@@ -70,6 +70,25 @@ func TestRuleEngineActionMappingAndCooldown(t *testing.T) {
 	}
 }
 
+func TestRuleEngineEmptyActionWhitelistFailsClosed(t *testing.T) {
+	st := NewMemoryStore()
+	engine := NewRuleEngine(NewService(st), RulePolicy{
+		RuleVersion: "rules-v1", Revision: "policy-1", LLMAvailable: true,
+		// 候选动作存在，但没有任何 Allowed=true 的白名单项。
+		Actions: []ActionMapping{{
+			Trigger: "跳舞", Instruction: "dance-01", Revision: "policy-1",
+			Allowed: false, CapabilityStatus: "real",
+		}},
+	}, nil)
+	d, effects, err := engine.Handle(context.Background(), ruleEvent("src-action-denied", "u1", "跳舞"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Intent != IntentAction || d.Decision != DecideBlocked || d.ReasonCode != "action_not_allowed" || len(effects) != 0 {
+		t.Fatalf("空白名单必须默认拒绝且不得落入聊天: d=%+v effects=%+v", d, effects)
+	}
+}
+
 func TestRuleEngineUserRateLimit(t *testing.T) {
 	engine, _, _ := testRuleEngine()
 	first, effects, err := engine.Handle(context.Background(), ruleEvent("src-chat-1", "u1", "你好"))

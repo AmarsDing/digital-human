@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/teamwork/digital-human/internal/biz/action"
 	"github.com/teamwork/digital-human/internal/biz/chat"
 	"github.com/teamwork/digital-human/internal/biz/danmaku"
 	"github.com/teamwork/digital-human/internal/biz/interaction"
@@ -18,6 +19,7 @@ import (
 	"github.com/teamwork/digital-human/internal/biz/song"
 	"github.com/teamwork/digital-human/internal/data/ent/enttest"
 	"github.com/teamwork/digital-human/internal/data/repo"
+	"github.com/teamwork/digital-human/pkg/eventbus"
 )
 
 type ruleTestChatter struct{ texts []string }
@@ -114,6 +116,95 @@ func TestWireInteractionRulesTriggersJokeWithoutChat(t *testing.T) {
 	effects, err := store.ListEffects(context.Background(), "")
 	if err != nil || len(effects) != 1 || effects[0].EffectType != interaction.EffectTypeJoke || effects[0].Status != interaction.EffectSucceeded {
 		t.Fatalf("joke effect 闭环: effects=%+v err=%v", effects, err)
+	}
+}
+
+func TestRuleActionMappingsUsesSelectedLibraryAndFailsClosed(t *testing.T) {
+	items := []action.Action{
+		{ID: "a1", LibraryID: "lib-allowed", Name: "跳舞", Instruction: "dance-01"},
+		{ID: "a2", LibraryID: "lib-other", Name: "挥手", Instruction: "wave-01"},
+	}
+	mappings := ruleActionMappings(items, "lib-allowed", "rev-1", "real")
+	if len(mappings) != 2 {
+		t.Fatalf("候选动作数量: %+v", mappings)
+	}
+	if !mappings[0].Allowed || mappings[0].Trigger != "跳舞" || mappings[0].Instruction != "dance-01" || mappings[0].Revision != "rev-1" || mappings[0].CapabilityStatus != "real" {
+		t.Fatalf("选中库动作必须进入同 revision 白名单: %+v", mappings[0])
+	}
+	if mappings[1].Allowed {
+		t.Fatalf("非选中库只能作为拒绝候选: %+v", mappings[1])
+	}
+	for _, mapping := range ruleActionMappings(items, "", "rev-1", "real") {
+		if mapping.Allowed {
+			t.Fatalf("未选动作库时白名单必须为空并默认拒绝: %+v", mapping)
+		}
+	}
+}
+
+func TestWireInteractionRulesActionWhitelist(t *testing.T) {
+	ctx := context.Background()
+	store := interaction.NewMemoryStore()
+	svc := interaction.NewService(store)
+	dispatcher, err := interaction.NewDispatcher(store, time.Minute, time.Minute, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix := &interactionRuntime{svc: svc, disp: dispatcher}
+	dm := danmaku.NewService(danmaku.ModeAuto)
+	chatter := &ruleTestChatter{}
+	speaker := &ruleTestSpeaker{}
+	sender := action.NewFakeSender()
+	bus := eventbus.New(16)
+	scheduler := action.NewScheduler(sender, bus, action.DefaultConfig())
+	defer scheduler.Close()
+	events, cancel := bus.Subscribe(0)
+	defer cancel()
+	wireInteractionRules(dm, ix, chatter, speaker, speaker, scheduler, interaction.RulePolicy{
+		RuleVersion: "rules-v1", Revision: "rev-1", LLMAvailable: true,
+		Actions: []interaction.ActionMapping{
+			{Trigger: "跳舞", Instruction: "dance-01", Revision: "rev-1", Allowed: true, CapabilityStatus: "real"},
+			{Trigger: "挥手", Instruction: "wave-01", Revision: "rev-1", Allowed: false, CapabilityStatus: "real"},
+		},
+	}, func() (string, bool) { return "s1", true })
+
+	allowed := dm.IngestEvent(ctx, danmaku.Envelope{
+		Kind: "chat", UserID: "u1", Text: "跳舞", Source: "test", SourceEventID: "action-allowed",
+	})
+	if !allowed.OK || len(sender.Sent()) != 1 || sender.Sent()[0] != "dance-01" {
+		t.Fatalf("白名单动作必须经 Scheduler 执行: result=%+v sent=%v", allowed, sender.Sent())
+	}
+	select {
+	case event := <-events:
+		if event.Type != "action.sent" {
+			t.Fatalf("白名单动作事件类型: %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("白名单动作缺少真实 action.sent")
+	}
+
+	denied := dm.IngestEvent(ctx, danmaku.Envelope{
+		Kind: "chat", UserID: "u2", Text: "挥手", Source: "test", SourceEventID: "action-denied",
+	})
+	if !denied.OK {
+		t.Fatalf("白名单外动作应记录拒绝决策而不是 ingestion 失败: %+v", denied)
+	}
+	decision, ok, err := store.GetDecisionBySource(ctx, denied.Event.ID)
+	if err != nil || !ok || decision.Intent != interaction.IntentAction || decision.Decision != interaction.DecideBlocked || decision.ReasonCode != "action_not_allowed" {
+		t.Fatalf("白名单外动作必须明确拒绝: decision=%+v ok=%v err=%v", decision, ok, err)
+	}
+	if len(chatter.texts) != 0 || len(speaker.texts) != 0 || len(sender.Sent()) != 1 || scheduler.Status().Fired != 1 {
+		t.Fatalf("拒绝动作不得进入聊天或执行: chatter=%v speaker=%v sent=%v status=%+v", chatter.texts, speaker.texts, sender.Sent(), scheduler.Status())
+	}
+	effects, err := store.ListEffects(ctx, "")
+	if err != nil || len(effects) != 1 || effects[0].EffectType != interaction.EffectTypeAction || effects[0].Status != interaction.EffectSucceeded {
+		t.Fatalf("拒绝动作不得新增执行 effect: effects=%+v err=%v", effects, err)
+	}
+	select {
+	case event := <-events:
+		if event.Type == "action.sent" {
+			t.Fatalf("白名单外动作不得伪造 action.sent: %+v", event)
+		}
+	case <-time.After(20 * time.Millisecond):
 	}
 }
 

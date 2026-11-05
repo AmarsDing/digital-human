@@ -170,9 +170,14 @@ func (r *RuleEngine) decisionLocked(ev RuleEvent) DecisionInput {
 		return in
 	}
 
-	if mapping, ok := r.actionLocked(text); ok {
+	if mapping, matched, allowed := r.actionLocked(text); matched {
 		in.Intent = IntentAction
 		in.ReasonCode = "action_rule_matched"
+		if !allowed {
+			in.Outcome = DecideBlocked
+			in.ReasonCode = "action_not_allowed"
+			return in
+		}
 		if r.severeLagLocked() {
 			in.Outcome = DecideDegraded
 			in.ReasonCode = "playback_lag"
@@ -265,13 +270,21 @@ func (r *RuleEngine) rateLimitLocked(key string, now time.Time) string {
 	return ""
 }
 
-func (r *RuleEngine) actionLocked(text string) (ActionMapping, bool) {
+func (r *RuleEngine) actionLocked(text string) (ActionMapping, bool, bool) {
+	var candidate ActionMapping
+	matched := false
 	for _, mapping := range r.policy.Actions {
-		if mapping.Trigger == text && mapping.Allowed && mapping.Revision == r.policy.Revision && mapping.CapabilityStatus == "real" {
-			return mapping, true
+		if mapping.Trigger != text {
+			continue
+		}
+		if !matched {
+			candidate, matched = mapping, true
+		}
+		if mapping.Allowed && mapping.Revision == r.policy.Revision && mapping.CapabilityStatus == "real" {
+			return mapping, true, true
 		}
 	}
-	return ActionMapping{}, false
+	return candidate, matched, false
 }
 
 func (r *RuleEngine) severeLagLocked() bool {

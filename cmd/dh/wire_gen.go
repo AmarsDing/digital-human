@@ -917,11 +917,28 @@ func providePanelRuntime(
 		ruleSongs[file.Name] = file.Name
 		ruleSongs[strings.TrimSuffix(file.Name, filepath.Ext(file.Name))] = file.Name
 	}
+	ctx := context.Background()
+	libraryID := settingStr(st, ctx, "action_library", "library_id")
+	actionItems, actionErr := actions.Actions(ctx, "")
+	actionCapability := "unknown"
+	if cfg.Engine.Mode == "dev" {
+		actionCapability = "fake"
+	} else if actionErr == nil && sender != nil {
+		if _, fake := sender.(*action.FakeSender); !fake {
+			actionCapability = "real"
+		}
+	}
+	revisionParts := []string{libraryID, strings.Join(fileNames, "\x00")}
+	for _, item := range actionItems {
+		revisionParts = append(revisionParts, strings.Join([]string{item.ID, item.LibraryID, item.Name, item.Instruction}, "\x00"))
+	}
+	ruleRevision := interaction.SourceKey("danmaku-rules", strings.Join(revisionParts, "\x00"))
 	wireInteractionRules(dm, ix, chatMgr, chatSpeaker{m: mgr}, jokeSpeaker{m: mgr}, sched, interaction.RulePolicy{
 		RuleVersion:  "danmaku-rules-v1",
-		Revision:     interaction.SourceKey("danmaku-rules", strings.Join(fileNames, "\x00")),
-		LLMAvailable: settingStr(st, context.Background(), "llm", "api_key") != "",
+		Revision:     ruleRevision,
+		LLMAvailable: settingStr(st, ctx, "llm", "api_key") != "",
 		Songs:        ruleSongs,
+		Actions:      ruleActionMappings(actionItems, libraryID, ruleRevision, actionCapability),
 		Jokes:        jokes,
 	}, func() (string, bool) {
 		snap := mgr.Snapshot()
@@ -1204,6 +1221,23 @@ func (ix *interactionRuntime) orphanChatDecisions(ctx context.Context) ([]intera
 		}))
 	}
 	return inputs, nil
+}
+
+func ruleActionMappings(items []action.Action, libraryID, revision, capabilityStatus string) []interaction.ActionMapping {
+	out := make([]interaction.ActionMapping, 0, len(items))
+	for _, item := range items {
+		trigger := strings.TrimSpace(item.Name)
+		instruction := strings.TrimSpace(item.Instruction)
+		if trigger == "" || instruction == "" {
+			continue
+		}
+		out = append(out, interaction.ActionMapping{
+			Trigger: trigger, Instruction: instruction, Revision: revision,
+			Allowed:          libraryID != "" && item.LibraryID == libraryID,
+			CapabilityStatus: capabilityStatus,
+		})
+	}
+	return out
 }
 
 // wireInteractionRules 把已持久化的 chat 原始事件接入确定性规则，并立即派发本次副作用。
