@@ -43,12 +43,15 @@ func TestLibrariesCRUD(t *testing.T) {
 	if _, err := r.CreateLibrary(context.Background(), "打招呼", ""); err == nil {
 		t.Fatal("duplicate library should fail")
 	}
-	act, err := r.CreateAction(context.Background(), lib.ID, "挥手", "右手挥动")
+	act, err := r.CreateAction(context.Background(), lib.ID, "挥手", "右手挥动", 4500)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if act.DurationMS != 4500 {
+		t.Fatalf("动作库条目必须保存点舞簿记周期: %+v", act)
+	}
 	list, err := r.Actions(context.Background(), lib.ID)
-	if err != nil || len(list) != 1 || list[0].Instruction != "右手挥动" {
+	if err != nil || len(list) != 1 || list[0].Instruction != "右手挥动" || list[0].DurationMS != 4500 {
 		t.Fatalf("actions=%+v err=%v", list, err)
 	}
 	if err := r.DeleteAction(context.Background(), act.ID); err != nil {

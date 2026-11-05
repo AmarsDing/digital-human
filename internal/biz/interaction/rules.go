@@ -12,6 +12,7 @@ const (
 	IntentAction      = "action"
 	IntentSongRequest = "song_request"
 	IntentJoke        = "joke"
+	IntentDance       = "dance"
 
 	EffectTypeChatReply   = "chat_reply"
 	EffectTypeAction      = "action"
@@ -26,6 +27,7 @@ type ActionMapping struct {
 	Revision         string
 	Allowed          bool
 	CapabilityStatus string
+	DurationMS       int64
 }
 
 // JokeMatcher 由本地授权段子库实现；matched=true 时不得再落入普通聊天。
@@ -41,6 +43,7 @@ type RulePolicy struct {
 	Songs                map[string]string
 	Actions              []ActionMapping
 	Jokes                JokeMatcher
+	Dances               *DanceQueue
 	UserInterval         time.Duration
 	UserPerMinute        int
 	ActionUserCooldown   time.Duration
@@ -167,6 +170,28 @@ func (r *RuleEngine) decisionLocked(ev RuleEvent) DecisionInput {
 			EffectType: EffectTypeSongRequest, TargetID: "song", Seq: 1,
 			PayloadSafe: payload,
 		}}
+		return in
+	}
+
+	if strings.HasPrefix(text, "点舞") {
+		in.Intent = IntentDance
+		if r.policy.Dances == nil {
+			in.Outcome = DecideBlocked
+			in.ReasonCode = "dance_not_allowed"
+			return in
+		}
+		item, effect, reason := r.policy.Dances.Enqueue(ev.SessionID, ev.UserKey, text)
+		in.PayloadSafe = map[string]any{"dance_id": item.ID, "trigger": item.Trigger}
+		if reason != "" {
+			in.Outcome = DecideBlocked
+			in.ReasonCode = reason
+			return in
+		}
+		in.Outcome = DecideQueued
+		in.ReasonCode = "dance_queued"
+		if effect != nil {
+			in.Effects = []EffectInput{*effect}
+		}
 		return in
 	}
 
@@ -301,8 +326,12 @@ func songTitle(text string) (string, bool) {
 }
 
 func intentOf(text string) string {
-	if _, ok := songTitle(strings.TrimSpace(text)); ok {
+	text = strings.TrimSpace(text)
+	if _, ok := songTitle(text); ok {
 		return IntentSongRequest
+	}
+	if strings.HasPrefix(text, "点舞") {
+		return IntentDance
 	}
 	return IntentChatReply
 }

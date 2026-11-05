@@ -298,6 +298,7 @@ func registerPanelRoutes(srv *khttp.Server, d PanelDeps) {
 				Name        string `json:"name"`
 				Instruction string `json:"instruction"`
 				Description string `json:"description"`
+				DurationMS  int64  `json:"duration_ms"`
 			}
 			if err := decodeJSONBody(c, &body); err != nil {
 				return badRequest(c, err)
@@ -305,7 +306,7 @@ func registerPanelRoutes(srv *khttp.Server, d PanelDeps) {
 			if body.Instruction == "" {
 				body.Instruction = body.Description
 			}
-			act, err := d.Actions.CreateAction(c.Request().Context(), body.LibraryID, body.Name, body.Instruction)
+			act, err := d.Actions.CreateAction(c.Request().Context(), body.LibraryID, body.Name, body.Instruction, body.DurationMS)
 			if err != nil {
 				return badRequest(c, err)
 			}

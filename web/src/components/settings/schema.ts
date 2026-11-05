@@ -267,9 +267,10 @@ export const GROUP_SPECS: GroupSpec[] = [
     note: '动作库 CRUD 由 ActionService 提供（后端未实现）。',
     fields: [
       { key: 'enabled', label: '启用', type: 'toggle' },
-      { key: 'library_id', label: '库 ID', type: 'text' }
+      { key: 'library_id', label: '库 ID', type: 'text' },
+      { key: 'dance_queue_max', label: '点舞队列容量', type: 'number', min: 1, suffix: '项', hint: '包含当前项与等待项；满队明确拒绝' }
     ],
-    defaults: { enabled: true, library_id: '' }
+    defaults: { enabled: true, library_id: '', dance_queue_max: 3 }
   },
   {
     id: 'assets',

@@ -41,6 +41,7 @@ type Action struct {
 	LibraryID   string `json:"library_id"`
 	Name        string `json:"name"`
 	Instruction string `json:"instruction"`
+	DurationMS  int64  `json:"duration_ms,omitempty"`
 	CreatedAtMs int64  `json:"created_at_ms"`
 }
 
@@ -50,7 +51,7 @@ type Remote interface {
 	CreateLibrary(ctx context.Context, name, description string) (Library, error)
 	DeleteLibrary(ctx context.Context, id string) error
 	Actions(ctx context.Context, libraryID string) ([]Action, error)
-	CreateAction(ctx context.Context, libraryID, name, instruction string) (Action, error)
+	CreateAction(ctx context.Context, libraryID, name, instruction string, durationMS ...int64) (Action, error)
 	DeleteAction(ctx context.Context, id string) error
 }
 
@@ -134,7 +135,7 @@ func (m *MemoryRemote) Actions(_ context.Context, libraryID string) ([]Action, e
 	return out, nil
 }
 
-func (m *MemoryRemote) CreateAction(_ context.Context, libraryID, name, instruction string) (Action, error) {
+func (m *MemoryRemote) CreateAction(_ context.Context, libraryID, name, instruction string, durationMS ...int64) (Action, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Action{}, errors.New("动作名不能为空")
@@ -144,7 +145,11 @@ func (m *MemoryRemote) CreateAction(_ context.Context, libraryID, name, instruct
 	if _, ok := m.libs[libraryID]; !ok {
 		return Action{}, ErrLibraryNotFound
 	}
-	act := Action{ID: uuid.NewString(), LibraryID: libraryID, Name: name, Instruction: strings.TrimSpace(instruction), CreatedAtMs: m.now().UnixMilli()}
+	var duration int64
+	if len(durationMS) > 0 {
+		duration = durationMS[0]
+	}
+	act := Action{ID: uuid.NewString(), LibraryID: libraryID, Name: name, Instruction: strings.TrimSpace(instruction), DurationMS: duration, CreatedAtMs: m.now().UnixMilli()}
 	m.acts[act.ID] = act
 	return act, nil
 }
@@ -174,7 +179,7 @@ func (UnavailableRemote) DeleteLibrary(context.Context, string) error {
 func (UnavailableRemote) Actions(context.Context, string) ([]Action, error) {
 	return nil, errors.New("action_remote_unconfigured: Vidu 动作库未配置")
 }
-func (UnavailableRemote) CreateAction(context.Context, string, string, string) (Action, error) {
+func (UnavailableRemote) CreateAction(context.Context, string, string, string, ...int64) (Action, error) {
 	return Action{}, errors.New("action_remote_unconfigured: Vidu 动作库未配置")
 }
 func (UnavailableRemote) DeleteAction(context.Context, string) error {
@@ -600,8 +605,8 @@ func (s *Service) Actions(ctx context.Context, libraryID string) ([]Action, erro
 	return s.remote.Actions(ctx, libraryID)
 }
 
-func (s *Service) CreateAction(ctx context.Context, libraryID, name, instruction string) (Action, error) {
-	return s.remote.CreateAction(ctx, libraryID, name, instruction)
+func (s *Service) CreateAction(ctx context.Context, libraryID, name, instruction string, durationMS ...int64) (Action, error) {
+	return s.remote.CreateAction(ctx, libraryID, name, instruction, durationMS...)
 }
 
 func (s *Service) DeleteAction(ctx context.Context, id string) error {

@@ -58,7 +58,7 @@ func DefaultGroups() []Group {
 			"mode": "managed", "provider": "artc",
 		}},
 		{ID: "action_library", Title: "动作库", Effective: "next_session", Values: map[string]any{
-			"library_id": "",
+			"library_id": "", "dance_queue_max": 3,
 		}},
 		{ID: "assets", Title: "资产库", Effective: "next_session", Values: map[string]any{
 			"avatar_id": "",

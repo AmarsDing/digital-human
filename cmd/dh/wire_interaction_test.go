@@ -121,14 +121,14 @@ func TestWireInteractionRulesTriggersJokeWithoutChat(t *testing.T) {
 
 func TestRuleActionMappingsUsesSelectedLibraryAndFailsClosed(t *testing.T) {
 	items := []action.Action{
-		{ID: "a1", LibraryID: "lib-allowed", Name: "跳舞", Instruction: "dance-01"},
+		{ID: "a1", LibraryID: "lib-allowed", Name: "跳舞", Instruction: "dance-01", DurationMS: 4500},
 		{ID: "a2", LibraryID: "lib-other", Name: "挥手", Instruction: "wave-01"},
 	}
 	mappings := ruleActionMappings(items, "lib-allowed", "rev-1", "real")
 	if len(mappings) != 2 {
 		t.Fatalf("候选动作数量: %+v", mappings)
 	}
-	if !mappings[0].Allowed || mappings[0].Trigger != "跳舞" || mappings[0].Instruction != "dance-01" || mappings[0].Revision != "rev-1" || mappings[0].CapabilityStatus != "real" {
+	if !mappings[0].Allowed || mappings[0].Trigger != "跳舞" || mappings[0].Instruction != "dance-01" || mappings[0].Revision != "rev-1" || mappings[0].CapabilityStatus != "real" || mappings[0].DurationMS != 4500 {
 		t.Fatalf("选中库动作必须进入同 revision 白名单: %+v", mappings[0])
 	}
 	if mappings[1].Allowed {
@@ -261,5 +261,54 @@ func TestWireInteractionRulesConsumesStableChatOnce(t *testing.T) {
 	effects, err := store.ListEffects(context.Background(), "")
 	if err != nil || len(effects) != 1 || effects[0].Status != interaction.EffectSucceeded {
 		t.Fatalf("chat_reply 回执: effects=%+v err=%v", effects, err)
+	}
+}
+
+func TestDispatchDanceAdvanceUsesExistingActionOutbox(t *testing.T) {
+	ctx := context.Background()
+	store := interaction.NewMemoryStore()
+	svc := interaction.NewService(store)
+	dispatcher, err := interaction.NewDispatcher(store, time.Minute, time.Minute, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	mappings := []interaction.ActionMapping{
+		{Trigger: "霓虹", Instruction: "dance-neon", Revision: "rev-1", Allowed: true, CapabilityStatus: "real", DurationMS: 1000},
+		{Trigger: "挥手", Instruction: "wave-01", Revision: "rev-1", Allowed: true, CapabilityStatus: "real", DurationMS: 1000},
+	}
+	queue := interaction.NewDanceQueue(2, "rev-1", mappings, func() time.Time { return now })
+	ix := &interactionRuntime{svc: svc, disp: dispatcher, dances: queue}
+	cfg := action.DefaultConfig()
+	cfg.AutoGap, cfg.AutoSameGap = 0, 0
+	sender := action.NewFakeSender()
+	scheduler := action.NewScheduler(sender, nil, cfg)
+	defer scheduler.Close()
+	interaction.RegisterActionHandler(dispatcher, scheduler)
+	engine := interaction.NewRuleEngine(svc, interaction.RulePolicy{
+		RuleVersion: "rules-v1", Revision: "rev-1", Dances: queue,
+	}, func() time.Time { return now })
+
+	_, effects, err := engine.Handle(ctx, interaction.RuleEvent{EventRowID: "dance-src-1", SessionID: "s1", UserKey: "u1", Text: "点舞 霓虹"})
+	if err != nil || len(effects) != 1 {
+		t.Fatalf("首项 action effect: effects=%+v err=%v", effects, err)
+	}
+	if ok, err := dispatcher.DispatchOnce(ctx); err != nil || !ok {
+		t.Fatalf("首项派发: ok=%v err=%v", ok, err)
+	}
+	_, effects, err = engine.Handle(ctx, interaction.RuleEvent{EventRowID: "dance-src-2", SessionID: "s1", UserKey: "u2", Text: "点舞 挥手"})
+	if err != nil || len(effects) != 0 {
+		t.Fatalf("等待项不得绕过 FIFO: effects=%+v err=%v", effects, err)
+	}
+	now = now.Add(time.Second)
+	if err := dispatchDanceAdvance(ctx, ix); err != nil {
+		t.Fatal(err)
+	}
+	if got := sender.Sent(); len(got) != 2 || got[0] != "dance-neon" || got[1] != "wave-01" {
+		t.Fatalf("定时推进仍须使用既有 Scheduler 出口: %+v", got)
+	}
+	status := queue.Status()
+	if status.LastCompleted == nil || status.LastCompleted.State != interaction.DanceCompletedUnverified || status.Current == nil || status.Current.State != interaction.DanceDispatched {
+		t.Fatalf("Effect 回执不得伪造成真实动作完成: %+v", status)
 	}
 }

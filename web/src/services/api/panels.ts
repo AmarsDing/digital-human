@@ -44,6 +44,7 @@ export interface ActionItem {
   library_id: string
   name: string
   instruction: string
+  duration_ms?: number
   created_at_ms: number
 }
 
@@ -325,10 +326,10 @@ export async function listActions(libraryId = ''): Promise<ActionItem[]> {
   return r.actions ?? []
 }
 
-export async function createAction(libraryId: string, name: string, instruction = ''): Promise<ActionItem> {
+export async function createAction(libraryId: string, name: string, instruction = '', durationMS = 0): Promise<ActionItem> {
   const r = await apiRequest<{ action: ActionItem }>('/api/v1/actions', {
     method: 'POST',
-    body: { library_id: libraryId, name, instruction }
+    body: { library_id: libraryId, name, instruction, duration_ms: durationMS }
   })
   return r.action
 }

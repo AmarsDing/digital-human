@@ -31,7 +31,7 @@ func TestActionRemoteCRUDUsesViduContract(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/live/v1/action-libraries/lib1/actions":
 			_, _ = w.Write([]byte(`{"data":{"list":[{"id":"act1","library_id":"lib1","name":"挥手","instruction":"右手挥动"}]}}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/live/v1/action-libraries/lib1/actions":
-			_, _ = w.Write([]byte(`{"data":{"id":"act1","library_id":"lib1","name":"挥手","instruction":"右手挥动"}}`))
+			_, _ = w.Write([]byte(`{"data":{"id":"act1","library_id":"lib1","name":"挥手","instruction":"右手挥动","duration_ms":4500}}`))
 		case r.Method == http.MethodDelete && r.URL.Path == "/live/v1/actions/act1":
 			_, _ = w.Write([]byte(`{"data":{}}`))
 		default:
@@ -54,8 +54,8 @@ func TestActionRemoteCRUDUsesViduContract(t *testing.T) {
 	if err != nil || len(actions) != 1 || actions[0].Instruction != "右手挥动" {
 		t.Fatalf("actions=%+v err=%v", actions, err)
 	}
-	act, err := remote.CreateAction(ctx, lib.ID, "挥手", "右手挥动")
-	if err != nil || act.ID != "act1" || act.LibraryID != lib.ID {
+	act, err := remote.CreateAction(ctx, lib.ID, "挥手", "右手挥动", 4500)
+	if err != nil || act.ID != "act1" || act.LibraryID != lib.ID || act.DurationMS != 4500 {
 		t.Fatalf("action=%+v err=%v", act, err)
 	}
 	if err := remote.DeleteAction(ctx, act.ID); err != nil {

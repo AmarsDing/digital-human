@@ -44,6 +44,25 @@ func TestGiftTierDefaults(t *testing.T) {
 	t.Fatal("gift group missing")
 }
 
+func TestDanceQueueDefaults(t *testing.T) {
+	for _, group := range DefaultGroups() {
+		if group.ID == "action_library" {
+			if got := group.Values["dance_queue_max"]; got != 3 {
+				t.Fatalf("dance_queue_max=%v want 3", got)
+			}
+			raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "src", "components", "settings", "schema.ts"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(raw), "dance_queue_max") {
+				t.Fatal("前端动作库设置缺少 dance_queue_max，保存时会丢失容量配置")
+			}
+			return
+		}
+	}
+	t.Fatal("action_library group missing")
+}
+
 func TestFrontendGiftTierFields(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "web", "src", "components", "settings", "schema.ts"))
 	if err != nil {

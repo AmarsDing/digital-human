@@ -65,10 +65,14 @@ func (r *ActionRemote) Actions(ctx context.Context, libraryID string) ([]action.
 	return out, nil
 }
 
-func (r *ActionRemote) CreateAction(ctx context.Context, libraryID, name, instruction string) (action.Action, error) {
+func (r *ActionRemote) CreateAction(ctx context.Context, libraryID, name, instruction string, durationMS ...int64) (action.Action, error) {
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	raw, err := r.request(ctx, http.MethodPost, "/live/v1/action-libraries/"+url.PathEscape(libraryID)+"/actions", map[string]any{"name": name, "instruction": instruction}, false)
+	body := map[string]any{"name": name, "instruction": instruction}
+	if len(durationMS) > 0 && durationMS[0] > 0 {
+		body["duration_ms"] = durationMS[0]
+	}
+	raw, err := r.request(ctx, http.MethodPost, "/live/v1/action-libraries/"+url.PathEscape(libraryID)+"/actions", body, false)
 	if err != nil {
 		return action.Action{}, err
 	}

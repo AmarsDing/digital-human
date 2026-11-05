@@ -926,11 +926,16 @@ func providePanelRuntime(
 	}
 	revisionParts := []string{libraryID, strings.Join(fileNames, "\x00")}
 	for _, item := range actionItems {
-		revisionParts = append(revisionParts, strings.Join([]string{item.ID, item.LibraryID, item.Name, item.Instruction}, "\x00"))
+		revisionParts = append(revisionParts, strings.Join([]string{item.ID, item.LibraryID, item.Name, item.Instruction, strconv.FormatInt(item.DurationMS, 10)}, "\x00"))
 	}
 	ruleRevision := interaction.SourceKey("danmaku-rules", strings.Join(revisionParts, "\x00"))
 	actionMappings := ruleActionMappings(actionItems, libraryID, ruleRevision, actionCapability)
 	ix.gift.SetActionMappings(actionMappings, ruleRevision)
+	ix.dances = interaction.NewDanceQueue(
+		int(settingFloat(st, ctx, "action_library", "dance_queue_max")),
+		ruleRevision, actionMappings, nil,
+	)
+	ix.dances.SetActivity(func() bool { return songs.Status().Playing }, voiceCoordinator.TextChatActive)
 	wireInteractionRules(dm, ix, chatMgr, chatSpeaker{m: mgr}, jokeSpeaker{m: mgr}, sched, interaction.RulePolicy{
 		RuleVersion:  "danmaku-rules-v1",
 		Revision:     ruleRevision,
@@ -938,6 +943,7 @@ func providePanelRuntime(
 		Songs:        ruleSongs,
 		Actions:      actionMappings,
 		Jokes:        jokes,
+		Dances:       ix.dances,
 	}, func() (string, bool) {
 		snap := mgr.Snapshot()
 		return snap.SessionID, snap.Phase == live.PhaseLive || snap.Phase == live.PhaseStarting
@@ -1166,6 +1172,7 @@ type interactionRuntime struct {
 	disp       *interaction.Dispatcher
 	gift       *interaction.GiftSpeaker
 	giftMerger *gift.Merger
+	dances     *interaction.DanceQueue
 	rules      atomic.Pointer[interaction.RuleEngine]
 	chatSource atomic.Pointer[repo.EntDanmakuSink]
 }
@@ -1248,9 +1255,59 @@ func ruleActionMappings(items []action.Action, libraryID, revision, capabilitySt
 			Trigger: trigger, Instruction: instruction, Revision: revision,
 			Allowed:          libraryID != "" && item.LibraryID == libraryID,
 			CapabilityStatus: capabilityStatus,
+			DurationMS:       item.DurationMS,
 		})
 	}
 	return out
+}
+
+// dispatchDanceAdvance 把 FIFO 到期/空闲后的下一项写入同一 EffectOutbox；
+// 这里只确认动作出口接收，不把 Effect 回执解释为 Vidu 执行完成。
+func dispatchDanceAdvance(ctx context.Context, ix *interactionRuntime) error {
+	if ix.dances == nil {
+		return nil
+	}
+	effect := ix.dances.Advance()
+	if effect == nil {
+		return nil
+	}
+	status := ix.dances.Status()
+	if status.Current == nil {
+		return fmt.Errorf("interaction: dance dispatch without current item")
+	}
+	danceID, _ := effect.PayloadSafe["dance_id"].(string)
+	_, effects, err := ix.svc.Decide(ctx, interaction.DecisionInput{
+		SessionID: status.Current.SessionID, SourceEventRowID: interaction.SourceKey("dance-dispatch", danceID),
+		RuleVersion: "danmaku-rules-v1", PolicyRevision: ix.dances.Revision(),
+		Intent: interaction.IntentDance, TargetID: status.Current.UserKey,
+		Outcome: interaction.DecideExecute, ReasonCode: "dance_dispatch",
+		PayloadSafe: map[string]any{"dance_id": danceID, "trigger": status.Current.Trigger},
+		Effects:     []interaction.EffectInput{*effect},
+	})
+	if err != nil {
+		return fmt.Errorf("interaction: decide dance dispatch: %w", err)
+	}
+	for range effects {
+		if _, err := ix.disp.DispatchOnce(ctx); err != nil {
+			return fmt.Errorf("interaction: dispatch dance action: %w", err)
+		}
+	}
+	return nil
+}
+
+func runDanceAdvanceLoop(ctx context.Context, ix *interactionRuntime) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := dispatchDanceAdvance(ctx, ix); err != nil {
+				slog.Default().Warn("dance advance failed", "err", err)
+			}
+		}
+	}
 }
 
 // wireInteractionRules 把已持久化的 chat 原始事件接入确定性规则，并立即派发本次副作用。
@@ -1272,6 +1329,9 @@ func wireInteractionRules(
 		interaction.RegisterJokeHandler(ix.disp, jokeSpeaker)
 	}
 	interaction.RegisterActionHandler(ix.disp, actions)
+	if ix.dances != nil {
+		go runDanceAdvanceLoop(context.Background(), ix)
+	}
 	dm.SetRuleTap(func(ctx context.Context, _ string, ev danmaku.TapEvent) error {
 		sessionID, ok := session()
 		if !ok || sessionID == "" {
